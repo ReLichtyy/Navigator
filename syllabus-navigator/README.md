@@ -12,12 +12,19 @@ Industrial-grade foundation for an academic RAG platform.
 
 ## Quick Start
 
-1. Copy `.env.example` to `.env`.
-2. Run `docker compose -f docker/docker-compose.yml up --build`.
-3. Open:
+1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY` (required for ingest and chat).
+2. From repo root `syllabus-navigator`, run `docker compose -f docker/docker-compose.yml up --build`.
+3. If Postgres already existed before the MVP table was added, recreate the volume once: `docker compose -f docker/docker-compose.yml down -v` (data loss) or apply the `syllabus_uploads` DDL manually.
+4. Open:
    - API docs: `http://localhost:8000/docs`
    - Frontend: `http://localhost:3000`
 
+## Data model (MVP)
+
+Graph-oriented tables from `docker/postgres/init.sql` (`programs`, `courses`, `syllabi`, `topics`, …) remain for future Sprint 2 work. **MVP uploads** use the parallel table **`syllabus_uploads`** (see same `init.sql`) so PDF ingest does not require seeding `courses` / `syllabi` FKs.
+
 ## Current Status
 
-This repository is a scaffold with API contracts and architecture placeholders ready for feature implementation.
+MVP pipeline implemented: PDF upload with header **`X-User-Id`**, chunking + OpenAI embeddings into **Chroma** (filtered by `user_id` + `syllabus_id`), grounded **`/chat/query`** with citations. Operational guide: [`docs/cursor-playbook.md`](docs/cursor-playbook.md).
+
+Backend tests: from `backend/`, run `python -m pytest -q` (uses [`backend/pytest.ini`](backend/pytest.ini)).

@@ -20,13 +20,17 @@ export default function ChatPanel({ data }: Props) {
       <h3>Answer</h3>
       <p>{data.answer}</p>
       <h4>Citations</h4>
-      <ul>
-        {data.citations.map((citation) => (
-          <li key={citation.chunk_id}>
-            <strong>{citation.chunk_id}</strong>: {citation.quote}
-          </li>
-        ))}
-      </ul>
+      {data.citations.length === 0 ? (
+        <p>No citations returned (empty retrieval or out-of-document answer).</p>
+      ) : (
+        <ul>
+          {data.citations.map((citation) => (
+            <li key={citation.chunk_id}>
+              <strong>{citation.chunk_id}</strong>: {citation.quote}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

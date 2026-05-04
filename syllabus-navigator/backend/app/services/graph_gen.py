@@ -13,6 +13,29 @@ class SyllabusGraph(BaseModel):
     nodes: list[KnowledgeNode]
 
 
+import openai
+import os
+from openai import OpenAI
+
+def extract_graph_from_text(syllabus_text: str, syllabus_id: str) -> SyllabusGraph:
+    """Extracts topics and prerequisites from syllabus text using OpenAI."""
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    
+    response = client.beta.chat.completions.parse(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are an expert at extracting learning paths and prerequisite graphs from syllabus documents. Identify key topics, assign them an ID and label, and list their dependencies (other topic IDs). Avoid circular dependencies."},
+            {"role": "user", "content": f"Extract the topic graph from the following syllabus text:\n\n{syllabus_text}"}
+        ],
+        response_format=SyllabusGraph,
+        temperature=0.0
+    )
+    
+    graph = response.choices[0].message.parsed
+    graph.syllabus_id = syllabus_id
+    validate_no_cycles(graph)
+    return graph
+
 def validate_no_cycles(graph: SyllabusGraph) -> bool:
     visited: set[str] = set()
     path: set[str] = set()

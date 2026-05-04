@@ -51,3 +51,19 @@ CREATE TABLE IF NOT EXISTS topic_dependencies (
   CHECK (prerequisite_topic_id <> target_topic_id),
   UNIQUE (prerequisite_topic_id, target_topic_id, relation_type)
 );
+
+-- MVP RAG uploads (Option A: parallel to graph schema syllabi/topics until Sprint 2)
+CREATE TABLE IF NOT EXISTS syllabus_uploads (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id TEXT NOT NULL,
+  original_filename TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, source_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_user_id ON syllabus_uploads(user_id);
+CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_status ON syllabus_uploads(status);

@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
 
     chroma_host: str = "chroma"
-    chroma_port: int = 8001
+    # Chroma container exposes 8000 internally; host machine uses published port 8001.
+    chroma_port: int = 8000
 
     openai_api_key: str = ""
     embedding_model: str = "text-embedding-3-small"

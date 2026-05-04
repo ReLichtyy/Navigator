@@ -1,11 +1,11 @@
 # Next Steps Roadmap
 
-## Sprint 1 (MVP Core)
+## Sprint 1 (MVP Core) — done
 
-1. Implement PDF parsing in `backend/app/services/ingestor.py`.
-2. Persist chunks and topics in PostgreSQL.
-3. Wire semantic retrieval in `rag_engine.py`.
-4. Return grounded answers with citations in `/chat/query`.
+1. ~~Implement PDF parsing in `backend/app/services/ingestor.py`.~~ (PyMuPDF + chunking; vectors in Chroma; metadata in `syllabus_uploads`.)
+2. ~~Persist chunks and topics in PostgreSQL.~~ (MVP: row per upload in `syllabus_uploads`; chunk text lives in Chroma. Topics/graph DB still Sprint 2.)
+3. ~~Wire semantic retrieval in `rag_engine.py`.~~
+4. ~~Return grounded answers with citations in `/chat/query`.~~
 
 ## Sprint 2 (Graph Intelligence)
 

@@ -1,16 +1,43 @@
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from sqlalchemy.orm import Session
 
+from app.core.database import get_db
 from app.schemas.syllabus import UploadResponse
-from app.services.ingestor import ingest_syllabus
-
+from app.services.ingestor import ingest_syllabus_pdf
 
 router = APIRouter()
 
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
 
 @router.post("/syllabus", response_model=UploadResponse)
-async def upload_syllabus(file: UploadFile) -> UploadResponse:
-    syllabus_id = ingest_syllabus(file.filename or "unknown-file")
+async def upload_syllabus(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    x_user_id: str | None = Header(None, alias="X-User-Id"),
+) -> UploadResponse:
+    if not x_user_id or not x_user_id.strip():
+        raise HTTPException(status_code=400, detail="Missing or empty X-User-Id header")
+    user_id = x_user_id.strip()
+
+    filename = file.filename or "upload.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported in the MVP")
+
+    data = await file.read()
+    if len(data) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="File too large (max 15MB)")
+
+    try:
+        syllabus_id = ingest_syllabus_pdf(db, user_id, filename, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingest failed: {e!s}") from e
+
     return UploadResponse(
         syllabus_id=syllabus_id,
-        message="Syllabus uploaded and queued for processing.",
+        message="Syllabus processed and indexed.",
     )

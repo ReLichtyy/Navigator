@@ -6,3 +6,7 @@ sqlalchemy
 psycopg[binary]
 pytest
 httpx
+python-multipart
+chromadb
+openai>=1.0.0
+pymupdf

@@ -1,22 +1,86 @@
+from __future__ import annotations
+
+from openai import OpenAI
+
+from app.core.config import settings
 from app.schemas.syllabus import Citation
+from app.services.vector_store import get_chunks_collection
 
 
-def answer_question(syllabus_id: str, question: str) -> tuple[str, list[Citation]]:
+def build_chroma_where(user_id: str, syllabus_id: str) -> dict:
+    return {"$and": [{"user_id": user_id}, {"syllabus_id": syllabus_id}]}
+
+
+def answer_question(user_id: str, syllabus_id: str, question: str) -> tuple[str, list[Citation]]:
     """
-    Stub for hybrid retrieval + generation.
-    Replace with:
-    - vector retrieval (semantic)
-    - graph-aware reranking
-    - grounded answer generation with mandatory citations
+    Retrieve chunks scoped to user + syllabus, then grounded LLM answer with citations.
     """
-    _ = (syllabus_id, question)
-    answer = "Respuesta temporal: el motor RAG aun no esta conectado."
-    citations = [
-        Citation(
-            chunk_id="placeholder-chunk-1",
-            page_start=1,
-            page_end=1,
-            quote="Ejemplo de cita hasta conectar el retrieval real.",
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is not configured")
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    col = get_chunks_collection()
+
+    qemb_resp = client.embeddings.create(model=settings.embedding_model, input=[question])
+    query_embedding = qemb_resp.data[0].embedding
+
+    where_clause = build_chroma_where(user_id, syllabus_id)
+    result = col.query(
+        query_embeddings=[query_embedding],
+        n_results=8,
+        where=where_clause,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    documents = (result.get("documents") or [[]])[0]
+    metadatas = (result.get("metadatas") or [[]])[0]
+    ids_out = (result.get("ids") or [[]])[0]
+
+    context_parts: list[str] = []
+    citations: list[Citation] = []
+
+    for i, doc in enumerate(documents):
+        if not doc:
+            continue
+        meta = metadatas[i] if i < len(metadatas) else {}
+        chunk_id = ids_out[i] if i < len(ids_out) else f"unknown_{i}"
+        quote = doc[:500] + ("..." if len(doc) > 500 else "")
+        ps = meta.get("page_start")
+        pe = meta.get("page_end")
+        citations.append(
+            Citation(
+                chunk_id=str(chunk_id),
+                page_start=int(ps) if ps is not None else None,
+                page_end=int(pe) if pe is not None else None,
+                quote=quote,
+            )
         )
-    ]
-    return answer, citations
+        context_parts.append(f"[Fragment {i + 1}]\n{doc}")
+
+    if not context_parts:
+        return (
+            "No consta en tus archivos subidos: no encontré fragmentos relevantes en este sílabo.",
+            [],
+        )
+
+    context = "\n\n".join(context_parts)
+    system = (
+        "Eres un asistente académico. Responde usando únicamente el contexto proporcionado. "
+        "Si la respuesta no está en el contexto, indica claramente que no consta en el documento. "
+        "No inventes fechas, porcentajes ni políticas de evaluación. "
+        "Cuando uses información de un fragmento, menciona su etiqueta, por ejemplo [Fragment 1]."
+    )
+
+    completion = client.chat.completions.create(
+        model=settings.chat_model,
+        messages=[
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": f"Contexto del sílabo:\n{context}\n\nPregunta: {question}",
+            },
+        ],
+        temperature=0.2,
+    )
+    answer = completion.choices[0].message.content or ""
+    return answer, citations[:5]

@@ -13,6 +13,7 @@ services:
       - "8000:8000"
     depends_on:
       - postgres
+      - chroma
 
   frontend:
     image: node:20-alpine

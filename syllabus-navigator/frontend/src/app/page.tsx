@@ -9,8 +9,9 @@ import { fetchGraph } from "../lib/api";
 
 export default function HomePage() {
   const [syllabusId, setSyllabusId] = useState("");
+  const [userId, setUserId] = useState("dev-user-1");
   const [graph, setGraph] = useState<{ nodes: any[]; edges: any[] } | null>(null);
-  const { loading, data, ask } = useChat(syllabusId || "placeholder");
+  const { loading, data, ask } = useChat(syllabusId || "placeholder", userId);
 
   useEffect(() => {
     if (!syllabusId) return;
@@ -20,7 +21,11 @@ export default function HomePage() {
   return (
     <main style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
       <h1>Syllabus Navigator</h1>
-      <FileUpload onUploaded={setSyllabusId} />
+      <label>
+        Usuario dev (header X-User-Id):{" "}
+        <input value={userId} onChange={(e) => setUserId(e.target.value)} style={{ width: 240 }} />
+      </label>
+      <FileUpload onUploaded={setSyllabusId} userId={userId} />
       <button onClick={() => ask("Cuales son los temas principales?")} disabled={!syllabusId || loading}>
         Ask Demo Question
       </button>
