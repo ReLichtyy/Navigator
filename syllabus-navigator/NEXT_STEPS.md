@@ -9,9 +9,9 @@
 
 ## Sprint 2 (Graph Intelligence)
 
-1. Implement robust dependency extraction in `graph_gen.py`.
-2. Run cycle validation before persistence.
-3. Add graph endpoints for topic neighborhood and learning path.
+1. ~~Implement robust dependency extraction in `graph_gen.py`.~~
+2. ~~Run cycle validation before persistence.~~
+3. ~~Add graph endpoints for topic neighborhood and learning path.~~
 4. Add frontend graph interactions in `GraphCanvas`.
 
 ## Sprint 3 (Reliability and Ops)
@@ -26,3 +26,9 @@
 1. Add mastery ledger update loop (topic confidence over time).
 2. Generate study guides and flashcards from weighted topics.
 3. Add multi-syllabus cross-course prerequisite graph.
+
+---
+**Log - 2026-05-04:**
+- Se implementó la extracción de dependencias de temas mediante IA (OpenAI Structured Outputs) en `graph_gen.py`.
+- Se añadió la lógica de validación para prevenir ciclos/dependencias circulares.
+- Se completó el endpoint `GET /api/graph/{syllabus_id}` en `routes_graph.py` que lee el contexto desde ChromaDB y genera el grafo on-the-fly.
