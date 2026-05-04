@@ -180,6 +180,21 @@ export function TopHeader({
               <ProfileItem icon={UserCircle} label="Account" />
             </div>
             <div className="border-t border-border/60 p-1">
+              <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                Connections
+              </p>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
+              >
+                <GoogleIcon className="h-4 w-4" />
+                <span>Connect with Google</span>
+                <span className="ml-auto rounded-full bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                  Connect
+                </span>
+              </button>
+            </div>
+            <div className="border-t border-border/60 p-1">
               <ProfileItem icon={LogOut} label="Sign Out" />
             </div>
           </PopoverContent>
@@ -205,5 +220,33 @@ function ProfileItem({
       <span>{label}</span>
       <ChevronDown className="ml-auto hidden h-3.5 w-3.5 -rotate-90 text-muted-foreground/60" strokeWidth={2.25} />
     </button>
+  )
+}
+
+function GoogleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M21.6 12.227c0-.709-.064-1.39-.182-2.045H12v3.868h5.382a4.6 4.6 0 0 1-1.995 3.018v2.51h3.232c1.89-1.741 2.981-4.305 2.981-7.35z"
+        fill="#4285F4"
+      />
+      <path
+        d="M12 22c2.7 0 4.964-.895 6.619-2.422l-3.232-2.51c-.895.6-2.04.955-3.387.955-2.605 0-4.81-1.76-5.596-4.122H3.064v2.59A9.996 9.996 0 0 0 12 22z"
+        fill="#34A853"
+      />
+      <path
+        d="M6.404 13.9a6.005 6.005 0 0 1 0-3.8V7.51H3.064a9.996 9.996 0 0 0 0 8.98l3.34-2.59z"
+        fill="#FBBC05"
+      />
+      <path
+        d="M12 5.977c1.468 0 2.786.505 3.823 1.496l2.868-2.868C16.96 2.99 14.696 2 12 2A9.996 9.996 0 0 0 3.064 7.51l3.34 2.59C7.19 7.737 9.395 5.977 12 5.977z"
+        fill="#EA4335"
+      />
+    </svg>
   )
 }
