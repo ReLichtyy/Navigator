@@ -5,11 +5,13 @@ import uuid
 from datetime import datetime, timezone
 
 from openai import OpenAI
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.syllabus_upload import SyllabusUpload
+from app.models.graph import Topic, TopicDependency
+from app.services.graph_gen import extract_graph_from_text
 from app.services.vector_store import delete_chunks_for_syllabus, get_chunks_collection
 from app.utils.chunking import pdf_bytes_to_page_chunks
 
@@ -91,6 +93,54 @@ def ingest_syllabus_pdf(db: Session, user_id: str, filename: str, pdf_bytes: byt
             )
 
         col.add(ids=ids, embeddings=embeddings, documents=texts, metadatas=metadatas)
+
+        # Generate, validate, and persist the knowledge graph in PostgreSQL
+        try:
+            from decimal import Decimal
+            syllabus_text = "\n\n".join(texts)
+            graph = extract_graph_from_text(syllabus_text, syllabus_id_str)
+
+            # Idempotency: Clean up any old topics and dependencies for this syllabus
+            db.execute(delete(TopicDependency).where(TopicDependency.syllabus_id == row.id))
+            db.execute(delete(Topic).where(Topic.syllabus_id == row.id))
+
+            external_to_uuid_map = {}
+            for node in graph.nodes:
+                topic_uuid = uuid.uuid4()
+                new_topic = Topic(
+                    id=topic_uuid,
+                    syllabus_id=row.id,
+                    external_id=node.id,
+                    label=node.label,
+                    description=None,
+                    weight_percent=Decimal(str(node.weight)) if node.weight is not None else None,
+                    created_at=datetime.now(timezone.utc)
+                )
+                db.add(new_topic)
+                external_to_uuid_map[node.id] = topic_uuid
+
+            db.flush()  # Push topics to DB to ensure IDs are active
+
+            for node in graph.nodes:
+                target_uuid = external_to_uuid_map[node.id]
+                for dep_external_id in node.dependencies:
+                    if dep_external_id in external_to_uuid_map:
+                        prereq_uuid = external_to_uuid_map[dep_external_id]
+                        new_dep = TopicDependency(
+                            id=uuid.uuid4(),
+                            syllabus_id=row.id,
+                            prerequisite_topic_id=prereq_uuid,
+                            target_topic_id=target_uuid,
+                            relation_type="prerequisite",
+                            confidence=Decimal("1.000"),
+                            created_at=datetime.now(timezone.utc)
+                        )
+                        db.add(new_dep)
+
+        except Exception as graph_err:
+            # Fail the ingestion if the graph extraction or database saving fails,
+            # ensuring consistent state (either we have everything or nothing).
+            raise ValueError(f"Failed to generate and persist syllabus graph: {graph_err}") from graph_err
 
         row.status = "ready"
         row.error_message = None

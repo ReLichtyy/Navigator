@@ -1,12 +1,13 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { ChatComposer } from "@/components/navigator/chat-composer"
 import { ChatThread } from "@/components/navigator/chat-thread"
 import { HistorySidebar } from "@/components/navigator/history-sidebar"
 import { TopHeader } from "@/components/navigator/top-header"
 import type { AttachedFile, Chat, Message } from "@/components/navigator/types"
 import GraphCanvas from "@/components/GraphCanvas"
+import { SyllabusProvider, useSyllabus } from "@/context/SyllabusContext"
 
 const initialChats: Chat[] = [
   {
@@ -44,13 +45,13 @@ const initialChats: Chat[] = [
   { id: "7", title: "Investor memo feedback", timestamp: "Last week", messages: [] },
 ]
 
-export default function Page() {
+function SyllabusWorkspace() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [chats, setChats] = useState<Chat[]>(initialChats)
   const [activeChatId, setActiveChatId] = useState<string>(initialChats[0].id)
   const [attachments, setAttachments] = useState<AttachedFile[]>([])
   
-  const [viewMode, setViewMode] = useState<"chat" | "graph">("chat")
+  const { activeSyllabusId, setActiveSyllabusId, viewMode, setViewMode, pendingQuery, setPendingQuery } = useSyllabus();
   const [graphData, setGraphData] = useState<{ nodes: any[], edges: any[] } | null>(null)
 
   // Used to retrigger the fade-in animation when switching chats.
@@ -95,8 +96,6 @@ export default function Page() {
         ),
       )
 
-      const activeSyllabusId = attachments.find((a) => a.syllabus_id)?.syllabus_id
-
       if (!activeSyllabusId) {
         setChats((prev) => prev.map((c) => c.id === activeChatId ? {
           ...c, messages: c.messages.map((m) => m.id === pendingId ? {
@@ -139,8 +138,16 @@ export default function Page() {
         } : c))
       })
     },
-    [activeChatId, attachments],
+    [activeChatId, activeSyllabusId],
   )
+
+  // Listen to context's pendingQuery for dual-navigation triggering
+  useEffect(() => {
+    if (pendingQuery) {
+      sendMessage(pendingQuery);
+      setPendingQuery(null);
+    }
+  }, [pendingQuery, sendMessage, setPendingQuery]);
 
   const addAttachment = useCallback(async (file: AttachedFile) => {
     setAttachments((prev) => (prev.some((f) => f.id === file.id) ? prev : [...prev, file]))
@@ -150,7 +157,7 @@ export default function Page() {
         const formData = new FormData()
         formData.append("file", file.file)
         
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/upload`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/upload/syllabus`, {
           method: "POST",
           headers: {
             "X-User-Id": "dev-user-1", // Hardcoded for dev parity with backend MVP
@@ -164,6 +171,7 @@ export default function Page() {
         setAttachments((prev) => 
           prev.map((f) => f.id === file.id ? { ...f, status: "ready", syllabus_id: data.syllabus_id } : f)
         )
+        setActiveSyllabusId(data.syllabus_id);
       } catch (error) {
         console.error(error)
         setAttachments((prev) => 
@@ -171,14 +179,15 @@ export default function Page() {
         )
       }
     }
-  }, [])
+  }, [setActiveSyllabusId])
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((f) => f.id !== id))
-  }, [])
+    // Also reset active syllabus in context if removed
+    setActiveSyllabusId(null);
+  }, [setActiveSyllabusId])
 
   const loadGraph = useCallback(async () => {
-    const activeSyllabusId = attachments.find((a) => a.syllabus_id)?.syllabus_id
     if (!activeSyllabusId) return
 
     try {
@@ -190,7 +199,7 @@ export default function Page() {
     } catch (e) {
       console.error("Failed to load graph", e)
     }
-  }, [attachments])
+  }, [activeSyllabusId])
 
   const toggleViewMode = () => {
     if (viewMode === "chat") {
@@ -200,6 +209,13 @@ export default function Page() {
       setViewMode("chat")
     }
   }
+
+  // Trigger loading graph when viewMode switches to graph or when activeSyllabusId changes
+  useEffect(() => {
+    if (viewMode === "graph" && activeSyllabusId) {
+      loadGraph();
+    }
+  }, [viewMode, activeSyllabusId, loadGraph]);
 
   return (
     <main className="flex h-dvh w-full bg-background text-foreground">
@@ -221,7 +237,7 @@ export default function Page() {
         <section className="relative flex min-h-0 flex-1 flex-col">
           <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col px-4 sm:px-6">
             <div className="flex justify-end pt-2">
-              {attachments.some(a => a.syllabus_id) && (
+              {activeSyllabusId && (
                 <button onClick={toggleViewMode} className="text-xs bg-secondary px-3 py-1.5 rounded-full transition-colors hover:bg-secondary/80 text-foreground font-medium border border-border">
                   {viewMode === "chat" ? "View Knowledge Graph" : "Back to Chat"}
                 </button>
@@ -247,5 +263,13 @@ export default function Page() {
         </section>
       </div>
     </main>
+  )
+}
+
+export default function Page() {
+  return (
+    <SyllabusProvider>
+      <SyllabusWorkspace />
+    </SyllabusProvider>
   )
 }

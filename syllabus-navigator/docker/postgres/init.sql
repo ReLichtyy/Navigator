@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS syllabi (
 
 CREATE TABLE IF NOT EXISTS topics (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  syllabus_id UUID NOT NULL REFERENCES syllabi(id) ON DELETE CASCADE,
+  syllabus_id UUID NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
   external_id TEXT NOT NULL,
   label TEXT NOT NULL,
   description TEXT,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS topics (
 
 CREATE TABLE IF NOT EXISTS topic_dependencies (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  syllabus_id UUID NOT NULL REFERENCES syllabi(id) ON DELETE CASCADE,
+  syllabus_id UUID NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
   prerequisite_topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
   target_topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
   relation_type TEXT NOT NULL DEFAULT 'prerequisite',
