@@ -19,7 +19,11 @@ type GraphEdge = { source: string; target: string };
 type Props = {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  graphStatus?: string;
+  graphError?: string | null;
+  onReprocess?: () => void;
 };
+
 
 // Custom Node for premium glassmorphism card rendering
 function CustomTopicNode({ data }: { data: any }) {
@@ -75,12 +79,88 @@ const nodeTypes = {
   customTopicNode: CustomTopicNode,
 };
 
-export default function GraphCanvas({ nodes, edges }: Props) {
+export default function GraphCanvas({ nodes, edges, graphStatus, graphError, onReprocess }: Props) {
   const { queryTopicInChat } = useSyllabus();
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
+  if (graphStatus === 'processing' || graphStatus === 'pending') {
+    return (
+      <div className="w-full h-[600px] border border-slate-800/80 rounded-2xl overflow-hidden bg-[#090d16] flex flex-col items-center justify-center p-6 relative">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(59,130,246,0.08),transparent)] pointer-events-none" />
+        
+        {/* Premium Glassmorphic Spinner */}
+        <div className="relative mb-6">
+          <div className="w-16 h-16 rounded-full border-4 border-slate-800 border-t-blue-500 animate-spin" />
+          <div className="absolute inset-0 w-16 h-16 rounded-full border-4 border-transparent border-b-purple-500 animate-pulse" />
+        </div>
+
+        <h3 className="text-lg font-bold text-slate-100 mb-2 tracking-wide uppercase">Generating Conceptual Map</h3>
+        <p className="text-sm text-slate-400 text-center max-w-md mb-8 leading-relaxed">
+          Our AI is reading your syllabus chunks, identifying topics, extracting dependencies, and checking for cycles to build an interactive learning path. This may take a few seconds...
+        </p>
+
+        {/* Skeleton nodes animating/pulsing */}
+        <div className="w-full max-w-lg flex flex-col gap-4 opacity-40 animate-pulse">
+          <div className="flex justify-between items-center">
+            <div className="h-12 w-32 bg-slate-800 rounded-xl border border-slate-700/50" />
+            <div className="h-0.5 w-16 bg-slate-800" />
+            <div className="h-12 w-32 bg-slate-800 rounded-xl border border-slate-700/50" />
+          </div>
+          <div className="flex justify-center">
+            <div className="h-12 w-32 bg-slate-800 rounded-xl border border-slate-700/50" />
+          </div>
+          <div className="flex justify-between items-center">
+            <div className="h-12 w-32 bg-slate-800 rounded-xl border border-slate-700/50" />
+            <div className="h-0.5 w-16 bg-slate-800" />
+            <div className="h-12 w-32 bg-slate-800 rounded-xl border border-slate-700/50" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (graphStatus === 'failed') {
+    return (
+      <div className="w-full h-[600px] border border-red-900/50 rounded-2xl overflow-hidden bg-[#0a0709] flex flex-col items-center justify-center p-8 relative">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(239,68,68,0.06),transparent)] pointer-events-none" />
+
+        {/* Premium Error Icon */}
+        <div className="w-16 h-16 rounded-full bg-red-950/50 border border-red-500/30 flex items-center justify-center mb-6">
+          <svg className="w-8 h-8 text-red-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+
+        <h3 className="text-lg font-bold text-red-200 mb-2 tracking-wide uppercase">Graph Generation Failed</h3>
+        <p className="text-sm text-slate-400 text-center max-w-md mb-4 leading-relaxed">
+          We encountered an issue while generating the hierarchical roadmap. This usually occurs due to rate limits or formatting mismatches.
+        </p>
+
+        {graphError && (
+          <div className="w-full max-w-lg p-3 bg-red-950/20 border border-red-900/30 rounded-xl mb-6">
+            <p className="text-xs text-red-300 font-mono text-center break-all line-clamp-3">
+              {graphError}
+            </p>
+          </div>
+        )}
+
+        {onReprocess && (
+          <button
+            onClick={onReprocess}
+            className="relative inline-flex items-center justify-center p-0.5 mb-2 me-2 overflow-hidden text-xs font-semibold rounded-full group bg-gradient-to-br from-red-500 to-purple-600 group-hover:from-red-500 group-hover:to-purple-600 text-white hover:text-white dark:text-white focus:ring-4 focus:outline-none focus:ring-red-800"
+          >
+            <span className="relative px-6 py-2 transition-all ease-in duration-75 bg-[#0a0709] rounded-full group-hover:bg-opacity-0">
+              🔄 Retry Graph Generation
+            </span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
   const activeNode = selectedNode || hoveredNode;
+
 
   // 1. Calculate Intelligent Topological Hierarchical Layout
   const computedLayout = useMemo(() => {

@@ -17,5 +17,8 @@ class SyllabusUpload(Base):
     source_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    graph_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    graph_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    graph_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

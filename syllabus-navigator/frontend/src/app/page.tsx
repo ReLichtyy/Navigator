@@ -45,6 +45,14 @@ const initialChats: Chat[] = [
   { id: "7", title: "Investor memo feedback", timestamp: "Last week", messages: [] },
 ]
 
+type GraphData = {
+  syllabus_id: string;
+  graph_status: string;
+  graph_error: string | null;
+  nodes: any[];
+  edges: any[];
+};
+
 function SyllabusWorkspace() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [chats, setChats] = useState<Chat[]>(initialChats)
@@ -52,7 +60,7 @@ function SyllabusWorkspace() {
   const [attachments, setAttachments] = useState<AttachedFile[]>([])
   
   const { activeSyllabusId, setActiveSyllabusId, viewMode, setViewMode, pendingQuery, setPendingQuery } = useSyllabus();
-  const [graphData, setGraphData] = useState<{ nodes: any[], edges: any[] } | null>(null)
+  const [graphData, setGraphData] = useState<GraphData | null>(null)
 
   // Used to retrigger the fade-in animation when switching chats.
   const [transitionKey, setTransitionKey] = useState(0)
@@ -201,6 +209,22 @@ function SyllabusWorkspace() {
     }
   }, [activeSyllabusId])
 
+  const handleReprocessGraph = useCallback(async () => {
+    if (!activeSyllabusId) return
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/graph/${activeSyllabusId}/reprocess`, {
+        method: "POST"
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setGraphData(data)
+      }
+    } catch (e) {
+      console.error("Failed to reprocess graph", e)
+    }
+  }, [activeSyllabusId])
+
   const toggleViewMode = () => {
     if (viewMode === "chat") {
       setViewMode("graph")
@@ -216,6 +240,28 @@ function SyllabusWorkspace() {
       loadGraph();
     }
   }, [viewMode, activeSyllabusId, loadGraph]);
+
+  // Polling for processing/pending graph statuses every 3 seconds
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+    
+    if (
+      viewMode === "graph" &&
+      activeSyllabusId &&
+      graphData &&
+      (graphData.graph_status === "processing" || graphData.graph_status === "pending")
+    ) {
+      intervalId = setInterval(() => {
+        loadGraph();
+      }, 3000);
+    }
+    
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [viewMode, activeSyllabusId, graphData, loadGraph]);
 
   return (
     <main className="flex h-dvh w-full bg-background text-foreground">
@@ -247,7 +293,17 @@ function SyllabusWorkspace() {
               {viewMode === "chat" ? (
                 <ChatThread key={transitionKey} messages={activeChat.messages} />
               ) : (
-                graphData ? <GraphCanvas nodes={graphData.nodes} edges={graphData.edges} /> : <p className="text-center p-4 text-muted-foreground text-sm">Loading Graph...</p>
+                graphData ? (
+                  <GraphCanvas
+                    nodes={graphData.nodes}
+                    edges={graphData.edges}
+                    graphStatus={graphData.graph_status}
+                    graphError={graphData.graph_error}
+                    onReprocess={handleReprocessGraph}
+                  />
+                ) : (
+                  <p className="text-center p-4 text-muted-foreground text-sm">Loading Graph...</p>
+                )
               )}
             </div>
 

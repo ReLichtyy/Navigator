@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -14,6 +14,7 @@ MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 async def upload_syllabus(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     x_user_id: str | None = Header(None, alias="X-User-Id"),
 ) -> UploadResponse:
     if not x_user_id or not x_user_id.strip():
@@ -31,7 +32,7 @@ async def upload_syllabus(
         raise HTTPException(status_code=400, detail="File too large (max 15MB)")
 
     try:
-        syllabus_id = ingest_syllabus_pdf(db, user_id, filename, data)
+        syllabus_id = ingest_syllabus_pdf(db, user_id, filename, data, background_tasks)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -41,3 +42,4 @@ async def upload_syllabus(
         syllabus_id=syllabus_id,
         message="Syllabus processed and indexed.",
     )
+

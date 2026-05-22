@@ -36,5 +36,8 @@ class GraphEdge(BaseModel):
 
 class GraphResponse(BaseModel):
     syllabus_id: str
+    graph_status: str
+    graph_error: str | None = None
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+

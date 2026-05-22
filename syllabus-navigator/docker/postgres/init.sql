@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS syllabus_uploads (
   source_hash TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   error_message TEXT,
+  graph_status TEXT NOT NULL DEFAULT 'pending',
+  graph_error TEXT,
+  graph_generated_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, source_hash)
