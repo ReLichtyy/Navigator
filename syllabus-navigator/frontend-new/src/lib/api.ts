@@ -19,7 +19,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
  * El backend requiere este header para la seguridad de la base de datos y la 
  * persistencia del RAG/Historial.
  */
-export const DEFAULT_USER_ID = "test-user-123";
+export const DEFAULT_USER_ID = "dev-user-1";
 
 /**
  * Genera los headers estándar para la comunicación con la API.
@@ -38,12 +38,10 @@ function getHeaders(userId?: string, isJson: boolean = true): HeadersInit {
  * 1. fetchGraph(syllabusId) -> GET /graph/{syllabusId}
  * Obtiene los nodos y aristas del Grafo de Conocimiento junto con su estado actual (processing/ready/failed).
  */
-export async function fetchGraph(syllabusId: string) {
+export async function fetchGraph(syllabusId: string, userId?: string) {
   const res = await fetch(`${API_BASE}/graph/${syllabusId}`, {
     method: "GET",
-    headers: {
-      "X-User-Id": DEFAULT_USER_ID
-    }
+    headers: getHeaders(userId, false),
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch graph. Status: ${res.status}`);
@@ -95,12 +93,10 @@ export async function uploadSyllabus(file: File, userId?: string) {
  * 4. reprocessGraph(syllabusId) -> POST /graph/{syllabusId}/reprocess
  * Vuelve a gatillar la extracción del grafo desde los fragmentos de ChromaDB de forma atómica.
  */
-export async function reprocessGraph(syllabusId: string) {
+export async function reprocessGraph(syllabusId: string, userId?: string) {
   const res = await fetch(`${API_BASE}/graph/${syllabusId}/reprocess`, {
     method: "POST",
-    headers: {
-      "X-User-Id": DEFAULT_USER_ID
-    }
+    headers: getHeaders(userId, false),
   });
   if (!res.ok) {
     throw new Error(`Failed to reprocess graph. Status: ${res.status}`);
