@@ -1,21 +1,26 @@
 import { useState } from "react";
 import { uploadSyllabus } from "../lib/api";
+import { useSyllabus } from "../context/SyllabusContext";
 
 type Props = {
-  onUploaded: (syllabusId: string) => void;
-  userId: string;
+  onUploaded?: (syllabusId: string) => void;
+  userId?: string;
 };
 
 export default function FileUpload({ onUploaded, userId }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { setActiveSyllabusId } = useSyllabus();
 
   async function handleUpload(file: File) {
     setLoading(true);
     setError(null);
     try {
       const data = await uploadSyllabus(file, userId);
-      onUploaded(data.syllabus_id);
+      setActiveSyllabusId(data.syllabus_id);
+      if (onUploaded) {
+        onUploaded(data.syllabus_id);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {

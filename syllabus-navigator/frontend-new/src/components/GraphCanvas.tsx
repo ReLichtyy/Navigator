@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -12,13 +12,14 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useSyllabus } from '@/context/SyllabusContext';
+import { fetchGraph, reprocessGraph } from '@/lib/api';
 
 type GraphNode = { id: string; label: string; weight_percent?: number };
 type GraphEdge = { source: string; target: string };
 
 type Props = {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
+  nodes?: GraphNode[];
+  edges?: GraphEdge[];
   graphStatus?: string;
   graphError?: string | null;
   onReprocess?: () => void;
@@ -79,10 +80,98 @@ const nodeTypes = {
   customTopicNode: CustomTopicNode,
 };
 
-export default function GraphCanvas({ nodes, edges, graphStatus, graphError, onReprocess }: Props) {
-  const { queryTopicInChat } = useSyllabus();
+export default function GraphCanvas({ 
+  nodes: propNodes, 
+  edges: propEdges, 
+  graphStatus: propStatus, 
+  graphError: propError, 
+  onReprocess: propOnReprocess 
+}: Props) {
+  const { queryTopicInChat, activeSyllabusId } = useSyllabus();
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+
+  // Local state for context-driven integration
+  const [localNodes, setLocalNodes] = useState<GraphNode[]>([]);
+  const [localEdges, setLocalEdges] = useState<GraphEdge[]>([]);
+  const [localStatus, setLocalStatus] = useState<string | undefined>(undefined);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // Determine active values (prefer props, fall back to local state)
+  const nodes = propNodes ?? localNodes;
+  const edges = propEdges ?? localEdges;
+  const graphStatus = propStatus ?? localStatus;
+  const graphError = propError ?? localError;
+
+  // Reprocess handler
+  const handleReprocess = async () => {
+    if (propOnReprocess) {
+      propOnReprocess();
+      return;
+    }
+    if (!activeSyllabusId) return;
+    setLocalStatus("processing");
+    setLocalError(null);
+    try {
+      const data = await reprocessGraph(activeSyllabusId);
+      setLocalNodes(data.nodes || []);
+      setLocalEdges(data.edges || []);
+      setLocalStatus(data.graph_status);
+      setLocalError(data.graph_error);
+    } catch (e) {
+      console.error(e);
+      setLocalStatus("failed");
+      setLocalError(e instanceof Error ? e.message : "Reprocessing failed");
+    }
+  };
+
+  const onReprocess = propOnReprocess || (activeSyllabusId ? handleReprocess : undefined);
+
+  // Fetch graph when activeSyllabusId changes
+  useEffect(() => {
+    if (propNodes !== undefined) return; // Skip if controlled by props
+    if (!activeSyllabusId) {
+      setLocalNodes([]);
+      setLocalEdges([]);
+      setLocalStatus(undefined);
+      setLocalError(null);
+      return;
+    }
+
+    let isMounted = true;
+
+    async function loadGraphData() {
+      try {
+        const data = await fetchGraph(activeSyllabusId!);
+        if (!isMounted) return;
+        setLocalNodes(data.nodes || []);
+        setLocalEdges(data.edges || []);
+        setLocalStatus(data.graph_status);
+        setLocalError(data.graph_error);
+      } catch (e) {
+        if (!isMounted) return;
+        console.error(e);
+        setLocalStatus("failed");
+        setLocalError(e instanceof Error ? e.message : "Failed to load graph");
+      }
+    }
+
+    loadGraphData();
+
+    // Setup polling every 3 seconds if status is pending or processing
+    let intervalId: NodeJS.Timeout | null = null;
+    
+    intervalId = setInterval(() => {
+      if (localStatus === "processing" || localStatus === "pending" || localStatus === undefined) {
+        loadGraphData();
+      }
+    }, 3000);
+
+    return () => {
+      isMounted = false;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeSyllabusId, propNodes, localStatus]);
 
   if (graphStatus === 'processing' || graphStatus === 'pending') {
     return (

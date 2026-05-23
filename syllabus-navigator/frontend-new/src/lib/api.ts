@@ -19,7 +19,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
  * El backend requiere este header para la seguridad de la base de datos y la 
  * persistencia del RAG/Historial.
  */
-export const DEFAULT_USER_ID = "dev-user-1";
+export const DEFAULT_USER_ID = "test-user-123";
 
 /**
  * Genera los headers estándar para la comunicación con la API.

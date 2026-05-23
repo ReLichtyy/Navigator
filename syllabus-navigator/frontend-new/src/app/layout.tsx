@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Inter, Roboto_Mono } from "next/font/google"
 import "./globals.css"
+import { SyllabusProvider } from "@/context/SyllabusContext"
 
 const geist = Inter({
   subsets: ["latin"],
@@ -25,7 +26,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} ${geistMono.variable} bg-background`}>
       <body className="font-sans antialiased">
-        {children}
+        <SyllabusProvider>
+          {children}
+        </SyllabusProvider>
       </body>
     </html>
   )
