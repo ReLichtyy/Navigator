@@ -7,6 +7,9 @@ from app.api.routes_chat import router as chat_router
 from app.api.routes_graph import router as graph_router
 from app.api.routes_upload import router as upload_router
 from app.core.config import settings
+from app.core.database import engine
+from app.models.base import Base
+import app.models  # noqa: F401 — side-effect import: registers all ORM models with Base
 
 # ---------------------------------------------------------------------------
 # CORS — read allowed origins from the environment (set in .env / Docker).
@@ -32,6 +35,12 @@ app.add_middleware(
 app.include_router(upload_router, prefix="/upload", tags=["upload"])
 app.include_router(chat_router, prefix="/chat", tags=["chat"])
 app.include_router(graph_router, prefix="/graph", tags=["graph"])
+
+
+@app.on_event("startup")
+def create_tables() -> None:
+    """Idempotently create any missing tables (e.g. chats, messages) on startup."""
+    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/health")

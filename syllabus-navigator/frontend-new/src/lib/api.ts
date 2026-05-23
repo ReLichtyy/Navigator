@@ -34,9 +34,105 @@ function getHeaders(userId?: string, isJson: boolean = true): HeadersInit {
   return headers;
 }
 
+// ============================================================================
+// Chat thread management
+// ============================================================================
+
+/**
+ * List all chat threads for the active user.
+ * GET /chat/list
+ */
+export async function listChats(userId?: string) {
+  const res = await fetch(`${API_BASE}/chat/list`, {
+    method: "GET",
+    headers: getHeaders(userId, false),
+  });
+  if (!res.ok) throw new Error(`Failed to list chats. Status: ${res.status}`);
+  return res.json() as Promise<{ chats: ChatOutAPI[] }>;
+}
+
+/**
+ * Create a new empty chat thread.
+ * POST /chat/new
+ */
+export async function newChat(userId?: string) {
+  const res = await fetch(`${API_BASE}/chat/new`, {
+    method: "POST",
+    headers: getHeaders(userId, false),
+  });
+  if (!res.ok) throw new Error(`Failed to create chat. Status: ${res.status}`);
+  return res.json() as Promise<ChatOutAPI>;
+}
+
+/**
+ * Delete a chat thread (and all its messages via cascade).
+ * DELETE /chat/{chatId}
+ */
+export async function deleteChat(chatId: string, userId?: string) {
+  const res = await fetch(`${API_BASE}/chat/${chatId}`, {
+    method: "DELETE",
+    headers: getHeaders(userId, false),
+  });
+  if (!res.ok) throw new Error(`Failed to delete chat. Status: ${res.status}`);
+}
+
+/**
+ * Rename a chat thread title.
+ * PATCH /chat/{chatId}
+ */
+export async function renameChat(chatId: string, title: string, userId?: string) {
+  const res = await fetch(`${API_BASE}/chat/${chatId}`, {
+    method: "PATCH",
+    headers: getHeaders(userId, true),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`Failed to rename chat. Status: ${res.status}`);
+  return res.json() as Promise<ChatOutAPI>;
+}
+
+/**
+ * Fetch a single chat with all its messages.
+ * GET /chat/{chatId}
+ */
+export async function getChatDetail(chatId: string, userId?: string) {
+  const res = await fetch(`${API_BASE}/chat/${chatId}`, {
+    method: "GET",
+    headers: getHeaders(userId, false),
+  });
+  if (!res.ok) throw new Error(`Failed to load chat. Status: ${res.status}`);
+  return res.json() as Promise<ChatDetailAPI>;
+}
+
+// ============================================================================
+// API shape types (matching backend Pydantic schemas)
+// ============================================================================
+
+export interface ChatOutAPI {
+  id: string;
+  title: string;
+  active_model: string;
+  created_at: string; // ISO timestamp
+  message_count: number;
+}
+
+export interface MessageOutAPI {
+  id: string;
+  role: "user" | "ai";
+  content: string;
+  created_at: string;
+}
+
+export interface ChatDetailAPI extends ChatOutAPI {
+  messages: MessageOutAPI[];
+}
+
+// ============================================================================
+// RAG / Knowledge
+// ============================================================================
+
 /**
  * 1. fetchGraph(syllabusId) -> GET /graph/{syllabusId}
- * Obtiene los nodos y aristas del Grafo de Conocimiento junto con su estado actual (processing/ready/failed).
+ * Obtiene los nodos y aristas del Grafo de Conocimiento junto con su estado actual.
  */
 export async function fetchGraph(syllabusId: string, userId?: string) {
   const res = await fetch(`${API_BASE}/graph/${syllabusId}`, {
@@ -50,23 +146,30 @@ export async function fetchGraph(syllabusId: string, userId?: string) {
 }
 
 /**
- * 2. querySyllabus(syllabusId, question, userId) -> POST /chat/query
- * Realiza una consulta al motor de RAG sobre el syllabus activo.
+ * 2. querySyllabus(syllabusId, question, chatId, userId) -> POST /chat/query
+ * Realiza una consulta al motor de RAG y persiste los mensajes en el hilo de chat.
+ * Returns the answer, citations, and (on the first message) the auto-generated title.
  */
-export async function querySyllabus(syllabusId: string, question: string, userId?: string) {
+export async function querySyllabus(
+  syllabusId: string,
+  question: string,
+  chatId: string,
+  userId?: string,
+) {
   const res = await fetch(`${API_BASE}/chat/query`, {
     method: "POST",
     headers: getHeaders(userId, true),
     body: JSON.stringify({
       syllabus_id: syllabusId,
-      question: question,
+      question,
+      chat_id: chatId,
     }),
   });
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(errText || "Chat query failed");
   }
-  return res.json();
+  return res.json() as Promise<{ chat_id: string; answer: string; citations: any[]; title: string }>;
 }
 
 /**

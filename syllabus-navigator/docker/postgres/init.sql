@@ -70,3 +70,23 @@ CREATE TABLE IF NOT EXISTS syllabus_uploads (
 
 CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_user_id ON syllabus_uploads(user_id);
 CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_status ON syllabus_uploads(status);
+
+-- Chat threads (one per conversation)
+CREATE TABLE IF NOT EXISTS chats (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT 'New chat',
+  active_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
+
+-- Individual messages within a chat
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user','ai')),
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);

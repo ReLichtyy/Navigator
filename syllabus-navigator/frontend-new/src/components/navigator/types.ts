@@ -9,8 +9,10 @@ export type Chat = {
   id: string
   title: string
   timestamp: string
+  createdAt?: string  // ISO timestamp from the backend (used to compute relative labels)
   messages: Message[]
 }
+
 
 export type AttachedFile = {
   id: string
