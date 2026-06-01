@@ -10,6 +10,7 @@ import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import { sql } from "@/lib/db"
+import { logError, logInfo } from "@/lib/observability/logger"
 import type { Role } from "./rbac"
 
 declare module "next-auth" {
@@ -64,6 +65,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               VALUES (${user.id}::uuid, 'openai', 'gpt-4o-mini')
             `
 
+            logInfo("auth.guest.created", { userId: user.id })
+
             return {
               id: user.id,
               email: user.email,
@@ -71,7 +74,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               role: user.role,
             }
           } catch (err) {
-            console.error("Guest creation failed", err)
+            logError("auth.guest.create_failed", { error: String(err) })
             return null
           }
         }
@@ -97,10 +100,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             role: Role
           }[])[0]
 
-          if (!user) return null
+          if (!user) {
+            logInfo("auth.login.not_found", { email })
+            return null
+          }
 
           const valid = await bcrypt.compare(password, user.password_hash)
-          if (!valid) return null
+          if (!valid) {
+            logInfo("auth.login.invalid_password", { email })
+            return null
+          }
+
+          logInfo("auth.login.success", { userId: user.id, role: user.role })
 
           return {
             id: user.id,
@@ -108,7 +119,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             name: user.display_name,
             role: user.role,
           }
-        } catch {
+        } catch (err) {
+          logError("auth.login.error", { error: String(err) })
           return null
         }
       },

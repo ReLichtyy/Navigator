@@ -92,10 +92,15 @@ export function useChatWorkspace() {
   const activeChat = chats.find((c) => c.id === activeChatId)
 
   const showError = useCallback((err: unknown, fallback: string) => {
+    if (err instanceof ApiError && (err.status === 403 || err.status === 429)) {
+      toast.error(err.message)
+      openAuthModal("signup")
+      return
+    }
     const msg = err instanceof ApiError ? err.message : fallback
     toast.error(msg)
     console.error(err)
-  }, [])
+  }, [openAuthModal])
 
   const loadChatMessages = useCallback(
     async (chatId: string) => {

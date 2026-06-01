@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth/config"
 import { sql } from "@/lib/db"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -24,6 +25,15 @@ export async function POST(request: Request) {
     }
 
     const userId = session.user.id
+
+    // ── 0. Rate Limiting ───────────────────────────────────────────────────
+    const rl = await checkRateLimit(userId, "authenticated")
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: "Upload rate limit exceeded. Please wait." },
+        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
+      )
+    }
 
     const formData = await request.formData().catch(() => null)
     if (!formData) {
@@ -51,9 +61,10 @@ export async function POST(request: Request) {
     // Store in DB (metadata)
     // NOTE: In a real environment we would upload `file` to S3 or similar.
     // For now we fulfill the backlog by registering the upload.
+    const mockSourceHash = crypto.randomUUID()
     const rows = await sql`
-      INSERT INTO syllabus_uploads (user_id, original_filename, status, graph_status)
-      VALUES (${userId}, ${file.name}, 'ready', 'pending')
+      INSERT INTO syllabus_uploads (user_id, original_filename, source_hash, status, graph_status)
+      VALUES (${userId}, ${file.name}, ${mockSourceHash}, 'ready', 'pending')
       RETURNING id, original_filename
     `
 

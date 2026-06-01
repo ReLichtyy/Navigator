@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs"
 import { sql } from "@/lib/db"
 import { auth } from "@/lib/auth/config"
 import { logError, logInfo } from "@/lib/observability/logger"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -11,6 +12,15 @@ const MIN_PASSWORD_LENGTH = 6
 
 export async function PUT(request: Request) {
   try {
+    const ip = request.headers.get("x-forwarded-for") ?? "anonymous"
+    const rl = await checkRateLimit(ip, "guest")
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: "Too many attempts from this IP. Please try again later." },
+        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
+      )
+    }
+
     const session = await auth()
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

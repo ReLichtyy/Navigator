@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { useUser } from "@/context/UserContext"
 
 export type AuthModalView = "welcome" | "login" | "signup"
 
@@ -22,6 +23,7 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [isGuestLoading, setIsGuestLoading] = useState(false)
+  const { status } = useUser()
 
   // Sync initialView when modal opens
   useEffect(() => {
@@ -84,8 +86,12 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
     setLoading(true)
 
     try {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
+      const isUpgrade = status === "guest"
+      const endpoint = isUpgrade ? "/api/auth/upgrade" : "/api/auth/signup"
+      const method = isUpgrade ? "PUT" : "POST"
+
+      const res = await fetch(endpoint, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, name }),
       })
@@ -93,12 +99,19 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
       const data = await res.json()
 
       if (!res.ok) {
-        setError(data.error || "Fallo al crear cuenta.")
+        setError(data.error || "Fallo al procesar la solicitud.")
         setLoading(false)
         return
       }
 
-      // Auto login after signup
+      // If it was an upgrade, we should reload the window to completely refresh the session context.
+      // NextAuth sometimes caches the JWT on the client side unless we force reload.
+      if (isUpgrade) {
+        window.location.reload()
+        return
+      }
+
+      // Auto login after signup for anonymous users
       const result = await signIn("credentials", {
         email,
         password,

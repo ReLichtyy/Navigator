@@ -7,7 +7,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth/config"
 import { sql } from "@/lib/db"
 import { cached, invalidatePrefix } from "@/lib/cache"
-import { logError } from "@/lib/observability/logger"
+import { logError, logInfo } from "@/lib/observability/logger"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -55,8 +56,31 @@ export async function POST(request: Request) {
     }
 
     const userId = session.user.id
+    const userRole = session.user.role ?? "free"
     const body = await request.json().catch(() => ({}))
     const syllabusId = body.syllabus_id || null
+
+    // ── 0. Rate Limiting ───────────────────────────────────────────────────
+    const rl = await checkRateLimit(userId, userRole === "guest" ? "guest" : "authenticated")
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please wait before creating more chats." },
+        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
+      )
+    }
+
+    // ── 1. Guest Limit Enforcement ─────────────────────────────────────────
+    if (userRole === "guest") {
+      const countRows = await sql`SELECT COUNT(id)::int as total FROM chats WHERE user_id = ${userId}::uuid`
+      const totalChats = (countRows as { total: number }[])[0].total
+      if (totalChats >= 3) {
+        logInfo("api.chat.history.guest_limit_reached", { userId })
+        return NextResponse.json(
+          { error: "Guest limit reached", details: "Guest sessions are limited to 3 chats. Please create an account to continue." },
+          { status: 403 }
+        )
+      }
+    }
 
     const rows = await sql`
       INSERT INTO chats (user_id, title, active_model, syllabus_id)

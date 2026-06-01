@@ -9,6 +9,7 @@ import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { sql } from "@/lib/db"
 import { logError, logInfo } from "@/lib/observability/logger"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -17,6 +18,15 @@ const MIN_PASSWORD_LENGTH = 6
 
 export async function POST(request: Request) {
   try {
+    const ip = request.headers.get("x-forwarded-for") ?? "anonymous"
+    const rl = await checkRateLimit(ip, "anonymous")
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: "Too many signups from this IP. Please try again later." },
+        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
+      )
+    }
+
     const body = await request.json().catch(() => null)
 
     if (!body || !body.email || !body.password) {

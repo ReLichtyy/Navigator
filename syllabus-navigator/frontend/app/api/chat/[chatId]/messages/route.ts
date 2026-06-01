@@ -17,6 +17,7 @@ import { getRateLimitTier } from "@/lib/auth/rbac"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { timed } from "@/lib/observability/timing"
 import type { Role } from "@/lib/auth/rbac"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
@@ -45,6 +46,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const question = String(body.question)
+
+    // ── 0. Rate Limiting ───────────────────────────────────────────────────
+    const rl = await checkRateLimit(userId, userRole === "guest" ? "guest" : "authenticated")
+    if (!rl.success) {
+      return NextResponse.json(
+        { answer: null, error: "Rate limit exceeded. Please wait before sending more messages." },
+        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
+      )
+    }
 
     // ── 1. Input guardrails ────────────────────────────────────────────────
     const inputCheck = validateInput(question)
