@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-
-# ---------------------------------------------------------------------------
-# Outbound schemas
-# ---------------------------------------------------------------------------
 
 class MessageOut(BaseModel):
     id: str
     role: str  # 'user' | 'ai'
     content: str
     created_at: datetime
+    citations: list["Citation"] = []
 
     model_config = {"from_attributes": True}
 
@@ -23,6 +19,7 @@ class ChatOut(BaseModel):
     id: str
     title: str
     active_model: str
+    syllabus_id: str | None = None
     created_at: datetime
     message_count: int = 0
 
@@ -37,12 +34,14 @@ class ChatListResponse(BaseModel):
     chats: list[ChatOut]
 
 
-# ---------------------------------------------------------------------------
-# Inbound schemas
-# ---------------------------------------------------------------------------
+class ChatNewPayload(BaseModel):
+    syllabus_id: str | None = None
 
-class ChatRenamePayload(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
+
+class ChatUpdatePayload(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    syllabus_id: str | None = None
+    active_model: str | None = None
 
 
 class ChatQueryPayload(BaseModel):
@@ -52,10 +51,6 @@ class ChatQueryPayload(BaseModel):
     question: str = Field(min_length=1)
     chat_id: str = Field(min_length=1)
 
-
-# ---------------------------------------------------------------------------
-# Query response (augments existing ChatResponse with thread metadata)
-# ---------------------------------------------------------------------------
 
 class Citation(BaseModel):
     chunk_id: str
@@ -68,4 +63,16 @@ class ChatQueryResponse(BaseModel):
     chat_id: str
     answer: str
     citations: list[Citation]
-    title: str  # returned so frontend can update sidebar title on first message
+    title: str
+
+
+class SyllabusUploadOut(BaseModel):
+    id: str
+    original_filename: str
+    status: str
+    graph_status: str
+    created_at: datetime
+
+
+class SyllabusListResponse(BaseModel):
+    uploads: list[SyllabusUploadOut]

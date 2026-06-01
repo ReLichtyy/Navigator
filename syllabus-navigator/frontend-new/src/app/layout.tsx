@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { Inter, Roboto_Mono } from "next/font/google"
 import "./globals.css"
-import { SyllabusProvider } from "@/context/SyllabusContext"
+import { ClientProviders } from "@/components/ClientProviders"
 
 const geist = Inter({
   subsets: ["latin"],
@@ -26,9 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} ${geistMono.variable} bg-background`}>
       <body className="font-sans antialiased">
-        <SyllabusProvider>
-          {children}
-        </SyllabusProvider>
+        <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
   )

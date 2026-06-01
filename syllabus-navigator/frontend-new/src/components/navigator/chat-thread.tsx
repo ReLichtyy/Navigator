@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight, Compass } from "lucide-react"
+import { ArrowUpRight, Compass, FileText } from "lucide-react"
 import { useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 import type { Message } from "@/components/navigator/types"
@@ -32,7 +32,6 @@ export function ChatThread({ messages, onPrompt }: { messages: Message[]; onProm
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom on new message / pending state changes.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
   }, [messages])
@@ -125,7 +124,28 @@ function MessageBubble({ message }: { message: Message }) {
             <span className="text-[11px] text-muted-foreground">Navigator is thinking...</span>
           </div>
         ) : (
-          <p className="text-sm leading-relaxed text-foreground">{message.content}</p>
+          <>
+            <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{message.content}</p>
+            {message.citations && message.citations.length > 0 && (
+              <div className="mt-3 border-t border-border/60 pt-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">Sources</p>
+                <ul className="flex flex-col gap-1.5">
+                  {message.citations.map((c, i) => (
+                    <li
+                      key={`${c.chunk_id}-${i}`}
+                      className="flex gap-2 rounded-md bg-secondary/50 px-2 py-1.5 text-[11px] text-muted-foreground"
+                    >
+                      <FileText className="h-3 w-3 shrink-0 mt-0.5 text-accent" />
+                      <span>
+                        {c.page_start != null && <span className="font-medium">p.{c.page_start} · </span>}
+                        &ldquo;{c.quote.length > 120 ? `${c.quote.slice(0, 120)}…` : c.quote}&rdquo;
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

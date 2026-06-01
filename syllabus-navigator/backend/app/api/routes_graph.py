@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,17 +15,56 @@ from app.services.ingestor import generate_and_persist_graph_task
 router = APIRouter()
 
 
-@router.get("/{syllabus_id}", response_model=GraphResponse)
-def get_graph(syllabus_id: str, db: Session = Depends(get_db)) -> GraphResponse:
+def _require_user(x_user_id: str | None) -> str:
+    if not x_user_id or not x_user_id.strip():
+        raise HTTPException(status_code=400, detail="Missing or empty X-User-Id header")
+    return x_user_id.strip()
+
+
+def _get_upload_for_user(
+    db: Session, syllabus_id: str, user_id: str
+) -> SyllabusUpload:
     try:
         syllabus_uuid = uuid.UUID(syllabus_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid syllabus ID format")
 
-    # Verify if the syllabus upload exists
-    upload = db.scalar(select(SyllabusUpload).where(SyllabusUpload.id == syllabus_uuid))
+    upload = db.scalar(
+        select(SyllabusUpload).where(SyllabusUpload.id == syllabus_uuid)
+    )
     if not upload:
         raise HTTPException(status_code=404, detail="Syllabus upload not found")
+    if upload.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Syllabus not found for this user")
+    return upload
+
+
+def _sorted_syllabus_text(col, syllabus_id: str) -> str:
+    existing = col.get(where={"syllabus_id": syllabus_id}, include=["documents", "metadatas"])
+    documents = existing.get("documents") or []
+    metadatas = existing.get("metadatas") or []
+    if not documents:
+        raise ValueError("No text documents found in vector store for this syllabus")
+
+    pairs: list[tuple[int, str]] = []
+    for i, doc in enumerate(documents):
+        if not doc:
+            continue
+        meta = metadatas[i] if i < len(metadatas) else {}
+        idx = int(meta.get("chunk_index", i))
+        pairs.append((idx, doc))
+    pairs.sort(key=lambda x: x[0])
+    return "\n\n".join(doc for _, doc in pairs)
+
+
+@router.get("/{syllabus_id}", response_model=GraphResponse)
+def get_graph(
+    syllabus_id: str,
+    db: Session = Depends(get_db),
+    x_user_id: str | None = Header(None, alias="X-User-Id"),
+) -> GraphResponse:
+    user_id = _require_user(x_user_id)
+    upload = _get_upload_for_user(db, syllabus_id, user_id)
 
     if upload.graph_status != "ready":
         return GraphResponse(
@@ -32,45 +72,41 @@ def get_graph(syllabus_id: str, db: Session = Depends(get_db)) -> GraphResponse:
             graph_status=upload.graph_status,
             graph_error=upload.graph_error,
             nodes=[],
-            edges=[]
+            edges=[],
         )
 
     try:
-        # Query topics (nodes) from PostgreSQL
         topics = db.scalars(
-            select(Topic).where(Topic.syllabus_id == syllabus_uuid)
+            select(Topic).where(Topic.syllabus_id == upload.id)
         ).all()
 
-        # Query dependencies (edges) from PostgreSQL
         dependencies = db.scalars(
-            select(TopicDependency).where(TopicDependency.syllabus_id == syllabus_uuid)
+            select(TopicDependency).where(TopicDependency.syllabus_id == upload.id)
         ).all()
 
-        nodes = []
-        for t in topics:
-            nodes.append(
-                GraphNode(
-                    id=str(t.id),
-                    label=t.label,
-                    weight_percent=float(t.weight_percent) if t.weight_percent is not None else 0.0,
-                )
+        nodes = [
+            GraphNode(
+                id=str(t.id),
+                label=t.label,
+                weight_percent=float(t.weight_percent) if t.weight_percent is not None else 0.0,
             )
+            for t in topics
+        ]
 
-        edges = []
-        for d in dependencies:
-            edges.append(
-                GraphEdge(
-                    source=str(d.prerequisite_topic_id),
-                    target=str(d.target_topic_id),
-                )
+        edges = [
+            GraphEdge(
+                source=str(d.prerequisite_topic_id),
+                target=str(d.target_topic_id),
             )
+            for d in dependencies
+        ]
 
         return GraphResponse(
             syllabus_id=syllabus_id,
             graph_status=upload.graph_status,
             graph_error=upload.graph_error,
             nodes=nodes,
-            edges=edges
+            edges=edges,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch graph from database: {str(e)}")
@@ -80,25 +116,15 @@ def get_graph(syllabus_id: str, db: Session = Depends(get_db)) -> GraphResponse:
 def reprocess_graph(
     syllabus_id: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_user_id: str | None = Header(None, alias="X-User-Id"),
 ) -> GraphResponse:
-    try:
-        syllabus_uuid = uuid.UUID(syllabus_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid syllabus ID format")
+    user_id = _require_user(x_user_id)
+    upload = _get_upload_for_user(db, syllabus_id, user_id)
 
-    upload = db.scalar(select(SyllabusUpload).where(SyllabusUpload.id == syllabus_uuid))
-    if not upload:
-        raise HTTPException(status_code=404, detail="Syllabus upload not found")
-
-    # Fetch document texts from ChromaDB to reconstruct the syllabus text
     try:
         col = get_chunks_collection()
-        existing = col.get(where={"syllabus_id": syllabus_id})
-        documents = existing.get("documents") or []
-        if not documents:
-            raise ValueError("No text documents found in vector store for this syllabus")
-        syllabus_text = "\n\n".join(documents)
+        syllabus_text = _sorted_syllabus_text(col, syllabus_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to retrieve syllabus text: {str(e)}")
 
@@ -114,6 +140,5 @@ def reprocess_graph(
         graph_status="processing",
         graph_error=None,
         nodes=[],
-        edges=[]
+        edges=[],
     )
-

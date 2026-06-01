@@ -35,7 +35,10 @@ def test_get_graph_processing_state() -> None:
     app.dependency_overrides[get_db] = _fake_db
     try:
         client = TestClient(app)
-        response = client.get(f"/graph/{syllabus_id}")
+        response = client.get(
+            f"/graph/{syllabus_id}",
+            headers={"X-User-Id": "user_123"},
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["syllabus_id"] == str(syllabus_id)
@@ -72,7 +75,10 @@ def test_get_graph_failed_state() -> None:
     app.dependency_overrides[get_db] = _fake_db
     try:
         client = TestClient(app)
-        response = client.get(f"/graph/{syllabus_id}")
+        response = client.get(
+            f"/graph/{syllabus_id}",
+            headers={"X-User-Id": "user_123"},
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["syllabus_id"] == str(syllabus_id)
@@ -123,7 +129,10 @@ def test_get_graph_ready_state() -> None:
     app.dependency_overrides[get_db] = _fake_db
     try:
         client = TestClient(app)
-        response = client.get(f"/graph/{syllabus_id}")
+        response = client.get(
+            f"/graph/{syllabus_id}",
+            headers={"X-User-Id": "user_123"},
+        )
         assert response.status_code == 200
         data = response.json()
         assert data["syllabus_id"] == str(syllabus_id)

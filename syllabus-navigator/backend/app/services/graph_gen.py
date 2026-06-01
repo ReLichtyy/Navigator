@@ -14,15 +14,19 @@ class SyllabusGraph(BaseModel):
 
 
 import openai
-import os
 from openai import OpenAI
+
+from app.core.config import settings
+
 
 def extract_graph_from_text(syllabus_text: str, syllabus_id: str) -> SyllabusGraph:
     """Extracts topics and prerequisites from syllabus text using OpenAI."""
-    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is not configured")
+    client = OpenAI(api_key=settings.openai_api_key)
+
     response = client.beta.chat.completions.parse(
-        model="gpt-4o-mini",
+        model=settings.chat_model,
         messages=[
             {"role": "system", "content": "You are an expert at extracting learning paths and prerequisite graphs from syllabus documents. Identify key topics, assign them an ID and label, and list their dependencies (other topic IDs). Avoid circular dependencies."},
             {"role": "user", "content": f"Extract the topic graph from the following syllabus text:\n\n{syllabus_text}"}

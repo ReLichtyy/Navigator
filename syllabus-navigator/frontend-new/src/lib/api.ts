@@ -1,208 +1,207 @@
 /**
- * Capa de integración para conectar el nuevo Frontend con el Backend existente.
- * 
- * =========================================================================
- * 📌 CONFIGURACIÓN DE URL DEL BACKEND:
- * La URL base se obtiene de `process.env.NEXT_PUBLIC_API_URL`.
- * 
- * - Desarrollo local: Usa "http://localhost:8000" por defecto si la variable no está configurada.
- * - Despliegue en producción (ej. Vercel / Railway):
- *   Configura la variable `NEXT_PUBLIC_API_URL` con la URL HTTPS pública de tu backend:
- *   👉 https://syllabus-backend-production.up.railway.app
- * =========================================================================
+ * API client for Syllabus Navigator backend.
+ * User identity is injected via setApiUserId() from UserContext.
  */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
 
-/**
- * 📌 VALOR DE USER ID TEMPORAL PARA PRUEBAS:
- * Si deseas cambiar el ID de usuario de pruebas, edítalo aquí.
- * El backend requiere este header para la seguridad de la base de datos y la 
- * persistencia del RAG/Historial.
- */
-export const DEFAULT_USER_ID = "dev-user-1";
+let _userId = "dev-user-1"
 
-/**
- * Genera los headers estándar para la comunicación con la API.
- */
-function getHeaders(userId?: string, isJson: boolean = true): HeadersInit {
-  const headers: Record<string, string> = {
-    "X-User-Id": userId || DEFAULT_USER_ID,
-  };
-  if (isJson) {
-    headers["Content-Type"] = "application/json";
+export function setApiUserId(id: string) {
+  _userId = id
+}
+
+export function getApiUserId() {
+  return _userId
+}
+
+export class ApiError extends Error {
+  status?: number
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = "ApiError"
+    this.status = status
   }
-  return headers;
+}
+
+async function parseError(res: Response): Promise<string> {
+  const errText = await res.text()
+  try {
+    const parsed = JSON.parse(errText)
+    const detail = parsed.detail
+    if (typeof detail === "string") return detail
+    if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join("; ")
+    return errText || `Request failed (${res.status})`
+  } catch {
+    return errText || `Request failed (${res.status})`
+  }
+}
+
+function getHeaders(userId?: string, isJson = true): HeadersInit {
+  const headers: Record<string, string> = {
+    "X-User-Id": userId || _userId,
+  }
+  if (isJson) headers["Content-Type"] = "application/json"
+  return headers
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit & { userId?: string; json?: boolean } = {},
+): Promise<T> {
+  const { userId, json = true, ...fetchInit } = init
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...fetchInit,
+    headers: {
+      ...getHeaders(userId, json && !(fetchInit.body instanceof FormData)),
+      ...(fetchInit.headers as Record<string, string> | undefined),
+    },
+  })
+  if (!res.ok) throw new ApiError(await parseError(res), res.status)
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
 }
 
 // ============================================================================
-// Chat thread management
+// Types
 // ============================================================================
 
-/**
- * List all chat threads for the active user.
- * GET /chat/list
- */
-export async function listChats(userId?: string) {
-  const res = await fetch(`${API_BASE}/chat/list`, {
-    method: "GET",
-    headers: getHeaders(userId, false),
-  });
-  if (!res.ok) throw new Error(`Failed to list chats. Status: ${res.status}`);
-  return res.json() as Promise<{ chats: ChatOutAPI[] }>;
+export interface CitationAPI {
+  chunk_id: string
+  page_start: number | null
+  page_end: number | null
+  quote: string
 }
-
-/**
- * Create a new empty chat thread.
- * POST /chat/new
- */
-export async function newChat(userId?: string) {
-  const res = await fetch(`${API_BASE}/chat/new`, {
-    method: "POST",
-    headers: getHeaders(userId, false),
-  });
-  if (!res.ok) throw new Error(`Failed to create chat. Status: ${res.status}`);
-  return res.json() as Promise<ChatOutAPI>;
-}
-
-/**
- * Delete a chat thread (and all its messages via cascade).
- * DELETE /chat/{chatId}
- */
-export async function deleteChat(chatId: string, userId?: string) {
-  const res = await fetch(`${API_BASE}/chat/${chatId}`, {
-    method: "DELETE",
-    headers: getHeaders(userId, false),
-  });
-  if (!res.ok) throw new Error(`Failed to delete chat. Status: ${res.status}`);
-}
-
-/**
- * Rename a chat thread title.
- * PATCH /chat/{chatId}
- */
-export async function renameChat(chatId: string, title: string, userId?: string) {
-  const res = await fetch(`${API_BASE}/chat/${chatId}`, {
-    method: "PATCH",
-    headers: getHeaders(userId, true),
-    body: JSON.stringify({ title }),
-  });
-  if (!res.ok) throw new Error(`Failed to rename chat. Status: ${res.status}`);
-  return res.json() as Promise<ChatOutAPI>;
-}
-
-/**
- * Fetch a single chat with all its messages.
- * GET /chat/{chatId}
- */
-export async function getChatDetail(chatId: string, userId?: string) {
-  const res = await fetch(`${API_BASE}/chat/${chatId}`, {
-    method: "GET",
-    headers: getHeaders(userId, false),
-  });
-  if (!res.ok) throw new Error(`Failed to load chat. Status: ${res.status}`);
-  return res.json() as Promise<ChatDetailAPI>;
-}
-
-// ============================================================================
-// API shape types (matching backend Pydantic schemas)
-// ============================================================================
 
 export interface ChatOutAPI {
-  id: string;
-  title: string;
-  active_model: string;
-  created_at: string; // ISO timestamp
-  message_count: number;
+  id: string
+  title: string
+  active_model: string
+  syllabus_id: string | null
+  created_at: string
+  message_count: number
 }
 
 export interface MessageOutAPI {
-  id: string;
-  role: "user" | "ai";
-  content: string;
-  created_at: string;
+  id: string
+  role: "user" | "ai"
+  content: string
+  created_at: string
+  citations: CitationAPI[]
 }
 
 export interface ChatDetailAPI extends ChatOutAPI {
-  messages: MessageOutAPI[];
+  messages: MessageOutAPI[]
+}
+
+export interface SyllabusUploadAPI {
+  id: string
+  original_filename: string
+  status: string
+  graph_status: string
+  created_at: string
+}
+
+export interface GraphResponseAPI {
+  syllabus_id: string
+  graph_status: string
+  graph_error: string | null
+  nodes: { id: string; label: string; weight_percent: number }[]
+  edges: { source: string; target: string }[]
 }
 
 // ============================================================================
-// RAG / Knowledge
+// Chat
 // ============================================================================
 
-/**
- * 1. fetchGraph(syllabusId) -> GET /graph/{syllabusId}
- * Obtiene los nodos y aristas del Grafo de Conocimiento junto con su estado actual.
- */
-export async function fetchGraph(syllabusId: string, userId?: string) {
-  const res = await fetch(`${API_BASE}/graph/${syllabusId}`, {
-    method: "GET",
-    headers: getHeaders(userId, false),
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to fetch graph. Status: ${res.status}`);
-  }
-  return res.json();
+export async function listChats(userId?: string) {
+  return request<{ chats: ChatOutAPI[] }>("/chat/list", { method: "GET", userId, json: false })
 }
 
-/**
- * 2. querySyllabus(syllabusId, question, chatId, userId) -> POST /chat/query
- * Realiza una consulta al motor de RAG y persiste los mensajes en el hilo de chat.
- * Returns the answer, citations, and (on the first message) the auto-generated title.
- */
+export async function newChat(syllabusId?: string, userId?: string) {
+  return request<ChatOutAPI>("/chat/new", {
+    method: "POST",
+    userId,
+    body: syllabusId ? JSON.stringify({ syllabus_id: syllabusId }) : "{}",
+  })
+}
+
+export async function deleteChat(chatId: string, userId?: string) {
+  return request<void>(`/chat/${chatId}`, { method: "DELETE", userId, json: false })
+}
+
+export async function updateChat(
+  chatId: string,
+  patch: { title?: string; syllabus_id?: string | null; active_model?: string },
+  userId?: string,
+) {
+  return request<ChatOutAPI>(`/chat/${chatId}`, {
+    method: "PATCH",
+    userId,
+    body: JSON.stringify(patch),
+  })
+}
+
+export async function renameChat(chatId: string, title: string, userId?: string) {
+  return updateChat(chatId, { title }, userId)
+}
+
+export async function getChatDetail(chatId: string, userId?: string) {
+  return request<ChatDetailAPI>(`/chat/${chatId}`, { method: "GET", userId, json: false })
+}
+
+export async function fetchChatModels() {
+  return request<{ models: string[]; default: string }>("/chat/models", { method: "GET", json: false })
+}
+
 export async function querySyllabus(
   syllabusId: string,
   question: string,
   chatId: string,
   userId?: string,
+  signal?: AbortSignal,
 ) {
-  const res = await fetch(`${API_BASE}/chat/query`, {
-    method: "POST",
-    headers: getHeaders(userId, true),
-    body: JSON.stringify({
-      syllabus_id: syllabusId,
-      question,
-      chat_id: chatId,
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || "Chat query failed");
-  }
-  return res.json() as Promise<{ chat_id: string; answer: string; citations: any[]; title: string }>;
+  return request<{ chat_id: string; answer: string; citations: CitationAPI[]; title: string }>(
+    "/chat/query",
+    {
+      method: "POST",
+      userId,
+      body: JSON.stringify({ syllabus_id: syllabusId, question, chat_id: chatId }),
+      signal,
+    },
+  )
 }
 
-/**
- * 3. uploadSyllabus(file, userId) -> POST /upload/syllabus
- * Sube un archivo PDF para procesar, indexar en Chroma y generar el grafo en background.
- */
+// ============================================================================
+// Upload / Knowledge
+// ============================================================================
+
+export async function listSyllabi(userId?: string) {
+  return request<{ uploads: SyllabusUploadAPI[] }>("/upload/list", { method: "GET", userId, json: false })
+}
+
 export async function uploadSyllabus(file: File, userId?: string) {
-  const form = new FormData();
-  form.append("file", file);
-  
-  const res = await fetch(`${API_BASE}/upload/syllabus`, {
+  const form = new FormData()
+  form.append("file", file)
+  return request<{ syllabus_id: string; message: string }>("/upload/syllabus", {
     method: "POST",
-    headers: getHeaders(userId, false), // Sin Content-Type para que el navegador configure el boundary
+    userId,
+    json: false,
     body: form,
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || "File upload failed");
-  }
-  return res.json();
+  })
 }
 
-/**
- * 4. reprocessGraph(syllabusId) -> POST /graph/{syllabusId}/reprocess
- * Vuelve a gatillar la extracción del grafo desde los fragmentos de ChromaDB de forma atómica.
- */
+// ============================================================================
+// Graph
+// ============================================================================
+
+export async function fetchGraph(syllabusId: string, userId?: string) {
+  return request<GraphResponseAPI>(`/graph/${syllabusId}`, { method: "GET", userId, json: false })
+}
+
 export async function reprocessGraph(syllabusId: string, userId?: string) {
-  const res = await fetch(`${API_BASE}/graph/${syllabusId}/reprocess`, {
+  return request<GraphResponseAPI>(`/graph/${syllabusId}/reprocess`, {
     method: "POST",
-    headers: getHeaders(userId, false),
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to reprocess graph. Status: ${res.status}`);
-  }
-  return res.json();
+    userId,
+    json: false,
+  })
 }

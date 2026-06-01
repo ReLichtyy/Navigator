@@ -87,15 +87,18 @@ CREATE TABLE IF NOT EXISTS chats (
   user_id TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT 'New chat',
   active_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+  syllabus_id UUID REFERENCES syllabus_uploads(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
+CREATE INDEX IF NOT EXISTS idx_chats_syllabus_id ON chats(syllabus_id);
 
 CREATE TABLE IF NOT EXISTS messages (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('user','ai')),
   content TEXT NOT NULL,
+  citations JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);

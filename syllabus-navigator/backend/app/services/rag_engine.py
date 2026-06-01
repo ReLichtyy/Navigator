@@ -6,17 +6,30 @@ from app.core.config import settings
 from app.schemas.syllabus import Citation
 from app.services.vector_store import get_chunks_collection
 
+HistoryTurn = tuple[str, str]  # (role, content) where role is 'user' | 'ai'
+
 
 def build_chroma_where(user_id: str, syllabus_id: str) -> dict:
     return {"$and": [{"user_id": user_id}, {"syllabus_id": syllabus_id}]}
 
 
-def answer_question(user_id: str, syllabus_id: str, question: str) -> tuple[str, list[Citation]]:
+def answer_question(
+    user_id: str,
+    syllabus_id: str,
+    question: str,
+    history: list[HistoryTurn] | None = None,
+    model: str | None = None,
+) -> tuple[str, list[Citation]]:
     """
     Retrieve chunks scoped to user + syllabus, then grounded LLM answer with citations.
+    Optional conversation history enables multi-turn follow-ups.
     """
     if not settings.openai_api_key:
         raise ValueError("OPENAI_API_KEY is not configured")
+
+    chat_model = model or settings.chat_model
+    if chat_model not in settings.chat_models_list:
+        chat_model = settings.chat_model
 
     client = OpenAI(api_key=settings.openai_api_key)
     col = get_chunks_collection()
@@ -68,18 +81,26 @@ def answer_question(user_id: str, syllabus_id: str, question: str) -> tuple[str,
         "Eres un asistente académico. Responde usando únicamente el contexto proporcionado. "
         "Si la respuesta no está en el contexto, indica claramente que no consta en el documento. "
         "No inventes fechas, porcentajes ni políticas de evaluación. "
-        "Cuando uses información de un fragmento, menciona su etiqueta, por ejemplo [Fragment 1]."
+        "Cuando uses información de un fragmento, menciona su etiqueta, por ejemplo [Fragment 1]. "
+        "Puedes usar el historial de conversación para entender referencias como 'eso' o 'el examen'."
+    )
+
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+
+    for role, content in history or []:
+        openai_role = "assistant" if role == "ai" else "user"
+        messages.append({"role": openai_role, "content": content})
+
+    messages.append(
+        {
+            "role": "user",
+            "content": f"Contexto del sílabo:\n{context}\n\nPregunta: {question}",
+        }
     )
 
     completion = client.chat.completions.create(
-        model=settings.chat_model,
-        messages=[
-            {"role": "system", "content": system},
-            {
-                "role": "user",
-                "content": f"Contexto del sílabo:\n{context}\n\nPregunta: {question}",
-            },
-        ],
+        model=chat_model,
+        messages=messages,
         temperature=0.2,
     )
     answer = completion.choices[0].message.content or ""
