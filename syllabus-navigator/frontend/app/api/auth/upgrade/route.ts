@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import bcrypt from "bcryptjs"
 import { sql } from "@/lib/db"
-import { auth } from "@/lib/auth/config"
+import { auth } from "@/lib/auth/auth"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { checkRateLimit } from "@/lib/rate-limit"
 

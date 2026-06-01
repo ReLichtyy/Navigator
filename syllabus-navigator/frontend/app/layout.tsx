@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   generator: "v0.app",
 }
 
-import { auth } from "@/lib/auth/config"
+import { auth } from "@/lib/auth/auth"
 
 import { AppSidebar } from "@/components/navigator/app-sidebar"
 

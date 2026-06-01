@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth/config"
+import { auth } from "@/lib/auth/auth"
 import type { Role } from "@/lib/auth/rbac"
 import { checkRateLimit } from "@/lib/rate-limit"
 

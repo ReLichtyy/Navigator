@@ -3,7 +3,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth/config"
+import { auth } from "@/lib/auth/auth"
 import { getAvailableModels, DEFAULT_MODEL } from "@/lib/llm"
 import { cached } from "@/lib/cache"
 import type { Role } from "@/lib/auth/rbac"

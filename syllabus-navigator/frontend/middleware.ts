@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
-import { getToken } from "next-auth/jwt"
+import NextAuth from "next-auth"
+import { authConfig } from "@/lib/auth/auth.config"
+
+const { auth } = NextAuth(authConfig)
 
 // Routes that don't require authentication
 const PUBLIC_PATHS = [
@@ -16,7 +18,7 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.includes(pathname) || PUBLIC_PATHS.some((p) => p !== "/" && pathname.startsWith(p))
 }
 
-export async function middleware(req: NextRequest) {
+export default auth((req) => {
   const { pathname } = req.nextUrl
 
   // 1. Allow static files and Next.js internals
@@ -40,8 +42,8 @@ export async function middleware(req: NextRequest) {
     return response
   }
 
-  // 4. Check authentication using getToken
-  const token = await getToken({ req, secret: process.env.AUTH_SECRET })
+  // 4. Check authentication using req.auth provided by NextAuth wrapper
+  const token = req.auth?.user
 
   if (!token) {
     if (pathname.startsWith("/api/")) {
@@ -67,7 +69,7 @@ export async function middleware(req: NextRequest) {
   }
 
   return response
-}
+})
 
 export const config = {
   // Run middleware on all routes except static assets

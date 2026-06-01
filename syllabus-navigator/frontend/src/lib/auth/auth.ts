@@ -1,40 +1,13 @@
-/**
- * auth/config.ts — NextAuth v5 configuration.
- *
- * Uses Credentials provider with email + bcrypt password.
- * Session strategy: JWT (stateless, no session table needed at runtime).
- * User data stored in Neon Postgres.
- */
-
 import NextAuth from "next-auth"
 import Credentials from "next-auth/providers/credentials"
 import bcrypt from "bcryptjs"
 import { sql } from "@/lib/db"
 import { logError, logInfo } from "@/lib/observability/logger"
 import type { Role } from "./rbac"
-
-declare module "next-auth" {
-  interface User {
-    role?: Role
-  }
-  interface Session {
-    user: {
-      id: string
-      email: string
-      name: string
-      role: Role
-    }
-  }
-}
-
-declare module "next-auth" {
-  interface JWT {
-    id: string
-    role: Role
-  }
-}
+import { authConfig } from "./auth.config"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       name: "credentials",
@@ -126,31 +99,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-
-  session: {
-    strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-  },
-
-  pages: {
-    signIn: "/login",
-    // signUp is a custom page, not a NextAuth built-in
-  },
-
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id as string
-        token.role = (user.role as Role) ?? "free"
-      }
-      return token
-    },
-    async session({ session, token }) {
-      session.user.id = token.id as string
-      session.user.role = (token.role as Role) ?? "free"
-      return session
-    },
-  },
-
-  trustHost: true, // Required for Vercel
 })

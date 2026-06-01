@@ -16,6 +16,12 @@ const nextConfig = {
         "pg-native": false,
       }
     }
+    
+    // Ignore harmless edge runtime warning about jose's CompressionStream
+    config.ignoreWarnings = [
+      { module: /node_modules\/jose/ },
+    ]
+
     return config
   },
 }
