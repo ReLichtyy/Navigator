@@ -1,5 +1,17 @@
+# Dependencies & frontend build (never commit — includes large Next.js SWC binaries)
 node_modules/
+**/node_modules/
 .next/
+**/.next/
+out/
+.turbo/
+.vercel/
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
 # Variables de entorno — NUNCA subir al repo
 .env
