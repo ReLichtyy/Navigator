@@ -10,21 +10,16 @@ import { logError, logInfo } from "@/lib/observability/logger"
 import type { UsageRecord, UsageSummary } from "./types"
 
 /**
- * Record a single LLM usage event.
- * Returns a Promise so it can be awaited (required for Serverless environments
- * to prevent the function from terminating before the DB write completes).
+ * Record a single LLM usage event. Fire-and-forget — does not block the caller.
  */
-export async function recordUsage(record: UsageRecord): Promise<void> {
-  try {
-    await _writeRecord(record)
-  } catch (err) {
-    // We log the error but don't throw it to avoid breaking the user experience
-    // just because metering failed.
+export function recordUsage(record: UsageRecord): void {
+  // Intentionally not awaited — fire and forget
+  _writeRecord(record).catch((err) => {
     logError("metering.write_error", {
       error: err instanceof Error ? err.message : String(err),
       userId: record.userId,
     })
-  }
+  })
 }
 
 async function _writeRecord(record: UsageRecord): Promise<void> {

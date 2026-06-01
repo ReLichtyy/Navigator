@@ -57,21 +57,6 @@ export const memoryCache: CacheAdapter = {
     startCleanup()
   },
 
-  async incr(key: string, ttlSeconds: number): Promise<number> {
-    const now = Date.now()
-    const entry = store.get(key)
-    
-    if (!entry || entry.expiresAt <= now) {
-      store.set(key, { value: 1, expiresAt: now + ttlSeconds * 1000 })
-      startCleanup()
-      return 1
-    }
-    
-    const newValue = (entry.value as number) + 1
-    entry.value = newValue
-    return newValue
-  },
-
   async del(key: string): Promise<void> {
     store.delete(key)
   },

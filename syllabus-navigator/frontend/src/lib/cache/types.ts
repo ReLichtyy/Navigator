@@ -17,9 +17,6 @@ export interface CacheAdapter {
   /** Store a value with a TTL in seconds. */
   set<T>(key: string, value: T, ttlSeconds: number): Promise<void>
 
-  /** Atomically increment a numeric value. Sets TTL only if the key is newly created. */
-  incr(key: string, ttlSeconds: number): Promise<number>
-
   /** Delete a specific key. */
   del(key: string): Promise<void>
 

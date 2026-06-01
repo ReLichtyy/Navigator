@@ -21,8 +21,8 @@ export interface RateLimitConfig {
 }
 
 export const RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
-  free:  { maxRequests: 20,  windowMs: 60_000 },   // 20 req/min
-  pro:   { maxRequests: 60,  windowMs: 60_000 },   // 60 req/min
+  free: { maxRequests: 20, windowMs: 60_000 },   // 20 req/min
+  pro: { maxRequests: 60, windowMs: 60_000 },   // 60 req/min
   admin: { maxRequests: 200, windowMs: 60_000 },   // 200 req/min
 }
 
@@ -55,12 +55,13 @@ export async function checkRateLimit(
 
   const windowSeconds = Math.ceil(config.windowMs / 1000)
 
-  // Increment counter atomically
-  const current = await cache.incr(key, windowSeconds)
+  // Get current count
+  const currentStr = await cache.get<string>(key)
+  const current = currentStr ? parseInt(String(currentStr), 10) : 0
 
   const resetAt = Date.now() + config.windowMs
 
-  if (current > config.maxRequests) {
+  if (current >= config.maxRequests) {
     const retryAfterMs = config.windowMs // worst case: full window
     logWarn("ratelimit.exceeded", {
       userId,
@@ -78,9 +79,12 @@ export async function checkRateLimit(
     }
   }
 
+  // Increment
+  await cache.set(key, current + 1, windowSeconds)
+
   return {
     allowed: true,
-    remaining: config.maxRequests - current,
+    remaining: config.maxRequests - current - 1,
     total: config.maxRequests,
     resetAt,
   }

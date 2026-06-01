@@ -63,22 +63,6 @@ export const upstashCache: CacheAdapter = {
     }
   },
 
-  async incr(key: string, ttlSeconds: number): Promise<number> {
-    try {
-      const result = (await upstashCommand(["INCR", key])) as number
-      if (result === 1) {
-        await upstashCommand(["EXPIRE", key, String(ttlSeconds)])
-      }
-      return result
-    } catch (err) {
-      logError("cache.upstash.incr_error", {
-        key,
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return 1
-    }
-  },
-
   async del(key: string): Promise<void> {
     try {
       await upstashCommand(["DEL", key])
@@ -92,24 +76,12 @@ export const upstashCache: CacheAdapter = {
 
   async invalidatePrefix(prefix: string): Promise<void> {
     try {
-      let cursor = "0"
-      let deleted = 0
-      do {
-        const scanResult = (await upstashCommand([
-          "SCAN", cursor, "MATCH", `${prefix}*`, "COUNT", "100"
-        ])) as [string, string[]]
-        
-        cursor = scanResult[0]
-        const keys = scanResult[1]
-        
-        if (keys && keys.length > 0) {
-          await upstashCommand(["DEL", ...keys])
-          deleted += keys.length
-        }
-      } while (cursor !== "0")
-      
-      if (deleted > 0) {
-        logInfo("cache.upstash.invalidate", { prefix, deleted })
+      // SCAN-based deletion — works for small key sets.
+      // For large datasets, use Upstash's native pattern delete.
+      const keys = (await upstashCommand(["KEYS", `${prefix}*`])) as string[]
+      if (keys && keys.length > 0) {
+        await upstashCommand(["DEL", ...keys])
+        logInfo("cache.upstash.invalidate", { prefix, deleted: keys.length })
       }
     } catch (err) {
       logError("cache.upstash.invalidate_error", {
