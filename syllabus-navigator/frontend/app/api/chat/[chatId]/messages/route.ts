@@ -141,8 +141,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
-    // ── 11. Record usage (fire-and-forget) ─────────────────────────────────
-    recordUsage({
+    // ── 11. Record usage ─────────────────────────────────
+    await recordUsage({
       userId,
       provider: llmResponse.provider,
       model: llmResponse.model,

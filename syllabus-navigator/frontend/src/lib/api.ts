@@ -1,18 +1,8 @@
 /**
  * API client for Syllabus Navigator backend.
- * User identity is injected via setApiUserId() from UserContext.
+ * Uses Next.js internal App Router API (/api).
  */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-
-let _userId = "dev-user-1"
-
-export function setApiUserId(id: string) {
-  _userId = id
-}
-
-export function getApiUserId() {
-  return _userId
-}
+const API_BASE = "/api"
 
 export class ApiError extends Error {
   status?: number
@@ -27,7 +17,7 @@ async function parseError(res: Response): Promise<string> {
   const errText = await res.text()
   try {
     const parsed = JSON.parse(errText)
-    const detail = parsed.detail
+    const detail = parsed.detail || parsed.error
     if (typeof detail === "string") return detail
     if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join("; ")
     return errText || `Request failed (${res.status})`
@@ -36,28 +26,30 @@ async function parseError(res: Response): Promise<string> {
   }
 }
 
-function getHeaders(userId?: string, isJson = true): HeadersInit {
-  const headers: Record<string, string> = {
-    "X-User-Id": userId || _userId,
-  }
+function getHeaders(isJson = true): HeadersInit {
+  const headers: Record<string, string> = {}
   if (isJson) headers["Content-Type"] = "application/json"
   return headers
 }
 
 async function request<T>(
   path: string,
-  init: RequestInit & { userId?: string; json?: boolean } = {},
+  init: RequestInit & { json?: boolean } = {},
 ): Promise<T> {
-  const { userId, json = true, ...fetchInit } = init
+  const { json = true, ...fetchInit } = init
   const res = await fetch(`${API_BASE}${path}`, {
     ...fetchInit,
     headers: {
-      ...getHeaders(userId, json && !(fetchInit.body instanceof FormData)),
+      ...getHeaders(json && !(fetchInit.body instanceof FormData)),
       ...(fetchInit.headers as Record<string, string> | undefined),
     },
   })
   if (!res.ok) throw new ApiError(await parseError(res), res.status)
-  if (res.status === 204) return undefined as T
+  
+  const contentType = res.headers.get("content-type")
+  if (res.status === 204 || !contentType?.includes("application/json")) {
+    return undefined as T
+  }
   return res.json() as Promise<T>
 }
 
@@ -109,44 +101,55 @@ export interface GraphResponseAPI {
   edges: { source: string; target: string }[]
 }
 
+export interface UserPreferencesAPI {
+  defaultProvider: string
+  defaultModel: string
+  language: string
+}
+
+export interface UsageSummaryAPI {
+  totalRequests: number
+  totalTokens: number
+  totalCostUsd: number
+  byModel: Record<string, { requests: number; tokens: number; costUsd: number }>
+  periodDays: number
+}
+
 // ============================================================================
 // Chat
 // ============================================================================
 
-export async function listChats(userId?: string) {
-  return request<{ chats: ChatOutAPI[] }>("/chat/list", { method: "GET", userId, json: false })
+export async function listChats() {
+  return request<{ chats: ChatOutAPI[] }>("/chat/history", { method: "GET", json: false })
 }
 
-export async function newChat(syllabusId?: string, userId?: string) {
-  return request<ChatOutAPI>("/chat/new", {
+export async function newChat(syllabusId?: string) {
+  return request<ChatOutAPI>("/chat/history", {
     method: "POST",
-    userId,
     body: syllabusId ? JSON.stringify({ syllabus_id: syllabusId }) : "{}",
   })
 }
 
-export async function deleteChat(chatId: string, userId?: string) {
-  return request<void>(`/chat/${chatId}`, { method: "DELETE", userId, json: false })
+export async function deleteChat(chatId: string) {
+  return request<void>(`/chat/${chatId}`, { method: "DELETE", json: false })
 }
 
 export async function updateChat(
   chatId: string,
   patch: { title?: string; syllabus_id?: string | null; active_model?: string },
-  userId?: string,
 ) {
   return request<ChatOutAPI>(`/chat/${chatId}`, {
     method: "PATCH",
-    userId,
     body: JSON.stringify(patch),
   })
 }
 
-export async function renameChat(chatId: string, title: string, userId?: string) {
-  return updateChat(chatId, { title }, userId)
+export async function renameChat(chatId: string, title: string) {
+  return updateChat(chatId, { title })
 }
 
-export async function getChatDetail(chatId: string, userId?: string) {
-  return request<ChatDetailAPI>(`/chat/${chatId}`, { method: "GET", userId, json: false })
+export async function getChatDetail(chatId: string) {
+  return request<ChatDetailAPI>(`/chat/${chatId}`, { method: "GET", json: false })
 }
 
 export async function fetchChatModels() {
@@ -157,15 +160,14 @@ export async function querySyllabus(
   syllabusId: string,
   question: string,
   chatId: string,
-  userId?: string,
+  userId?: string, // Deprecated, kept for compatibility with useChatWorkspace hook signature
   signal?: AbortSignal,
 ) {
-  return request<{ chat_id: string; answer: string; citations: CitationAPI[]; title: string }>(
-    "/chat/query",
+  return request<{ answer: string; citations: CitationAPI[]; title?: string }>(
+    `/chat/${chatId}/messages`,
     {
       method: "POST",
-      userId,
-      body: JSON.stringify({ syllabus_id: syllabusId, question, chat_id: chatId }),
+      body: JSON.stringify({ question }),
       signal,
     },
   )
@@ -175,18 +177,51 @@ export async function querySyllabus(
 // Upload / Knowledge
 // ============================================================================
 
-export async function listSyllabi(userId?: string) {
-  return request<{ uploads: SyllabusUploadAPI[] }>("/upload/list", { method: "GET", userId, json: false })
+export async function listSyllabi() {
+  return request<{ uploads: SyllabusUploadAPI[] }>("/upload/list", { method: "GET", json: false })
 }
 
-export async function uploadSyllabus(file: File, userId?: string) {
+export async function uploadSyllabus(file: File) {
   const form = new FormData()
   form.append("file", file)
-  return request<{ syllabus_id: string; message: string }>("/upload/syllabus", {
+  return request<{ syllabus_id: string; message: string }>("/upload", {
     method: "POST",
-    userId,
     json: false,
     body: form,
+  })
+}
+
+// ============================================================================
+// Settings & Usage
+// ============================================================================
+
+export async function getPreferences() {
+  return request<{ preferences: UserPreferencesAPI }>("/user/preferences", { method: "GET", json: false })
+}
+
+export async function updatePreferences(patch: Partial<UserPreferencesAPI>) {
+  return request<{ preferences: UserPreferencesAPI }>("/user/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  })
+}
+
+export async function getUsage() {
+  return request<{ usage: UsageSummaryAPI }>("/usage", { method: "GET", json: false })
+}
+
+// ============================================================================
+// Feedback
+// ============================================================================
+
+export async function submitFeedback(messageId: string, vote: "up" | "down", comment?: string) {
+  return request<{ success: true }>("/feedback", {
+    method: "POST",
+    body: JSON.stringify({ 
+      message_id: messageId, 
+      rating: vote === "up" ? 1 : -1, 
+      comment 
+    }),
   })
 }
 
@@ -194,14 +229,13 @@ export async function uploadSyllabus(file: File, userId?: string) {
 // Graph
 // ============================================================================
 
-export async function fetchGraph(syllabusId: string, userId?: string) {
-  return request<GraphResponseAPI>(`/graph/${syllabusId}`, { method: "GET", userId, json: false })
+export async function fetchGraph(syllabusId: string) {
+  return request<GraphResponseAPI>(`/graph/${syllabusId}`, { method: "GET", json: false })
 }
 
-export async function reprocessGraph(syllabusId: string, userId?: string) {
+export async function reprocessGraph(syllabusId: string) {
   return request<GraphResponseAPI>(`/graph/${syllabusId}/reprocess`, {
     method: "POST",
-    userId,
     json: false,
   })
 }

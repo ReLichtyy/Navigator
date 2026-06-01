@@ -6,32 +6,31 @@
  * AsyncLocalStorage.
  */
 
-import { randomUUID } from "crypto"
+import { AsyncLocalStorage } from "node:async_hooks"
 
-let _currentTraceId: string | null = null
+export const traceStorage = new AsyncLocalStorage<string>()
 
 /**
  * Generate and set a new trace ID for the current request.
  * Call this early in middleware or route handlers.
  */
 export function startTrace(): string {
-  _currentTraceId = randomUUID()
-  return _currentTraceId
+  return crypto.randomUUID()
 }
 
 /**
- * Get the current trace ID, or generate one if none exists.
+ * Get the current trace ID.
  */
-export function getTraceId(): string {
-  if (!_currentTraceId) _currentTraceId = randomUUID()
-  return _currentTraceId
+export function getTraceId(): string | undefined {
+  return traceStorage.getStore()
 }
 
 /**
  * Clear the trace ID (at the end of a request lifecycle).
+ * (Not strictly necessary when using AsyncLocalStorage.run, but kept for API compat).
  */
 export function clearTrace(): void {
-  _currentTraceId = null
+  // No-op for AsyncLocalStorage
 }
 
 /**
@@ -39,10 +38,6 @@ export function clearTrace(): void {
  */
 export async function withTrace<T>(fn: () => Promise<T>): Promise<{ result: T; traceId: string }> {
   const traceId = startTrace()
-  try {
-    const result = await fn()
-    return { result, traceId }
-  } finally {
-    clearTrace()
-  }
+  const result = await traceStorage.run(traceId, fn)
+  return { result, traceId }
 }

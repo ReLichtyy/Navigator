@@ -27,15 +27,15 @@ export async function GET() {
         WHERE user_id = ${userId}::uuid
       `
       const row = (rows as Record<string, unknown>[])[0]
-      return row ?? {
-        default_provider: "openai",
-        default_model: "gpt-4o-mini",
-        theme: "dark",
-        language: "es",
+      return {
+        defaultProvider: row?.default_provider ?? "openai",
+        defaultModel: row?.default_model ?? "gpt-4o-mini",
+        theme: row?.theme ?? "dark",
+        language: row?.language ?? "es",
       }
     })
 
-    return NextResponse.json(prefs)
+    return NextResponse.json({ preferences: prefs })
   } catch (err) {
     logError("api.user.prefs.get_error", {
       error: err instanceof Error ? err.message : String(err),
@@ -54,7 +54,7 @@ export async function PATCH(request: Request) {
     const userId = session.user.id
     const body = await request.json()
 
-    const allowedFields = ["default_provider", "default_model", "theme", "language"]
+    const allowedFields = ["defaultProvider", "defaultModel", "theme", "language"]
     const updates: Record<string, string> = {}
     for (const key of allowedFields) {
       if (body[key] !== undefined) updates[key] = String(body[key])
@@ -69,14 +69,14 @@ export async function PATCH(request: Request) {
       INSERT INTO user_preferences (user_id, default_provider, default_model, theme, language)
       VALUES (
         ${userId}::uuid,
-        ${updates.default_provider ?? "openai"},
-        ${updates.default_model ?? "gpt-4o-mini"},
+        ${updates.defaultProvider ?? "openai"},
+        ${updates.defaultModel ?? "gpt-4o-mini"},
         ${updates.theme ?? "dark"},
         ${updates.language ?? "es"}
       )
       ON CONFLICT (user_id) DO UPDATE SET
-        default_provider = COALESCE(${updates.default_provider ?? null}, user_preferences.default_provider),
-        default_model = COALESCE(${updates.default_model ?? null}, user_preferences.default_model),
+        default_provider = COALESCE(${updates.defaultProvider ?? null}, user_preferences.default_provider),
+        default_model = COALESCE(${updates.defaultModel ?? null}, user_preferences.default_model),
         theme = COALESCE(${updates.theme ?? null}, user_preferences.theme),
         language = COALESCE(${updates.language ?? null}, user_preferences.language),
         updated_at = now()
@@ -84,8 +84,16 @@ export async function PATCH(request: Request) {
     `
 
     await invalidate(`user:prefs:${userId}`)
-
-    return NextResponse.json((rows as Record<string, unknown>[])[0])
+    
+    const row = (rows as Record<string, unknown>[])[0]
+    return NextResponse.json({
+      preferences: {
+        defaultProvider: row?.default_provider ?? "openai",
+        defaultModel: row?.default_model ?? "gpt-4o-mini",
+        theme: row?.theme ?? "dark",
+        language: row?.language ?? "es",
+      }
+    })
   } catch (err) {
     logError("api.user.prefs.patch_error", {
       error: err instanceof Error ? err.message : String(err),

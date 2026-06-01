@@ -5,6 +5,8 @@
  * Every entry includes timestamp, level, event name, and optional context.
  */
 
+import { getTraceId } from "./trace"
+
 export type LogLevel = "info" | "warn" | "error"
 
 export type LogContext = Record<string, unknown>
@@ -31,10 +33,29 @@ export function log(
 ): void {
   if (!shouldLog(level)) return
 
+  // Inyectamos el traceId dinámicamente si está disponible
+  let traceId: string | undefined
+  try {
+    traceId = getTraceId()
+  } catch {
+    // ignorar
+  }
+
+  // Fallback a next/headers para App Router
+  if (!traceId) {
+    try {
+      const { headers } = require("next/headers")
+      traceId = headers().get("x-trace-id") ?? undefined
+    } catch {
+      // No estamos en el contexto de un request de Next.js
+    }
+  }
+
   const entry = {
     timestamp: new Date().toISOString(),
     level,
     event,
+    ...(traceId ? { traceId } : {}),
     ...data,
   }
 

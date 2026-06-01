@@ -1,9 +1,10 @@
 "use client"
 
-import { ArrowUpRight, Compass, FileText } from "lucide-react"
+import { ArrowUpRight, Compass, FileText, ThumbsUp, ThumbsDown } from "lucide-react"
 import { useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 import type { Message } from "@/components/navigator/types"
+import { submitFeedback } from "@/lib/api"
 
 const prompts = [
   {
@@ -145,6 +146,29 @@ function MessageBubble({ message }: { message: Message }) {
                 </ul>
               </div>
             )}
+
+            {/* Feedback Buttons */}
+            <div className="mt-2 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+              <button
+                onClick={() => {
+                  submitFeedback(message.id, "up").catch(() => {})
+                  // Optimistic UI state could be added here
+                }}
+                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                title="Helpful response"
+              >
+                <ThumbsUp className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => {
+                  submitFeedback(message.id, "down").catch(() => {})
+                }}
+                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+                title="Not helpful"
+              >
+                <ThumbsDown className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </>
         )}
       </div>

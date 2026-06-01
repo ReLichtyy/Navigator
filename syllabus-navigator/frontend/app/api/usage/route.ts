@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       getUserUsage(session.user.id, days),
     )
 
-    return NextResponse.json(usage)
+    return NextResponse.json({ usage })
   } catch (err) {
     logError("api.usage.error", {
       error: err instanceof Error ? err.message : String(err),

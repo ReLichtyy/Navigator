@@ -18,15 +18,19 @@ export const metadata: Metadata = {
   generator: "v0.app",
 }
 
-export default function RootLayout({
+import { auth } from "@/lib/auth/config"
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const session = await auth()
+
   return (
     <html lang="es" className={`${geist.variable} ${geistMono.variable} bg-background`}>
       <body className="font-sans antialiased">
-        <ClientProviders>{children}</ClientProviders>
+        <ClientProviders session={session}>{children}</ClientProviders>
       </body>
     </html>
   )
