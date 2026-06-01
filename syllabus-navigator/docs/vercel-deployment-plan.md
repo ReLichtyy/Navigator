@@ -31,7 +31,11 @@ Para hacer esto posible, necesitarás tener o crear cuentas gratuitas en las sig
     *   Haz clic en "Add New Project" y selecciona tu repositorio de GitHub.
 3.  **Configura el Framework y Directorio:**
     *   Vercel detectará automáticamente que es un proyecto de Next.js.
-    *   **Root Directory:** Asegúrate de configurarlo apuntando a la carpeta `frontend` (ya que el código de Next.js no está en la raíz, sino dentro de esa carpeta).
+    *   **Root Directory:** usa exactamente una de estas rutas (sin duplicar `frontend`):
+        *   Repositorio **Navigator** (raíz con carpeta `syllabus-navigator/`): `syllabus-navigator/frontend`
+        *   Repositorio cuya raíz **es** `syllabus-navigator/`: `frontend`
+    *   **Build Command:** dejar el default de Vercel o `npm run build` (el `package.json` del front también expone `vercel-build`).
+    *   **Output Directory:** dejar vacío (Next.js en Vercel no usa `out/` salvo export estático).
 4.  **Variables de Entorno (Environment Variables):**
     *   En Vercel, deberás agregar la variable `NEXT_PUBLIC_API_URL`.
     *   *Nota:* Al principio, mientras pruebas, esta variable puede apuntar a un túnel temporal hacia tu backend local (usando ngrok). Más adelante, apuntará a la URL definitiva de tu backend en producción (ej. `https://mi-backend.render.com`).
