@@ -88,7 +88,7 @@ export const ChatRepository = {
         ${userId},
         'New chat',
         'gpt-4o-mini',
-        ${syllabusId}::uuid
+        ${syllabusId}
       )
       RETURNING id, title, active_model, syllabus_id, created_at
     `

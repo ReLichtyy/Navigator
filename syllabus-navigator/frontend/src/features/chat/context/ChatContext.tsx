@@ -25,6 +25,7 @@ export interface ChatWorkspaceState {
   chatsError: string | null
   activeChatId: string
   activeChat: Chat | null
+  messagesLoading: boolean
   
   // Actions
   selectChat: (id: string) => void
@@ -255,7 +256,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
   return (
     <ChatWorkspaceContext.Provider value={{
       sidebarCollapsed, setSidebarCollapsed, mobileHistoryOpen, setMobileHistoryOpen, transitionKey,
-      chats, chatsLoading, chatsError, activeChatId, activeChat,
+      chats, chatsLoading, chatsError, activeChatId, activeChat, messagesLoading,
       selectChat, handleNewChat, handleDeleteChat, handleRenameChat, sendMessage, handleModelChange,
       attachments, addAttachment, removeAttachment, activeDocumentName, selectKnowledge,
       viewMode, toggleViewMode, graphData, handleReprocessGraph, activeSyllabusId

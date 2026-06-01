@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react"
 import { cn } from "@/lib/utils"
 import type { Message } from "@/components/navigator/types"
 import { submitFeedback } from "@/lib/api"
+import { Markdown } from "@/components/ui/markdown"
 
 const prompts = [
   {
@@ -126,7 +127,9 @@ function MessageBubble({ message }: { message: Message }) {
           </div>
         ) : (
           <>
-            <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{message.content}</p>
+            <div className="text-sm text-foreground">
+              <Markdown content={message.content} />
+            </div>
             {message.citations && message.citations.length > 0 && (
               <div className="mt-3 border-t border-border/60 pt-2">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">Sources</p>

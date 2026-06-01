@@ -75,4 +75,47 @@ export const openrouterProvider: LLMProviderAdapter = {
       throw err
     }
   },
+  async *chatStream(messages: LLMMessage[], config: LLMConfig) {
+    const client = getClient()
+
+    try {
+      const stream = await client.chat.completions.create({
+        model: config.model,
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        temperature: config.temperature ?? 0.2,
+        max_tokens: config.maxTokens,
+        stream: true,
+        stream_options: { include_usage: true },
+      })
+
+      for await (const chunk of stream) {
+        if (chunk.usage) {
+          yield {
+            type: "finish",
+            usage: {
+              promptTokens: chunk.usage.prompt_tokens ?? 0,
+              completionTokens: chunk.usage.completion_tokens ?? 0,
+              totalTokens: chunk.usage.total_tokens ?? 0,
+            },
+            model: chunk.model,
+            provider: "openrouter",
+          }
+        } else {
+          const content = chunk.choices[0]?.delta?.content
+          if (content) {
+            yield { type: "text", content }
+          }
+        }
+      }
+    } catch (err) {
+      logError("llm.openrouter.stream_error", {
+        model: config.model,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
+  },
 }

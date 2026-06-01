@@ -2,6 +2,7 @@
 
 import { ChatComposer } from "@/components/navigator/chat-composer"
 import { ChatThread } from "@/components/navigator/chat-thread"
+import { ChatSkeleton } from "@/components/navigator/chat-skeleton"
 import { HistorySidebar } from "@/components/navigator/history-sidebar"
 import { MobileHistorySheet } from "@/components/navigator/mobile-history-sheet"
 import { TopHeader } from "@/components/navigator/top-header"
@@ -99,11 +100,15 @@ function PageContent() {
                   <div className="h-2 w-28 animate-pulse rounded-full bg-muted-foreground/20" />
                 </div>
               ) : ws.viewMode === "chat" ? (
-                <ChatThread
-                  key={ws.transitionKey}
-                  messages={ws.activeChat?.messages ?? []}
-                  onPrompt={ws.sendMessage}
-                />
+                ws.messagesLoading ? (
+                  <ChatSkeleton />
+                ) : (
+                  <ChatThread
+                    key={ws.transitionKey}
+                    messages={ws.activeChat?.messages ?? []}
+                    onPrompt={ws.sendMessage}
+                  />
+                )
               ) : ws.graphData ? (
                 <GraphCanvas
                   nodes={ws.graphData.nodes}

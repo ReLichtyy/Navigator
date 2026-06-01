@@ -105,8 +105,49 @@ export async function chatCompletion(
   return result
 }
 
+export async function* chatStream(
+  messages: LLMMessage[],
+  config?: Partial<LLMConfig>,
+): AsyncGenerator<LLMStreamChunk, void, unknown> {
+  const resolvedConfig: LLMConfig = {
+    provider: config?.provider ?? DEFAULT_PROVIDER,
+    model: config?.model ?? DEFAULT_MODEL,
+    temperature: config?.temperature ?? 0.2,
+    maxTokens: config?.maxTokens,
+  }
+
+  let finalProvider = providers[resolvedConfig.provider]
+
+  if (!finalProvider || !finalProvider.isConfigured()) {
+    const fallbackName: LLMProvider =
+      resolvedConfig.provider === "openai" ? "openrouter" : "openai"
+    const fallback = providers[fallbackName]
+
+    if (fallback.isConfigured()) {
+      resolvedConfig.provider = fallbackName
+      if (fallbackName === "openrouter" && !resolvedConfig.model.includes("/")) {
+        resolvedConfig.model = `openai/${resolvedConfig.model}`
+      }
+      if (fallbackName === "openai" && resolvedConfig.model.includes("/")) {
+        resolvedConfig.model = resolvedConfig.model.split("/").pop() ?? DEFAULT_MODEL
+      }
+      finalProvider = fallback
+    } else {
+      throw new Error("No LLM provider is configured.")
+    }
+  }
+
+  if (!finalProvider.chatStream) {
+    throw new Error(`Provider ${finalProvider.name} does not support streaming.`)
+  }
+
+  // We could add timed(...) here, but streaming timing is more complex (Time to first token).
+  // For now, we just pass through the stream.
+  yield* finalProvider.chatStream(messages, resolvedConfig)
+}
+
 // Re-export types and utilities
-export type { LLMConfig, LLMMessage, LLMProvider, LLMResponse } from "./types"
+export type { LLMConfig, LLMMessage, LLMProvider, LLMResponse, LLMStreamChunk } from "./types"
 export { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./config"
 export { getAvailableModels } from "./router"
 export { selectModel } from "./router"

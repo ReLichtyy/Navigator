@@ -25,23 +25,14 @@ export async function POST(request: Request, { params }: RouteParams) {
     await requireRateLimit(userId, role)
 
     // Process via Service
-    const result = await ChatService.processMessage(chatId, userId, role, question)
+    const stream = await ChatService.processMessageStream(chatId, userId, role, question)
 
-    logInfo("api.chat.message.success", {
-      chatId,
-      provider: result.provider,
-      model: result.model,
-      latencyMs: result.latencyMs,
-    })
-
-    return NextResponse.json({
-      chat_id: chatId,
-      answer: result.finalAnswer,
-      citations: [], // TODO: RAG citations
-      title: result.title,
-      provider: result.provider,
-      model: result.model,
-      error: null,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
     })
 
   } catch (err) {

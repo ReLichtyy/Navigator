@@ -56,7 +56,7 @@ export function useSendMessage() {
                 if (parsed.error) {
                   throw new Error(parsed.error)
                 }
-                if (parsed.content) {
+                if (parsed.content !== undefined && parsed.content !== "") {
                   contentBuffer += parsed.content
                   if (onUpdate) onUpdate(tempId, contentBuffer)
                 }
