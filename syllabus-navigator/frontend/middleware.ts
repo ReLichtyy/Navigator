@@ -4,6 +4,7 @@ import { getToken } from "next-auth/jwt"
 
 // Routes that don't require authentication
 const PUBLIC_PATHS = [
+  "/",
   "/login",
   "/signup",
   "/api/auth",
@@ -11,7 +12,7 @@ const PUBLIC_PATHS = [
 ]
 
 function isPublic(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  return PUBLIC_PATHS.includes(pathname) || PUBLIC_PATHS.some((p) => p !== "/" && pathname.startsWith(p))
 }
 
 export async function middleware(req: NextRequest) {
@@ -38,11 +39,13 @@ export async function middleware(req: NextRequest) {
     return response
   }
 
-  // 4. Check authentication using getToken (Totalmente Edge Safe)
-  // Requires AUTH_SECRET in .env
+  // 4. Check authentication using getToken
   const token = await getToken({ req, secret: process.env.AUTH_SECRET })
 
   if (!token) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
     const loginUrl = new URL("/login", req.url)
     loginUrl.searchParams.set("callbackUrl", pathname)
     return NextResponse.redirect(loginUrl)
@@ -55,7 +58,9 @@ export async function middleware(req: NextRequest) {
                     pathname.startsWith("/api/usage")
 
   if (isGuest && isPrivate) {
-    // Redirect guests trying to access settings to the home page
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Forbidden for guests" }, { status: 403 })
+    }
     const homeUrl = new URL("/", req.url)
     return NextResponse.redirect(homeUrl)
   }

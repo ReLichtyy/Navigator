@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import type { AttachedFile, Chat, Message } from "@/components/navigator/types"
 import { useSyllabus } from "@/context/SyllabusContext"
 import { useUser } from "@/context/UserContext"
+import { useAuthModal } from "@/context/AuthModalContext"
 import {
   ApiError,
   deleteChat,
@@ -68,9 +69,10 @@ function mapApiMessage(m: {
 }
 
 export function useChatWorkspace() {
-  const { userId, ready: userReady } = useUser()
+  const { userId, ready: userReady, status: userStatus } = useUser()
   const { activeSyllabusId, setActiveSyllabusId, viewMode, setViewMode, pendingQuery, setPendingQuery } =
     useSyllabus()
+  const { openAuthModal } = useAuthModal()
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false)
@@ -185,6 +187,10 @@ export function useChatWorkspace() {
   )
 
   const handleNewChat = useCallback(async () => {
+    if (userStatus === "anonymous") {
+      openAuthModal("login")
+      return
+    }
     try {
       const created = await newChat(activeSyllabusId ?? undefined)
       const fresh = mapApiChat(created)
@@ -195,7 +201,7 @@ export function useChatWorkspace() {
     } catch (err) {
       showError(err, "Failed to create new chat")
     }
-  }, [activeSyllabusId, userId, showError])
+  }, [activeSyllabusId, userId, userStatus, openAuthModal, showError])
 
   const handleDeleteChat = useCallback(
     async (id: string) => {
@@ -268,6 +274,11 @@ export function useChatWorkspace() {
 
   const sendMessage = useCallback(
     (text: string) => {
+      if (userStatus === "anonymous") {
+        openAuthModal("login")
+        return
+      }
+
       const trimmed = text.trim()
       if (!trimmed || !activeChatId) return
 
@@ -348,7 +359,7 @@ export function useChatWorkspace() {
           )
         })
     },
-    [activeChatId, activeSyllabusId, userId, showError],
+    [activeChatId, activeSyllabusId, userId, userStatus, openAuthModal, showError],
   )
 
   useEffect(() => {
@@ -360,6 +371,11 @@ export function useChatWorkspace() {
 
   const addAttachment = useCallback(
     async (file: AttachedFile) => {
+      if (userStatus === "anonymous") {
+        openAuthModal("login")
+        return
+      }
+
       setAttachments((prev) => (prev.some((f) => f.id === file.id) ? prev : [...prev, file]))
 
       if (file.file) {
@@ -388,7 +404,7 @@ export function useChatWorkspace() {
         await bindSyllabusToChat(activeChatId, file.syllabus_id, file.name)
       }
     },
-    [userId, activeChatId, setActiveSyllabusId, bindSyllabusToChat, showError],
+    [userId, activeChatId, setActiveSyllabusId, bindSyllabusToChat, userStatus, openAuthModal, showError],
   )
 
   const selectKnowledge = useCallback(

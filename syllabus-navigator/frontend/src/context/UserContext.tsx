@@ -9,6 +9,7 @@ interface UserContextType {
   displayName: string | null
   role: string | null
   ready: boolean
+  status: "anonymous" | "guest" | "authenticated" | "loading"
   resetIdentity: () => void
   setDisplayName: (name: string) => void
 }
@@ -18,12 +19,13 @@ const UserContext = createContext<UserContextType>({
   displayName: null,
   role: null,
   ready: false,
+  status: "loading",
   resetIdentity: () => {},
   setDisplayName: () => {},
 })
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const { data: session, status } = useSession()
+  const { data: session, status: authStatus } = useSession()
   const [displayName, setDisplayNameState] = useState<string | null>(null)
 
   useEffect(() => {
@@ -41,13 +43,25 @@ export function UserProvider({ children }: { children: ReactNode }) {
     signOut({ callbackUrl: "/login" })
   }
 
+  let derivedStatus: "anonymous" | "guest" | "authenticated" | "loading" = "loading"
+  if (authStatus === "loading") {
+    derivedStatus = "loading"
+  } else if (authStatus === "authenticated" && session?.user?.role === "guest") {
+    derivedStatus = "guest"
+  } else if (authStatus === "authenticated") {
+    derivedStatus = "authenticated"
+  } else {
+    derivedStatus = "anonymous"
+  }
+
   return (
     <UserContext.Provider
       value={{
         userId: session?.user?.id ?? null,
         displayName,
         role: session?.user?.role ?? null,
-        ready: status !== "loading",
+        ready: authStatus !== "loading",
+        status: derivedStatus,
         resetIdentity,
         setDisplayName,
       }}

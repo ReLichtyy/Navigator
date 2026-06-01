@@ -8,9 +8,23 @@ import { TopHeader } from "@/components/navigator/top-header"
 import { GuestBanner } from "@/components/navigator/guest-banner"
 import GraphCanvas from "@/components/GraphCanvas"
 import { useChatWorkspace } from "@/hooks/useChatWorkspace"
+import { useUser } from "@/context/UserContext"
+import { useAuthModal } from "@/context/AuthModalContext"
+import { useEffect, useRef } from "react"
 
 export default function Page() {
   const ws = useChatWorkspace()
+  const { status, ready } = useUser()
+  const { openAuthModal, isOpen } = useAuthModal()
+  const hasShownWelcome = useRef(false)
+
+  useEffect(() => {
+    if (ready && status === "anonymous" && !hasShownWelcome.current) {
+      hasShownWelcome.current = true
+      const timer = setTimeout(() => openAuthModal("welcome"), 100)
+      return () => clearTimeout(timer)
+    }
+  }, [ready, status, openAuthModal])
 
   return (
     <main className="flex h-dvh w-full bg-background text-foreground">

@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import type { Chat } from "@/components/navigator/types"
 import { useUser } from "@/context/UserContext"
+import { useAuthModal } from "@/context/AuthModalContext"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,7 +43,8 @@ export function HistorySidebar({
   const [searchQuery, setSearchQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const { displayName, resetIdentity } = useUser()
+  const { displayName, status, resetIdentity } = useUser()
+  const { openAuthModal } = useAuthModal()
 
   const filteredChats = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -268,27 +270,48 @@ export function HistorySidebar({
         </nav>
 
         <div className="px-4 pb-5 pt-3 border-t border-border/40">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground group">
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/10">
-                  <UserIcon className="h-4 w-4 text-accent" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-sidebar-foreground">{displayName ?? "User"}</p>
-                </div>
-                <MoreHorizontal className="h-4 w-4 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" side="right" sideOffset={8} className="w-56">
-              <div className="px-2 py-1.5 text-sm font-medium">
-                {displayName ?? "User"}
+          {status === "anonymous" ? (
+            <button 
+              onClick={() => openAuthModal("login")}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground group"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/10">
+                <UserIcon className="h-4 w-4 text-accent" />
               </div>
-              <DropdownMenuItem onClick={resetIdentity} className="text-red-500 cursor-pointer">
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-sidebar-foreground">Sign In</p>
+              </div>
+            </button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground group">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent/10">
+                    <UserIcon className="h-4 w-4 text-accent" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-sidebar-foreground">
+                      {status === "guest" ? "Guest User" : displayName ?? "User"}
+                    </p>
+                  </div>
+                  <MoreHorizontal className="h-4 w-4 text-muted-foreground opacity-50 group-hover:opacity-100 transition-opacity" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="right" sideOffset={8} className="w-56">
+                <div className="px-2 py-1.5 text-sm font-medium">
+                  {status === "guest" ? "Guest User" : displayName ?? "User"}
+                </div>
+                {status === "guest" ? (
+                  <DropdownMenuItem onClick={() => openAuthModal("signup")} className="cursor-pointer text-accent">
+                    Create Account
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem onClick={resetIdentity} className="text-red-500 cursor-pointer">
+                  {status === "guest" ? "Leave Guest Session" : "Sign out"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
     </aside>

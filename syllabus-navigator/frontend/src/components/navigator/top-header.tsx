@@ -11,8 +11,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Menu, Plus, Upload, User as UserIcon } from "lucide-react"
+import { Menu, User as UserIcon } from "lucide-react"
 import { useUser } from "@/context/UserContext"
+import { useAuthModal } from "@/context/AuthModalContext"
 
 import type { AttachedFile } from "@/components/navigator/types"
 
@@ -33,7 +34,8 @@ export function TopHeader({
   onSelectKnowledge,
   activeDocumentName,
 }: TopHeaderProps) {
-  const { displayName, resetIdentity } = useUser()
+  const { displayName, status, resetIdentity } = useUser()
+  const { openAuthModal } = useAuthModal()
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-sm md:hidden">
@@ -45,22 +47,33 @@ export function TopHeader({
       </div>
 
       <div className="flex items-center gap-2">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full bg-accent/10">
-              <UserIcon className="h-5 w-5" />
-              <span className="sr-only">Profile menu</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <div className="px-2 py-1.5 text-sm font-medium">
-              {displayName ?? "User"}
-            </div>
-            <DropdownMenuItem onClick={resetIdentity} className="text-red-500 cursor-pointer">
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {status === "anonymous" ? (
+          <Button variant="ghost" size="sm" className="font-medium" onClick={() => openAuthModal("login")}>
+            Sign In
+          </Button>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-full bg-accent/10">
+                <UserIcon className="h-5 w-5" />
+                <span className="sr-only">Profile menu</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-1.5 text-sm font-medium">
+                {status === "guest" ? "Guest User" : displayName ?? "User"}
+              </div>
+              {status === "guest" ? (
+                <DropdownMenuItem onClick={() => openAuthModal("signup")} className="cursor-pointer text-accent">
+                  Create Account
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem onClick={resetIdentity} className="text-red-500 cursor-pointer">
+                {status === "guest" ? "Leave Guest Session" : "Sign out"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </header>
   )

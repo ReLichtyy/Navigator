@@ -143,10 +143,10 @@ export default function LoginPage() {
               disabled={loading || isGuestLoading}
               className="h-10 w-full rounded-lg border border-border bg-secondary/50 font-medium text-foreground shadow-sm transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isGuestLoading ? "Creating guest session..." : "Continue as Guest"}
+              {isGuestLoading ? "Configurando..." : "Probar Navigator"}
             </button>
             <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-              Guest mode is limited to 3 chats, 5 requests per minute, and cannot upload files.
+              Guest sessions are limited to 3 chats. Upgrade to unlock full access.
             </p>
           </div>
         </div>
