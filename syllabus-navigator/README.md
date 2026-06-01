@@ -5,7 +5,7 @@ Industrial-grade foundation for an academic RAG platform.
 ## Project Layout
 
 - `backend/`: FastAPI API gateway + ingestion and graph services
-- `frontend/`: Next.js UI scaffold (chat, upload, graph components)
+- `frontend/`: Next.js UI (chat, upload, knowledge graph)
 - `docker/`: local orchestration and database initialization
 - `scripts/`: utility scripts
 - `.github/workflows/`: CI pipeline
