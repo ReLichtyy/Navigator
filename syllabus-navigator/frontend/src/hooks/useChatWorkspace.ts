@@ -320,7 +320,14 @@ export function useChatWorkspace() {
         .catch((error) => {
           if (error instanceof Error && error.name === "AbortError") return
           if (activeChatIdRef.current !== chatIdForRequest) return
-          showError(error, "Sorry, I encountered an error connecting to the AI.")
+
+          // Build a user-friendly error message for the chat bubble.
+          const friendlyMsg =
+            error instanceof ApiError
+              ? error.message
+              : "Sorry, I encountered an error connecting to the AI."
+
+          showError(error, friendlyMsg)
           setChats((prev) =>
             prev.map((c) =>
               c.id === chatIdForRequest
@@ -331,7 +338,7 @@ export function useChatWorkspace() {
                         ? {
                             ...m,
                             pending: false,
-                            content: "Sorry, I encountered an error connecting to the AI.",
+                            content: `⚠️ ${friendlyMsg}`,
                           }
                         : m,
                     ),

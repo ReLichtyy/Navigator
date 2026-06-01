@@ -23,8 +23,34 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Strips HTML tags from a string so that error pages from reverse
+ * proxies (Vercel, Cloudflare, nginx) never leak raw HTML into the UI.
+ */
+function stripHtml(text: string): string {
+  return text.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim()
+}
+
+/**
+ * Returns true when the Content-Type header indicates a JSON body.
+ * Handles variations like "application/json; charset=utf-8".
+ */
+function isJsonContentType(res: Response): boolean {
+  const ct = res.headers.get("content-type") ?? ""
+  return ct.includes("application/json")
+}
+
 async function parseError(res: Response): Promise<string> {
   const errText = await res.text()
+
+  // If the body looks like HTML (error page from proxy/gateway), don't expose it.
+  if (errText.trimStart().startsWith("<!") || errText.trimStart().startsWith("<html")) {
+    const stripped = stripHtml(errText)
+    // Take at most 120 chars of the stripped text for context.
+    const preview = stripped.length > 120 ? stripped.slice(0, 120) + "…" : stripped
+    return `Server returned an error page (${res.status}): ${preview || "Unknown error"}`
+  }
+
   try {
     const parsed = JSON.parse(errText)
     const detail = parsed.detail
@@ -49,17 +75,42 @@ async function request<T>(
   init: RequestInit & { userId?: string; json?: boolean } = {},
 ): Promise<T> {
   const { userId, json = true, ...fetchInit } = init
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...fetchInit,
-    headers: {
-      ...getHeaders(userId, json && !(fetchInit.body instanceof FormData)),
-      ...(fetchInit.headers as Record<string, string> | undefined),
-    },
-  })
+
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...fetchInit,
+      headers: {
+        ...getHeaders(userId, json && !(fetchInit.body instanceof FormData)),
+        ...(fetchInit.headers as Record<string, string> | undefined),
+      },
+    })
+  } catch (err) {
+    // Network error (backend down, DNS failure, CORS blocked, etc.)
+    throw new ApiError(
+      "Unable to reach the server. Check your connection or try again later.",
+      0,
+    )
+  }
+
   if (!res.ok) throw new ApiError(await parseError(res), res.status)
   if (res.status === 204) return undefined as T
+
+  // ── Guard: validate the response is actually JSON ──────────────────────
+  if (!isJsonContentType(res)) {
+    const body = await res.text()
+    const preview = body.trimStart().startsWith("<")
+      ? stripHtml(body).slice(0, 120)
+      : body.slice(0, 120)
+    throw new ApiError(
+      `Expected a JSON response from ${path} but received "${res.headers.get("content-type") ?? "unknown"}": ${preview || "(empty body)"}`,
+      res.status,
+    )
+  }
+
   return res.json() as Promise<T>
 }
+
 
 // ============================================================================
 // Types
