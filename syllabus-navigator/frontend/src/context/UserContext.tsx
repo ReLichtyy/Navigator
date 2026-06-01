@@ -7,6 +7,7 @@ import { signOut } from "next-auth/react"
 interface UserContextType {
   userId: string | null
   displayName: string | null
+  role: string | null
   ready: boolean
   resetIdentity: () => void
   setDisplayName: (name: string) => void
@@ -15,6 +16,7 @@ interface UserContextType {
 const UserContext = createContext<UserContextType>({
   userId: null,
   displayName: null,
+  role: null,
   ready: false,
   resetIdentity: () => {},
   setDisplayName: () => {},
@@ -44,6 +46,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       value={{
         userId: session?.user?.id ?? null,
         displayName,
+        role: session?.user?.role ?? null,
         ready: status !== "loading",
         resetIdentity,
         setDisplayName,

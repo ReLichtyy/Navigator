@@ -28,7 +28,7 @@ export async function GET() {
           COUNT(m.id)::int AS message_count
         FROM chats c
         LEFT JOIN messages m ON m.chat_id = c.id
-        WHERE c.user_id = ${userId}
+        WHERE c.user_id = ${userId}::uuid
         GROUP BY c.id
         ORDER BY c.created_at DESC
       `
@@ -40,7 +40,10 @@ export async function GET() {
     logError("api.chat.history.list_error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json({ error: "Failed to load chats." }, { status: 500 })
+    return NextResponse.json({ 
+      error: "Failed to load chats.",
+      details: err instanceof Error ? err.message : String(err)
+    }, { status: 500 })
   }
 }
 
@@ -58,7 +61,7 @@ export async function POST(request: Request) {
     const rows = await sql`
       INSERT INTO chats (user_id, title, active_model, syllabus_id)
       VALUES (
-        ${userId},
+        ${userId}::uuid,
         'New chat',
         'gpt-4o-mini',
         ${syllabusId}::uuid
@@ -79,6 +82,9 @@ export async function POST(request: Request) {
     logError("api.chat.history.create_error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json({ error: "Failed to create chat." }, { status: 500 })
+    return NextResponse.json({ 
+      error: "Failed to create chat.",
+      details: err instanceof Error ? err.message : String(err)
+    }, { status: 500 })
   }
 }

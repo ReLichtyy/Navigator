@@ -12,7 +12,7 @@ import { openrouterProvider } from "./providers/openrouter"
 import { logWarn } from "@/lib/observability/logger"
 
 export interface RoutingContext {
-  userTier: "free" | "pro" | "admin"
+  userTier: "guest" | "free" | "pro" | "admin"
   preferredProvider?: LLMProvider
   preferredModel?: string
   messageLength?: number
@@ -39,7 +39,7 @@ export function selectModel(ctx: RoutingContext): RoutingDecision {
     const modelDef = getModelDef(ctx.preferredModel)
 
     // Check tier access
-    if (modelDef && modelDef.tier === "pro" && ctx.userTier === "free") {
+    if (modelDef && modelDef.tier === "pro" && (ctx.userTier === "free" || ctx.userTier === "guest")) {
       return {
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
@@ -122,12 +122,12 @@ export function selectModel(ctx: RoutingContext): RoutingDecision {
 /**
  * Get available models for display in the UI.
  */
-export function getAvailableModels(userTier: "free" | "pro" | "admin"): string[] {
+export function getAvailableModels(userTier: "guest" | "free" | "pro" | "admin"): string[] {
   const available: string[] = []
 
   for (const model of MODELS) {
     // Tier check
-    if (model.tier === "pro" && userTier === "free") continue
+    if (model.tier === "pro" && (userTier === "free" || userTier === "guest")) continue
 
     // Provider availability check
     if (model.provider === "openai" && !openaiProvider.isConfigured()) continue

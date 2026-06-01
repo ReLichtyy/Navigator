@@ -40,8 +40,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
+        isGuest: { type: "hidden" }
       },
       async authorize(credentials) {
+        const isGuest = credentials?.isGuest as string | undefined
+
+        // Guest Flow
+        if (isGuest === "true") {
+          try {
+            const guestId = crypto.randomUUID()
+            const email = `guest-${guestId}@navigator.local`
+            const passwordHash = await bcrypt.hash(guestId, 10) // secure enough for internal
+
+            const rows = await sql`
+              INSERT INTO users (email, password_hash, display_name, role)
+              VALUES (${email}, ${passwordHash}, 'Guest', 'guest')
+              RETURNING id, email, display_name, role
+            `
+            const user = (rows as { id: string; email: string; display_name: string; role: Role }[])[0]
+
+            await sql`
+              INSERT INTO user_preferences (user_id, default_provider, default_model)
+              VALUES (${user.id}::uuid, 'openai', 'gpt-4o-mini')
+            `
+
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.display_name,
+              role: user.role,
+            }
+          } catch (err) {
+            console.error("Guest creation failed", err)
+            return null
+          }
+        }
+
+        // Normal Flow
         const email = credentials?.email as string | undefined
         const password = credentials?.password as string | undefined
 

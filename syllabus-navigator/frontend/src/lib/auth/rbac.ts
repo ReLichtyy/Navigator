@@ -5,7 +5,7 @@
  * P1: Admin panel, role management, tenant isolation.
  */
 
-export type Role = "free" | "pro" | "admin"
+export type Role = "guest" | "free" | "pro" | "admin"
 
 export type Permission =
   | "chat"
@@ -18,6 +18,7 @@ export type Permission =
   | "admin:usage:all"
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  guest: ["chat", "feedback"],
   free: ["chat", "upload", "graph", "feedback", "usage:own"],
   pro: ["chat", "upload", "graph", "feedback", "usage:own"],
   admin: [
@@ -50,6 +51,6 @@ export function getPermissions(role: Role): Permission[] {
 /**
  * Get rate limit tier from role.
  */
-export function getRateLimitTier(role: Role): "free" | "pro" | "admin" {
+export function getRateLimitTier(role: Role): "guest" | "free" | "pro" | "admin" {
   return role
 }

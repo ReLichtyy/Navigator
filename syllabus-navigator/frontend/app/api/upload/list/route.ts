@@ -23,7 +23,7 @@ export async function GET() {
       const rows = await sql`
         SELECT id, original_filename, status, graph_status, created_at
         FROM syllabus_uploads
-        WHERE user_id = ${userId}
+        WHERE user_id = ${userId}::uuid
         ORDER BY created_at DESC
       `
       return rows

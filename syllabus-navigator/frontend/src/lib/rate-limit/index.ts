@@ -13,7 +13,7 @@ import { logWarn } from "@/lib/observability/logger"
 
 // ── Rate limit tiers ─────────────────────────────────────────────────────────
 
-export type RateLimitTier = "free" | "pro" | "admin"
+export type RateLimitTier = "guest" | "free" | "pro" | "admin"
 
 export interface RateLimitConfig {
   maxRequests: number
@@ -21,6 +21,7 @@ export interface RateLimitConfig {
 }
 
 export const RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
+  guest: { maxRequests: 5, windowMs: 60_000 },    // 5 req/min
   free: { maxRequests: 20, windowMs: 60_000 },   // 20 req/min
   pro: { maxRequests: 60, windowMs: 60_000 },   // 60 req/min
   admin: { maxRequests: 200, windowMs: 60_000 },   // 200 req/min

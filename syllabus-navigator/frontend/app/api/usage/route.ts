@@ -29,6 +29,9 @@ export async function GET(request: Request) {
     logError("api.usage.error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json({ error: "Failed to load usage data." }, { status: 500 })
+    return NextResponse.json({ 
+      error: "Failed to load usage data.",
+      details: err instanceof Error ? err.message : String(err)
+    }, { status: 500 })
   }
 }

@@ -5,6 +5,7 @@ import { ChatThread } from "@/components/navigator/chat-thread"
 import { HistorySidebar } from "@/components/navigator/history-sidebar"
 import { MobileHistorySheet } from "@/components/navigator/mobile-history-sheet"
 import { TopHeader } from "@/components/navigator/top-header"
+import { GuestBanner } from "@/components/navigator/guest-banner"
 import GraphCanvas from "@/components/GraphCanvas"
 import { useChatWorkspace } from "@/hooks/useChatWorkspace"
 
@@ -46,6 +47,8 @@ export default function Page() {
           onSelectKnowledge={ws.selectKnowledge}
           activeDocumentName={ws.activeDocumentName}
         />
+        
+        <GuestBanner />
 
         <section className="relative flex min-h-0 flex-1 flex-col">
           <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col px-4 sm:px-6">

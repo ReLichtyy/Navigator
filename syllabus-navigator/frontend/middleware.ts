@@ -70,6 +70,18 @@ export default auth(async (req) => {
     return NextResponse.redirect(loginUrl)
   }
 
+  // Check guest restrictions for private paths
+  const isGuest = req.auth.user.role === "guest"
+  const isPrivate = pathname.startsWith("/settings") || 
+                    pathname.startsWith("/api/user/preferences") ||
+                    pathname.startsWith("/api/usage")
+
+  if (isGuest && isPrivate) {
+    // Redirect guests trying to access settings to the home page
+    const homeUrl = new URL("/", req.url)
+    return NextResponse.redirect(homeUrl)
+  }
+
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set("x-trace-id", traceId)
   return NextResponse.next({ request: { headers: requestHeaders } })

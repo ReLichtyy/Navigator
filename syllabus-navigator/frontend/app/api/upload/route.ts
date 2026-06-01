@@ -19,6 +19,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    if (session.user.role === "guest") {
+      return NextResponse.json({ error: "Guests cannot upload files. Please create an account to unlock this feature." }, { status: 403 })
+    }
+
     const userId = session.user.id
 
     const formData = await request.formData().catch(() => null)
