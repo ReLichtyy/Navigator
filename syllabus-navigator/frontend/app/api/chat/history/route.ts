@@ -1,78 +1,47 @@
-/**
- * GET  /api/chat/history — List all chats for the authenticated user.
- * POST /api/chat/history — Create a new chat.
- */
-
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth/config"
-import { sql } from "@/lib/db"
+import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
+import { ChatRepository } from "@/lib/server/repositories/chat.repo"
 import { cached, invalidatePrefix } from "@/lib/cache"
 import { logError, logInfo } from "@/lib/observability/logger"
-import { checkRateLimit } from "@/lib/rate-limit"
+import { CreateChatSchema } from "@/lib/server/validators/api.schemas"
 
 export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const userId = session.user.id
+    const { userId } = await requireAuth()
 
     const chats = await cached(`chats:list:${userId}`, 30, async () => {
-      const rows = await sql`
-        SELECT
-          c.id, c.title, c.active_model, c.syllabus_id,
-          c.created_at,
-          COUNT(m.id)::int AS message_count
-        FROM chats c
-        LEFT JOIN messages m ON m.chat_id = c.id
-        WHERE c.user_id = ${userId}
-        GROUP BY c.id
-        ORDER BY c.created_at DESC
-      `
-      return rows
+      return await ChatRepository.listChats(userId)
     })
 
     return NextResponse.json({ chats })
   } catch (err) {
-    logError("api.chat.history.list_error", {
-      error: err instanceof Error ? err.message : String(err),
-    })
-    return NextResponse.json({ 
-      error: "Failed to load chats.",
-      details: err instanceof Error ? err.message : String(err)
-    }, { status: 500 })
+    if (err instanceof ApiErrorResponse) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    logError("api.chat.history.list_error", { error: err instanceof Error ? err.message : String(err) })
+    return NextResponse.json({ error: "Failed to load chats." }, { status: 500 })
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const userId = session.user.id
-    const userRole = session.user.role ?? "free"
+    const { userId, role } = await requireAuth()
+    
+    // Validate request
     const body = await request.json().catch(() => ({}))
-    const syllabusId = body.syllabus_id || null
-
-    // ── 0. Rate Limiting ───────────────────────────────────────────────────
-    const rl = await checkRateLimit(userId, userRole === "guest" ? "guest" : "authenticated")
-    if (!rl.success) {
-      return NextResponse.json(
-        { error: "Rate limit exceeded. Please wait before creating more chats." },
-        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
-      )
+    const parsedBody = CreateChatSchema.safeParse(body)
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: parsedBody.error.issues[0].message }, { status: 400 })
     }
+    
+    const syllabusId = parsedBody.data.syllabus_id || null
 
-    // ── 1. Guest Limit Enforcement ─────────────────────────────────────────
-    if (userRole === "guest") {
-      const countRows = await sql`SELECT COUNT(id)::int as total FROM chats WHERE user_id = ${userId}::uuid`
-      const totalChats = (countRows as { total: number }[])[0].total
+    await requireRateLimit(userId, role)
+
+    if (role === "guest") {
+      const totalChats = await ChatRepository.countChats(userId)
       if (totalChats >= 3) {
         logInfo("api.chat.history.guest_limit_reached", { userId })
         return NextResponse.json(
@@ -82,33 +51,17 @@ export async function POST(request: Request) {
       }
     }
 
-    const rows = await sql`
-      INSERT INTO chats (user_id, title, active_model, syllabus_id)
-      VALUES (
-        ${userId},
-        'New chat',
-        'gpt-4o-mini',
-        ${syllabusId}::uuid
-      )
-      RETURNING id, title, active_model, syllabus_id, created_at
-    `
-
-    const chat = (rows as Record<string, unknown>[])[0]
-
-    // Invalidate chat list cache
+    const chat = await ChatRepository.createChat(userId, syllabusId)
     await invalidatePrefix(`chats:list:${userId}`)
+    
+    logInfo("api.chat.history.created", { userId, chatId: chat.id })
 
-    return NextResponse.json(
-      { ...chat, message_count: 0 },
-      { status: 201 },
-    )
+    return NextResponse.json(chat)
   } catch (err) {
-    logError("api.chat.history.create_error", {
-      error: err instanceof Error ? err.message : String(err),
-    })
-    return NextResponse.json({ 
-      error: "Failed to create chat.",
-      details: err instanceof Error ? err.message : String(err)
-    }, { status: 500 })
+    if (err instanceof ApiErrorResponse) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    logError("api.chat.history.create_error", { error: err instanceof Error ? err.message : String(err) })
+    return NextResponse.json({ error: "Failed to create chat." }, { status: 500 })
   }
 }

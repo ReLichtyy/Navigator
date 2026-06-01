@@ -1,0 +1,98 @@
+import { sql } from "@/lib/db"
+import type { ChatOutAPI } from "@/types/api"
+
+export interface DbChat {
+  id: string
+  active_model: string
+  syllabus_id: string | null
+}
+
+export interface DbMessage {
+  role: string
+  content: string
+}
+
+export const ChatRepository = {
+  async findByIdAndUser(chatId: string, userId: string): Promise<DbChat | undefined> {
+    const rows = await sql`
+      SELECT id, active_model, syllabus_id 
+      FROM chats
+      WHERE id = ${chatId}::uuid AND user_id = ${userId}
+    `
+    return rows[0] as DbChat | undefined
+  },
+
+  async getRecentHistory(chatId: string, limit: number): Promise<DbMessage[]> {
+    const rows = await sql`
+      SELECT role, content 
+      FROM (
+        SELECT role, content, created_at
+        FROM messages
+        WHERE chat_id = ${chatId}::uuid
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      ) as recent
+      ORDER BY created_at ASC
+    `
+    return rows as DbMessage[]
+  },
+
+  async getAllHistory(chatId: string): Promise<DbMessage[]> {
+    const rows = await sql`
+      SELECT role, content 
+      FROM messages
+      WHERE chat_id = ${chatId}::uuid
+      ORDER BY created_at ASC
+    `
+    return rows as DbMessage[]
+  },
+
+  async saveMessage(chatId: string, role: string, content: string): Promise<void> {
+    await sql`
+      INSERT INTO messages (chat_id, role, content)
+      VALUES (${chatId}::uuid, ${role}, ${content})
+    `
+  },
+
+  async updateTitle(chatId: string, title: string): Promise<void> {
+    await sql`
+      UPDATE chats 
+      SET title = ${title} 
+      WHERE id = ${chatId}::uuid
+    `
+  },
+
+  async countChats(userId: string): Promise<number> {
+    const rows = await sql`SELECT COUNT(id)::int as total FROM chats WHERE user_id = ${userId}::uuid`
+    return (rows as { total: number }[])[0].total
+  },
+
+  async listChats(userId: string) {
+    return sql`
+      SELECT
+        c.id, c.title, c.active_model, c.syllabus_id,
+        c.created_at,
+        COUNT(m.id)::int AS message_count
+      FROM chats c
+      LEFT JOIN messages m ON m.chat_id = c.id
+      WHERE c.user_id = ${userId}
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+    `
+  },
+
+  async createChat(userId: string, syllabusId: string | null) {
+    const rows = await sql`
+      INSERT INTO chats (user_id, title, active_model, syllabus_id)
+      VALUES (
+        ${userId},
+        'New chat',
+        'gpt-4o-mini',
+        ${syllabusId}::uuid
+      )
+      RETURNING id, title, active_model, syllabus_id, created_at
+    `
+    return rows[0]
+  }
+}
+

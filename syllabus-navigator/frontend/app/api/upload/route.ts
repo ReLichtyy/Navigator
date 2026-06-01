@@ -1,39 +1,20 @@
-/**
- * POST /api/upload — Upload a syllabus PDF.
- */
-
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth/config"
-import { sql } from "@/lib/db"
+import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
+import { DocumentService } from "@/lib/server/services/document.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
-import { checkRateLimit } from "@/lib/rate-limit"
 
 export const dynamic = "force-dynamic"
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
-
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const { userId, role } = await requireAuth()
 
-    if (session.user.role === "guest") {
+    if (role === "guest") {
       return NextResponse.json({ error: "Guests cannot upload files. Please create an account to unlock this feature." }, { status: 403 })
     }
 
-    const userId = session.user.id
-
-    // ── 0. Rate Limiting ───────────────────────────────────────────────────
-    const rl = await checkRateLimit(userId, "authenticated")
-    if (!rl.success) {
-      return NextResponse.json(
-        { error: "Upload rate limit exceeded. Please wait." },
-        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
-      )
-    }
+    await requireRateLimit(userId, role)
 
     const formData = await request.formData().catch(() => null)
     if (!formData) {
@@ -45,32 +26,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No file provided." }, { status: 400 })
     }
 
-    // Validate file type
-    if (file.type !== "application/pdf") {
-      return NextResponse.json({ error: "Only PDF files are allowed." }, { status: 400 })
-    }
+    const upload = await DocumentService.processUpload(userId, file)
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json(
-        { error: `File size exceeds the 5MB limit. (Got ${(file.size / 1024 / 1024).toFixed(2)}MB)` },
-        { status: 400 }
-      )
-    }
-
-    // Store in DB (metadata)
-    // NOTE: In a real environment we would upload `file` to S3 or similar.
-    // For now we fulfill the backlog by registering the upload.
-    const mockSourceHash = crypto.randomUUID()
-    const rows = await sql`
-      INSERT INTO syllabus_uploads (user_id, original_filename, source_hash, status, graph_status)
-      VALUES (${userId}, ${file.name}, ${mockSourceHash}, 'ready', 'pending')
-      RETURNING id, original_filename
-    `
-
-    const upload = (rows as { id: string; original_filename: string }[])[0]
-
-    // Invalidate cache
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.success", { userId, uploadId: upload.id, filename: upload.original_filename })
@@ -83,6 +40,10 @@ export async function POST(request: Request) {
       { status: 201 }
     )
   } catch (err) {
+    if (err instanceof ApiErrorResponse) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    
     logError("api.upload.error", {
       error: err instanceof Error ? err.message : String(err),
     })

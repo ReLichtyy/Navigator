@@ -1,42 +1,32 @@
 import { NextResponse } from "next/server"
-import { sql } from "@/lib/db"
-import { auth } from "@/lib/auth/config"
+import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
+import { DocumentRepository } from "@/lib/server/repositories/document.repo"
 import { logInfo, logError } from "@/lib/observability/logger"
 
-export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+type RouteParams = { params: Promise<{ id: string }> }
 
-    const { id } = params
-    const userId = session.user.id
+export async function DELETE(request: Request, { params }: RouteParams) {
+  try {
+    const { userId } = await requireAuth()
+    const { id } = await params
 
     // Verify ownership
-    const existing = await sql`
-      SELECT id FROM syllabus_uploads 
-      WHERE id = ${id}::uuid AND user_id = ${userId}
-    `
-    if ((existing as unknown[]).length === 0) {
+    const existing = await DocumentRepository.findByIdAndUser(id, userId)
+    if (!existing) {
       return NextResponse.json({ error: "Upload not found" }, { status: 404 })
     }
 
     // Delete the upload.
-    // Thanks to ON DELETE CASCADE on topics and topic_dependencies,
-    // and ON DELETE SET NULL on chats.syllabus_id, this is safe to just delete.
-    await sql`
-      DELETE FROM syllabus_uploads 
-      WHERE id = ${id}::uuid AND user_id = ${userId}
-    `
+    await DocumentRepository.deleteDocument(id)
 
     logInfo("api.upload.deleted", { userId, uploadId: id })
 
     return NextResponse.json({ success: true })
   } catch (err) {
+    if (err instanceof ApiErrorResponse) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    
     logError("api.upload.delete_error", {
       error: err instanceof Error ? err.message : String(err),
     })
