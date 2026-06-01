@@ -1,16 +1,6 @@
-/**
- * middleware.ts — Edge middleware for auth protection and rate limiting.
- *
- * Runs on every request before route handlers.
- * - Redirects unauthenticated users to /login (except public routes).
- * - Sets trace ID header for observability.
- */
-
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-import { auth } from "@/lib/auth/config"
-import { checkRateLimit, isRateLimitEnabled } from "@/lib/rate-limit"
-import { startTrace } from "@/lib/observability/trace"
+import { getToken } from "next-auth/jwt"
 
 // Routes that don't require authentication
 const PUBLIC_PATHS = [
@@ -24,10 +14,10 @@ function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p))
 }
 
-export default auth(async (req) => {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Allow static files and Next.js internals
+  // 1. Allow static files and Next.js internals
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
@@ -36,42 +26,30 @@ export default auth(async (req) => {
     return NextResponse.next()
   }
 
-  // Set trace ID for observability
-  const traceId = startTrace()
+  // 2. Pure Edge-safe traceability
+  const traceId = crypto.randomUUID()
+  const requestHeaders = new Headers(req.headers)
+  requestHeaders.set("x-trace-id", traceId)
+  
+  const response = NextResponse.next({ request: { headers: requestHeaders } })
 
-  // Rate Limiting (apply to all non-static paths, public or not)
-  if (isRateLimitEnabled()) {
-    const identifier = req.auth?.user?.id ?? req.ip ?? "anonymous"
-    const tier = req.auth?.user?.role ?? "free"
-    
-    const rl = await checkRateLimit(identifier, tier)
-    if (!rl.allowed) {
-      return NextResponse.json(
-        { error: "Too Many Requests", traceId },
-        { 
-          status: 429, 
-          headers: { "Retry-After": String(Math.ceil((rl.retryAfterMs ?? 60000) / 1000)) } 
-        }
-      )
-    }
-  }
-
-  // Allow public routes
+  // 3. Allow public routes
   if (isPublic(pathname)) {
-    const requestHeaders = new Headers(req.headers)
-    requestHeaders.set("x-trace-id", traceId)
-    return NextResponse.next({ request: { headers: requestHeaders } })
+    return response
   }
 
-  // Check authentication
-  if (!req.auth) {
+  // 4. Check authentication using getToken (Totalmente Edge Safe)
+  // Requires AUTH_SECRET in .env
+  const token = await getToken({ req, secret: process.env.AUTH_SECRET })
+
+  if (!token) {
     const loginUrl = new URL("/login", req.url)
     loginUrl.searchParams.set("callbackUrl", pathname)
     return NextResponse.redirect(loginUrl)
   }
 
-  // Check guest restrictions for private paths
-  const isGuest = req.auth.user.role === "guest"
+  // 5. Check guest restrictions for private paths
+  const isGuest = token.role === "guest"
   const isPrivate = pathname.startsWith("/settings") || 
                     pathname.startsWith("/api/user/preferences") ||
                     pathname.startsWith("/api/usage")
@@ -82,10 +60,8 @@ export default auth(async (req) => {
     return NextResponse.redirect(homeUrl)
   }
 
-  const requestHeaders = new Headers(req.headers)
-  requestHeaders.set("x-trace-id", traceId)
-  return NextResponse.next({ request: { headers: requestHeaders } })
-})
+  return response
+}
 
 export const config = {
   // Run middleware on all routes except static assets

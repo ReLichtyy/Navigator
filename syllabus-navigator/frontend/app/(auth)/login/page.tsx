@@ -61,97 +61,103 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Logo */}
-      <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Navigator
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Sign in to your account
-        </p>
-      </div>
-
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        {error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            {error}
+    <div className="flex min-h-[80vh] items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md space-y-8 rounded-2xl border border-border/40 bg-card/50 p-8 shadow-xl backdrop-blur-sm sm:p-10">
+        {/* Logo & Header */}
+        <div className="flex flex-col items-center gap-2 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent/10">
+            <h1 className="text-2xl font-bold tracking-tighter text-accent">N</h1>
           </div>
-        )}
-
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="email" className="text-sm font-medium text-foreground">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            required
-            autoComplete="email"
-            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/40"
-          />
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
+            Welcome back
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Sign in to your account or continue as guest
+          </p>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-sm font-medium text-foreground">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••"
-            required
-            autoComplete="current-password"
-            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/40"
-          />
+        <div className="mt-8 space-y-6">
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {error && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                {error}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="email" className="text-sm font-medium text-foreground">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                autoComplete="email"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="password" className="text-sm font-medium text-foreground">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                required
+                autoComplete="current-password"
+                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || isGuestLoading}
+              className="mt-2 h-10 w-full rounded-lg bg-accent font-medium text-accent-foreground shadow-sm transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? "Signing in..." : "Sign in"}
+            </button>
+          </form>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border/60"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">Or</span>
+            </div>
+          </div>
+
+          {/* Guest Mode */}
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={handleGuest}
+              disabled={loading || isGuestLoading}
+              className="h-10 w-full rounded-lg border border-border bg-secondary/50 font-medium text-foreground shadow-sm transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isGuestLoading ? "Creating guest session..." : "Continue as Guest"}
+            </button>
+            <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
+              Guest mode is limited to 3 chats, 5 requests per minute, and cannot upload files.
+            </p>
+          </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={loading || isGuestLoading}
-          className="h-10 rounded-lg bg-accent font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {loading ? "Signing in..." : "Sign in"}
-        </button>
-      </form>
-
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-border" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">
-            Or
-          </span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={handleGuest}
-          disabled={loading || isGuestLoading}
-          className="h-10 w-full rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
-        >
-          {isGuestLoading ? "Creating guest session..." : "Continue as Guest"}
-        </button>
-        <p className="text-center text-xs text-muted-foreground">
-          Guest mode is limited to 3 chats, 5 requests per minute, and cannot upload files.
+        <p className="mt-8 text-center text-sm text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <Link href="/signup" className="font-semibold text-accent transition-colors hover:text-accent/80 hover:underline">
+            Sign up
+          </Link>
         </p>
       </div>
-
-      <p className="text-center text-sm text-muted-foreground">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="font-medium text-accent hover:underline">
-          Sign up
-        </Link>
-      </p>
     </div>
   )
 }
