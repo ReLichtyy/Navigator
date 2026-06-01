@@ -4,10 +4,12 @@ import { neon, neonConfig } from "@neondatabase/serverless"
 // invocation de Vercel Edge / Node.js.
 neonConfig.fetchConnectionCache = true
 
+const dbUrl = process.env.DATABASE_URL || "postgres://dummy:dummy@dummy/dummy"
+
 if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL no está definida. " +
-      "Añade la variable en .env.local (desarrollo) o en Vercel → Settings → Environment Variables (producción)."
+  console.warn(
+    "⚠️ DATABASE_URL no está definida. Si estás en build, puedes ignorar esto. " +
+    "Asegúrate de configurarla en runtime."
   )
 }
 
@@ -19,9 +21,9 @@ if (!process.env.DATABASE_URL) {
  * import { sql } from "@/lib/db"
  * const rows = await sql`SELECT NOW() AS time`
  */
-export const sql = neon(process.env.DATABASE_URL)
+export const sql = neon(dbUrl)
 
 /**
  * Conexión directa (opcional) recomendada para migraciones (scripts).
  */
-export const sqlDirect = neon(process.env.DATABASE_URL_DIRECT ?? process.env.DATABASE_URL)
+export const sqlDirect = neon(process.env.DATABASE_URL_DIRECT ?? dbUrl)

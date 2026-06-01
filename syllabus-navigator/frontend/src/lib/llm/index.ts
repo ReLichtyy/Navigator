@@ -5,7 +5,7 @@
  * It dispatches to the appropriate provider, measures latency, and logs usage.
  */
 
-import type { LLMConfig, LLMMessage, LLMProvider, LLMResponse } from "./types"
+import type { LLMConfig, LLMMessage, LLMProvider, LLMResponse, LLMStreamChunk } from "./types"
 import { openaiProvider } from "./providers/openai"
 import { openrouterProvider } from "./providers/openrouter"
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./config"
