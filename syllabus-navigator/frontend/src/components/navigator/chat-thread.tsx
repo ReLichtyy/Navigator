@@ -87,7 +87,7 @@ function MessageBubble({ message }: { message: Message }) {
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[78%] rounded-2xl rounded-br-md bg-zinc-900 px-4 py-2.5 text-sm leading-relaxed text-zinc-50 shadow-sm">
+        <div className="max-w-[78%] rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground shadow-sm">
           {message.content}
         </div>
       </div>
@@ -95,7 +95,7 @@ function MessageBubble({ message }: { message: Message }) {
   }
 
   return (
-    <div className="flex items-start gap-2.5">
+    <div className="flex items-start gap-2.5 group">
       <span
         aria-hidden="true"
         className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent ring-1 ring-accent/20"
@@ -105,7 +105,7 @@ function MessageBubble({ message }: { message: Message }) {
 
       <div
         className={cn(
-          "min-w-0 max-w-[82%] rounded-2xl rounded-tl-md border border-zinc-100 bg-transparent px-4 py-2.5",
+          "min-w-0 max-w-[82%] rounded-2xl rounded-tl-md border border-border/60 bg-transparent px-4 py-2.5",
           message.pending && "py-3",
         )}
       >

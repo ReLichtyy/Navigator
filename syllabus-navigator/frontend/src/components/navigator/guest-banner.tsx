@@ -72,7 +72,7 @@ export function GuestBanner() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="h-10 rounded-lg border border-border bg-secondary/50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
                   placeholder="you@example.com"
                 />
               </div>
@@ -85,7 +85,7 @@ export function GuestBanner() {
                   minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="h-10 rounded-lg border border-border bg-secondary/50 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
                   placeholder="Min. 6 characters"
                 />
               </div>
