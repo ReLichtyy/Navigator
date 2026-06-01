@@ -26,7 +26,7 @@ export function ChatComposer({
   disabled?: boolean
   onAddAttachment: (file: AttachedFile) => void
   onRemoveAttachment: (id: string) => void
-  onSend: (text: string) => void
+  onSend: (text: string) => void | Promise<boolean>
   onModelChange?: (model: string) => void
 }) {
   const [value, setValue] = useState("")
@@ -91,10 +91,17 @@ export function ChatComposer({
     [onAddAttachment],
   )
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!canSend) return
-    onSend(value)
+    const currentVal = value
     setValue("")
+    const result = onSend(currentVal)
+    if (result instanceof Promise) {
+      const success = await result
+      if (success === false) {
+        setValue(currentVal) // Restore text on failure
+      }
+    }
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

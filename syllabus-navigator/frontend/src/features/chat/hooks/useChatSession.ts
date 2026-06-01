@@ -24,12 +24,24 @@ export function useChatSession(activeChatId: string | null) {
   const abortRef = useRef<AbortController | null>(null)
   const activeChatIdRef = useRef(activeChatId)
   activeChatIdRef.current = activeChatId
+  const loadedChatIdRef = useRef<string | null>(null)
 
   // Fetch chat details when activeChatId changes
   useEffect(() => {
     if (!activeChatId || !userReady) {
       setActiveChat(null)
+      loadedChatIdRef.current = null
       return
+    }
+
+    if (activeChatId === "draft") {
+      setMessagesLoading(false)
+      loadedChatIdRef.current = "draft"
+      return
+    }
+
+    if (loadedChatIdRef.current === activeChatId) {
+      return // Pre-seeded, skip fetch
     }
 
     if (abortRef.current) {
@@ -50,10 +62,11 @@ export function useChatSession(activeChatId: string | null) {
           activeModel: detail.active_model,
           syllabusId: detail.syllabus_id,
           createdAt: detail.created_at,
-          timestamp: "", // Could reuse relativeTime here
+          timestamp: "",
           messageCount: detail.message_count,
           messages: detail.messages.map(mapApiMessage),
         })
+        loadedChatIdRef.current = activeChatId
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return
         console.error("[useChatSession] Error fetching details:", err)
@@ -73,6 +86,12 @@ export function useChatSession(activeChatId: string | null) {
       ac.abort()
     }
   }, [activeChatId, userReady, userStatus])
+
+  const initializeSession = useCallback((chat: Chat) => {
+    loadedChatIdRef.current = chat.id
+    setActiveChat(chat)
+    setMessagesLoading(false)
+  }, [])
 
   const addOptimisticMessage = useCallback((msg: Message) => {
     setActiveChat((prev) => {
@@ -98,6 +117,7 @@ export function useChatSession(activeChatId: string | null) {
   return {
     activeChat,
     setActiveChat, // Expose to allow top-level overrides if needed
+    initializeSession,
     messagesLoading,
     addOptimisticMessage,
     updateMessage,

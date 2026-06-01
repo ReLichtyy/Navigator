@@ -8,6 +8,7 @@ import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useChatList } from "../hooks/useChatList"
 import { useChatSession } from "../hooks/useChatSession"
+import { useChatOrchestrator } from "../hooks/useChatOrchestrator"
 import { querySyllabus, uploadSyllabus, updateChat, ApiError, fetchGraph, reprocessGraph } from "@/lib/api"
 import type { GraphResponseAPI } from "@/types/api"
 
@@ -27,12 +28,16 @@ export interface ChatWorkspaceState {
   activeChat: Chat | null
   messagesLoading: boolean
   
+  // Orchestrator States
+  isSending: boolean
+  isCreatingChat: boolean
+  
   // Actions
   selectChat: (id: string) => void
   handleNewChat: () => void
   handleDeleteChat: (id: string) => void
   handleRenameChat: (id: string, title: string) => void
-  sendMessage: (text: string) => void
+  sendMessage: (text: string) => Promise<boolean>
   handleModelChange: (model: string) => void
   
   // Attachments & Knowledge
@@ -75,7 +80,26 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
 
   // --- Domain Hooks ---
   const { chats, setChats, chatsLoading, chatsError, createChat, deleteChat, renameChat } = useChatList()
-  const { activeChat, setActiveChat, messagesLoading } = useChatSession(activeChatId)
+  const { activeChat, setActiveChat, initializeSession, messagesLoading } = useChatSession(activeChatId)
+
+  // --- Orchestrator ---
+  const { handleNewChat, sendMessage, isSending, isCreatingChat } = useChatOrchestrator({
+    userStatus,
+    openAuthModal,
+    activeSyllabusId,
+    chats,
+    setChats,
+    createChat,
+    activeChatId,
+    setActiveChatId,
+    activeChat,
+    setActiveChat,
+    initializeSession,
+    abortRef,
+    activeChatIdRef,
+    setTransitionKey,
+    setMobileHistoryOpen,
+  })
 
   // --- Bootstrapping ---
   useEffect(() => {
@@ -96,15 +120,6 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     const c = chats.find((x) => x.id === id)
     if (c?.syllabusId) setActiveSyllabusId(c.syllabusId)
   }, [chats, setActiveSyllabusId])
-
-  const handleNewChat = useCallback(async () => {
-    const created = await createChat(undefined, activeSyllabusId)
-    if (created) {
-      setActiveChatId(created.id)
-      setTransitionKey((k) => k + 1)
-      setMobileHistoryOpen(false)
-    }
-  }, [createChat, activeSyllabusId])
 
   const handleDeleteChat = useCallback(async (id: string) => {
     const success = await deleteChat(id)
@@ -132,51 +147,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     }
   }, [activeChatId, setChats])
 
-  const sendMessage = useCallback((text: string) => {
-    if (userStatus === "anonymous") {
-      openAuthModal("login")
-      return
-    }
-    const trimmed = text.trim()
-    if (!trimmed || !activeChatId) return
 
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    const chatIdForRequest = activeChatId
-    const pendingId = `p-${Date.now()}`
-    
-    // Optimistic UI
-    const userMsg: Message = { id: `u-${Date.now()}`, chatId: chatIdForRequest, role: "user", content: trimmed, createdAt: new Date().toISOString() }
-    const pendingMsg: Message = { id: pendingId, chatId: chatIdForRequest, role: "ai", content: "", createdAt: new Date().toISOString(), pending: true } as any
-
-    setActiveChat((prev) => prev ? { ...prev, messages: [...prev.messages, userMsg, pendingMsg] } : prev)
-
-    querySyllabus(activeSyllabusId ?? null, trimmed, chatIdForRequest, undefined, controller.signal)
-      .then((data) => {
-        if (activeChatIdRef.current !== chatIdForRequest) return
-        setActiveChat((prev) => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            title: data.title ?? prev.title,
-            messages: prev.messages.map((m) => m.id === pendingId ? { ...m, pending: false, content: data.answer, citations: data.citations as any } : m)
-          }
-        })
-        setChats((prev) => prev.map((c) => c.id === chatIdForRequest ? { ...c, title: data.title ?? c.title } : c))
-      })
-      .catch((error) => {
-        if (error instanceof Error && error.name === "AbortError") return
-        if (activeChatIdRef.current !== chatIdForRequest) return
-        const friendlyMsg = error instanceof ApiError ? error.message : "Sorry, I encountered an error."
-        toast.error(friendlyMsg)
-        setActiveChat((prev) => prev ? {
-          ...prev,
-          messages: prev.messages.map((m) => m.id === pendingId ? { ...m, pending: false, content: `⚠️ ${friendlyMsg}` } : m)
-        } : prev)
-      })
-  }, [activeChatId, activeSyllabusId, userStatus, openAuthModal, setActiveChat, setChats])
 
   useEffect(() => {
     if (pendingQuery) {
@@ -257,6 +228,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     <ChatWorkspaceContext.Provider value={{
       sidebarCollapsed, setSidebarCollapsed, mobileHistoryOpen, setMobileHistoryOpen, transitionKey,
       chats, chatsLoading, chatsError, activeChatId, activeChat, messagesLoading,
+      isSending, isCreatingChat,
       selectChat, handleNewChat, handleDeleteChat, handleRenameChat, sendMessage, handleModelChange,
       attachments, addAttachment, removeAttachment, activeDocumentName, selectKnowledge,
       viewMode, toggleViewMode, graphData, handleReprocessGraph, activeSyllabusId

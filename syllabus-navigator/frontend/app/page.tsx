@@ -128,7 +128,7 @@ function PageContent() {
                   attachments={ws.attachments}
                   activeModel={ws.activeChat?.activeModel}
                   hasSyllabus={Boolean(ws.activeSyllabusId)}
-                  disabled={!ws.activeChatId}
+                  disabled={ws.isSending || ws.isCreatingChat || ws.messagesLoading}
                   onAddAttachment={ws.addAttachment}
                   onRemoveAttachment={ws.removeAttachment}
                   onSend={ws.sendMessage}
