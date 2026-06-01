@@ -20,6 +20,7 @@
 2. Add observability (OpenTelemetry traces, structured logs).
 3. Add migrations (Alembic) and seed data.
 4. Add feature flags for LLM provider and vector DB swapping.
+5. Add deployment + Vercel wiring checklist (HTTPS backend, CORS_ALLOW_ORIGINS, NEXT_PUBLIC_API_URL).
 
 ## Sprint 4 (Product Expansion)
 

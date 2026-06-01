@@ -19,6 +19,12 @@ Industrial-grade foundation for an academic RAG platform.
    - API docs: `http://localhost:8000/docs`
    - Frontend: `http://localhost:3000`
 
+## Connect a Vercel frontend
+
+1. Expose the backend over HTTPS and confirm `GET /health` works.
+2. Add your Vercel URL to `CORS_ALLOW_ORIGINS` in `.env` (comma-separated).
+3. In Vercel, set `NEXT_PUBLIC_API_URL` to your backend base URL (no `/api` prefix).
+
 ## Data model (MVP)
 
 Graph-oriented tables from `docker/postgres/init.sql` (`programs`, `courses`, `syllabi`, `topics`, …) remain for future Sprint 2 work. **MVP uploads** use the parallel table **`syllabus_uploads`** (see same `init.sql`) so PDF ingest does not require seeding `courses` / `syllabi` FKs.

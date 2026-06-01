@@ -8,17 +8,27 @@ import type { Message } from "@/components/navigator/types"
 const prompts = [
   {
     id: "p1",
-    title: "Generate a Next.js app",
-    description: "with App Router, Tailwind, and a clean dashboard layout.",
+    title: "¿Cuáles son los temas del curso?",
+    description: "Lista los temas principales y su peso en la evaluación.",
   },
   {
     id: "p2",
-    title: "Create a golang server",
-    description: "with REST endpoints, graceful shutdown, and structured logs.",
+    title: "¿Cómo se evalúa este curso?",
+    description: "Muestra los criterios, porcentajes y fechas de evaluación.",
+  },
+  {
+    id: "p3",
+    title: "Resume el sílabo completo",
+    description: "Genera un resumen ejecutivo del contenido del curso.",
+  },
+  {
+    id: "p4",
+    title: "¿Cuáles son los prerequisitos?",
+    description: "Identifica los conocimientos previos necesarios para el curso.",
   },
 ]
 
-export function ChatThread({ messages }: { messages: Message[] }) {
+export function ChatThread({ messages, onPrompt }: { messages: Message[]; onPrompt?: (text: string) => void }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -32,7 +42,7 @@ export function ChatThread({ messages }: { messages: Message[] }) {
       <div className="animate-fade-in flex h-full flex-col items-center justify-center gap-6 py-10">
         <div className="flex flex-col items-center text-center">
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Click and try one of these prompts:
+            Sube un sílabo PDF y prueba con una de estas preguntas:
           </p>
         </div>
 
@@ -41,6 +51,7 @@ export function ChatThread({ messages }: { messages: Message[] }) {
             <button
               key={p.id}
               type="button"
+              onClick={() => onPrompt?.(p.title)}
               className="group flex flex-col items-start gap-1.5 rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-accent/40 hover:bg-secondary/60"
             >
               <div className="flex w-full items-start justify-between gap-2">

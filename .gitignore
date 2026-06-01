@@ -14,3 +14,12 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Embedded repo clone — no subir
+Navigator/
+
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+

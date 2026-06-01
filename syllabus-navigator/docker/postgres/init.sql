@@ -1,5 +1,29 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- ============================================================================
+-- MVP RAG uploads — MUST be created before topics/topic_dependencies
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS syllabus_uploads (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id TEXT NOT NULL,
+  original_filename TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error_message TEXT,
+  graph_status TEXT NOT NULL DEFAULT 'pending',
+  graph_error TEXT,
+  graph_generated_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, source_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_user_id ON syllabus_uploads(user_id);
+CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_status ON syllabus_uploads(status);
+
+-- ============================================================================
+-- Future schema (programs / courses / syllabi) — reserved for Sprint 4
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS programs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL UNIQUE,
@@ -29,6 +53,9 @@ CREATE TABLE IF NOT EXISTS syllabi (
   UNIQUE (source_hash)
 );
 
+-- ============================================================================
+-- Knowledge Graph — topics and dependencies
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS topics (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   syllabus_id UUID NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
@@ -52,26 +79,9 @@ CREATE TABLE IF NOT EXISTS topic_dependencies (
   UNIQUE (prerequisite_topic_id, target_topic_id, relation_type)
 );
 
--- MVP RAG uploads (Option A: parallel to graph schema syllabi/topics until Sprint 2)
-CREATE TABLE IF NOT EXISTS syllabus_uploads (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id TEXT NOT NULL,
-  original_filename TEXT NOT NULL,
-  source_hash TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  error_message TEXT,
-  graph_status TEXT NOT NULL DEFAULT 'pending',
-  graph_error TEXT,
-  graph_generated_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, source_hash)
-);
-
-CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_user_id ON syllabus_uploads(user_id);
-CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_status ON syllabus_uploads(status);
-
--- Chat threads (one per conversation)
+-- ============================================================================
+-- Chat threads and messages
+-- ============================================================================
 CREATE TABLE IF NOT EXISTS chats (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id TEXT NOT NULL,
@@ -81,7 +91,6 @@ CREATE TABLE IF NOT EXISTS chats (
 );
 CREATE INDEX IF NOT EXISTS idx_chats_user_id ON chats(user_id);
 
--- Individual messages within a chat
 CREATE TABLE IF NOT EXISTS messages (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,

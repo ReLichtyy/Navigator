@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     embedding_model: str = "text-embedding-3-small"
     chat_model: str = "gpt-4o-mini"
+    cors_allow_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
 

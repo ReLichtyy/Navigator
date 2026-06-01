@@ -415,7 +415,7 @@ function SyllabusWorkspace() {
                   <div className="h-2 w-28 animate-pulse rounded-full bg-muted-foreground/20" />
                 </div>
               ) : viewMode === "chat" ? (
-                <ChatThread key={transitionKey} messages={activeChat?.messages ?? []} />
+                <ChatThread key={transitionKey} messages={activeChat?.messages ?? []} onPrompt={sendMessage} />
               ) : graphData ? (
                 <GraphCanvas
                   nodes={graphData.nodes}
