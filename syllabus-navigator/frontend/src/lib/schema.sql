@@ -6,6 +6,32 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ---------------------------------------------------------------------------
+-- Users & Preferences
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email         TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  display_name  TEXT NOT NULL DEFAULT 'User',
+  role          TEXT NOT NULL DEFAULT 'free',
+  tenant_id     UUID,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+CREATE TABLE IF NOT EXISTS user_preferences (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id          UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  default_provider TEXT NOT NULL DEFAULT 'openai',
+  default_model    TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+  theme            TEXT NOT NULL DEFAULT 'dark',
+  language         TEXT NOT NULL DEFAULT 'es',
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
 -- MVP RAG uploads
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS syllabus_uploads (
@@ -109,3 +135,46 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
+
+-- ---------------------------------------------------------------------------
+-- Usage, Feedback & Jobs
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS usage_records (
+  id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider           TEXT NOT NULL,
+  model              TEXT NOT NULL,
+  prompt_tokens      INT NOT NULL DEFAULT 0,
+  completion_tokens  INT NOT NULL DEFAULT 0,
+  total_tokens       INT NOT NULL DEFAULT 0,
+  estimated_cost_usd NUMERIC(10,6) NOT NULL DEFAULT 0,
+  latency_ms         INT NOT NULL DEFAULT 0,
+  chat_id            UUID REFERENCES chats(id) ON DELETE SET NULL,
+  success            BOOLEAN NOT NULL DEFAULT true,
+  error_type         TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  rating     SMALLINT NOT NULL CHECK (rating IN (-1, 1)),
+  comment    TEXT,
+  prompt_id  TEXT,
+  model      TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS jobs (
+  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  type         TEXT NOT NULL,
+  payload      JSONB NOT NULL DEFAULT '{}',
+  status       TEXT NOT NULL DEFAULT 'pending',
+  priority     INT NOT NULL DEFAULT 0,
+  result       JSONB,
+  error        TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at   TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ
+);
