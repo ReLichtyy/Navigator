@@ -1,72 +1,113 @@
 /**
- * GET /api/health
+ * GET /api/health — Comprehensive health check.
  *
- * Healthcheck server-side que verifica:
- *   1. Que DATABASE_URL esté configurada.
- *   2. Que Neon responda correctamente (SELECT NOW()).
- *   3. Que las tablas clave de la app existen.
- *
- * ⚠️  Route Handler — server-side ONLY. DATABASE_URL nunca se expone al cliente.
- *
- * Respuesta 200 → sistema operativo.
- * Respuesta 503 → algún componente falla.
+ * Checks: database, LLM provider, cache, system status.
+ * Returns 200 if all OK, 503 if any subsystem is degraded.
  */
 
 import { sql } from "@/lib/db"
 import { NextResponse } from "next/server"
+import { getCache } from "@/lib/cache"
+import { cached } from "@/lib/cache"
+import { openaiProvider } from "@/lib/llm/providers/openai"
+import { openrouterProvider } from "@/lib/llm/providers/openrouter"
 
-// Tablas mínimas que deben existir para que la app funcione.
-const REQUIRED_TABLES = ["syllabus_uploads", "chats", "messages"]
+export const dynamic = "force-dynamic"
+
+const REQUIRED_TABLES = [
+  "syllabus_uploads",
+  "programs",
+  "courses",
+  "syllabi",
+  "topics",
+  "topic_dependencies",
+  "chats",
+  "messages",
+]
+
+const startTime = Date.now()
 
 export async function GET() {
-  const checks: Record<string, { ok: boolean; detail?: string }> = {}
+  // Use a 10s cache to prevent health-check spam
+  const result = await cached("health:status", 10, async () => {
+    const checks: Record<string, { ok: boolean; detail?: string; latency_ms?: number }> = {}
 
-  // ── 1. Ping a Neon ────────────────────────────────────────────────────────
-  try {
-    const rows = await sql`SELECT NOW() AS time`
-    const dbTime: string = rows[0]?.time ?? "unknown"
-    checks.neon_ping = { ok: true, detail: dbTime }
-  } catch (err) {
-    checks.neon_ping = {
-      ok: false,
-      detail: err instanceof Error ? err.message : String(err),
+    // ── Database ──────────────────────────────────────────────────────────
+    const dbStart = performance.now()
+    try {
+      const rows = await sql`SELECT NOW() AS time`
+      const dbTime = (rows as { time: string }[])[0]?.time ?? "unknown"
+      const dbMs = Math.round(performance.now() - dbStart)
+
+      // Check tables
+      const tableRows = await sql`
+        SELECT tablename FROM pg_tables
+        WHERE schemaname = 'public'
+          AND tablename = ANY(${REQUIRED_TABLES})
+      `
+      const found = (tableRows as { tablename: string }[]).map((r) => r.tablename)
+      const missing = REQUIRED_TABLES.filter((t) => !found.includes(t))
+
+      checks.database = {
+        ok: missing.length === 0,
+        detail: missing.length === 0
+          ? `Connected. Server time: ${dbTime}`
+          : `Missing tables: ${missing.join(", ")}`,
+        latency_ms: dbMs,
+      }
+    } catch (err) {
+      checks.database = {
+        ok: false,
+        detail: err instanceof Error ? err.message : String(err),
+        latency_ms: Math.round(performance.now() - dbStart),
+      }
     }
-  }
 
-  // ── 2. Verificar tablas ───────────────────────────────────────────────────
-  try {
-    const rows = await sql`
-      SELECT tablename
-      FROM   pg_tables
-      WHERE  schemaname = 'public'
-        AND  tablename = ANY(${REQUIRED_TABLES})
-    `
-    const found = (rows as { tablename: string }[]).map((r) => r.tablename)
-    const missing = REQUIRED_TABLES.filter((t) => !found.includes(t))
+    // ── LLM Provider ──────────────────────────────────────────────────────
+    const llmProviders: string[] = []
+    if (openaiProvider.isConfigured()) llmProviders.push("openai")
+    if (openrouterProvider.isConfigured()) llmProviders.push("openrouter")
 
-    checks.required_tables = {
-      ok: missing.length === 0,
-      detail:
-        missing.length === 0
-          ? `Presentes: ${found.join(", ")}`
-          : `Faltan: ${missing.join(", ")} — ejecuta POST /api/db/migrate`,
+    checks.llm = {
+      ok: llmProviders.length > 0,
+      detail: llmProviders.length > 0
+        ? `Configured: ${llmProviders.join(", ")}`
+        : "No LLM provider configured. Set OPENAI_API_KEY or OPENROUTER_API_KEY.",
     }
-  } catch (err) {
-    checks.required_tables = {
-      ok: false,
-      detail: err instanceof Error ? err.message : String(err),
+
+    // ── Cache ─────────────────────────────────────────────────────────────
+    const cache = getCache()
+    try {
+      const testKey = "_health_check_"
+      await cache.set(testKey, "ok", 5)
+      const val = await cache.get<string>(testKey)
+      await cache.del(testKey)
+      checks.cache = {
+        ok: val === "ok",
+        detail: `Adapter: ${cache.name}. Read/write: ${val === "ok" ? "pass" : "fail"}.`,
+      }
+    } catch (err) {
+      checks.cache = {
+        ok: false,
+        detail: err instanceof Error ? err.message : String(err),
+      }
     }
-  }
 
-  // ── 3. Resultado final ────────────────────────────────────────────────────
-  const allOk = Object.values(checks).every((c) => c.ok)
+    // ── System ────────────────────────────────────────────────────────────
+    checks.system = {
+      ok: true,
+      detail: `Uptime: ${Math.round((Date.now() - startTime) / 1000)}s. Environment: ${process.env.NODE_ENV ?? "unknown"}.`,
+    }
 
-  return NextResponse.json(
-    {
+    const allOk = Object.values(checks).every((c) => c.ok)
+
+    return {
       status: allOk ? "ok" : "degraded",
       timestamp: new Date().toISOString(),
       checks,
-    },
-    { status: allOk ? 200 : 503 }
-  )
+    }
+  })
+
+  const statusCode = result.status === "ok" ? 200 : 503
+  return NextResponse.json(result, { status: statusCode })
 }

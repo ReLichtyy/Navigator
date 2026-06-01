@@ -1,78 +1,59 @@
 "use client"
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react"
-import { setApiUserId } from "@/lib/api"
+import { createContext, useContext, useEffect, useState, ReactNode } from "react"
+import { useSession } from "next-auth/react"
+import { signOut } from "next-auth/react"
 
-const USER_ID_KEY = "navigator_user_id"
-const DISPLAY_NAME_KEY = "navigator_display_name"
-
-type UserContextValue = {
-  userId: string
-  displayName: string
+interface UserContextType {
+  userId: string | null
+  displayName: string | null
   ready: boolean
-  setDisplayName: (name: string) => void
   resetIdentity: () => void
+  setDisplayName: (name: string) => void
 }
 
-const UserContext = createContext<UserContextValue | null>(null)
-
-function loadOrCreateUserId(): string {
-  let id = localStorage.getItem(USER_ID_KEY)
-  if (!id) {
-    id = crypto.randomUUID()
-    localStorage.setItem(USER_ID_KEY, id)
-  }
-  return id
-}
+const UserContext = createContext<UserContextType>({
+  userId: null,
+  displayName: null,
+  ready: false,
+  resetIdentity: () => {},
+  setDisplayName: () => {},
+})
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const [userId, setUserId] = useState("")
-  const [displayName, setDisplayNameState] = useState("Local User")
-  const [ready, setReady] = useState(false)
+  const { data: session, status } = useSession()
+  const [displayName, setDisplayNameState] = useState<string | null>(null)
 
   useEffect(() => {
-    const id = loadOrCreateUserId()
-    const name = localStorage.getItem(DISPLAY_NAME_KEY) || "Local User"
-    setUserId(id)
+    if (session?.user?.name) {
+      setDisplayNameState(session.user.name)
+    }
+  }, [session])
+
+  const setDisplayName = (name: string) => {
     setDisplayNameState(name)
-    setApiUserId(id)
-    setReady(true)
-  }, [])
+    // Note: To persist this to the DB, you would add an API route.
+  }
 
-  const setDisplayName = useCallback((name: string) => {
-    const trimmed = name.trim() || "Local User"
-    localStorage.setItem(DISPLAY_NAME_KEY, trimmed)
-    setDisplayNameState(trimmed)
-  }, [])
+  const resetIdentity = () => {
+    signOut({ callbackUrl: "/login" })
+  }
 
-  const resetIdentity = useCallback(() => {
-    const id = crypto.randomUUID()
-    localStorage.setItem(USER_ID_KEY, id)
-    localStorage.removeItem(DISPLAY_NAME_KEY)
-    setUserId(id)
-    setDisplayNameState("Local User")
-    setApiUserId(id)
-    window.location.reload()
-  }, [])
-
-  const value = useMemo(
-    () => ({ userId, displayName, ready, setDisplayName, resetIdentity }),
-    [userId, displayName, ready, setDisplayName, resetIdentity],
+  return (
+    <UserContext.Provider
+      value={{
+        userId: session?.user?.id ?? null,
+        displayName,
+        ready: status !== "loading",
+        resetIdentity,
+        setDisplayName,
+      }}
+    >
+      {children}
+    </UserContext.Provider>
   )
-
-  return <UserContext.Provider value={value}>{children}</UserContext.Provider>
 }
 
 export function useUser() {
-  const ctx = useContext(UserContext)
-  if (!ctx) throw new Error("useUser must be used within UserProvider")
-  return ctx
+  return useContext(UserContext)
 }

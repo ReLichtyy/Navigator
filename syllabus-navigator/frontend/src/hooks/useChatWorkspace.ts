@@ -98,7 +98,7 @@ export function useChatWorkspace() {
   const loadChatMessages = useCallback(
     async (chatId: string) => {
       try {
-        const detail = await getChatDetail(chatId, userId)
+        const detail = await getChatDetail(chatId, userId ?? undefined)
         const msgs = detail.messages.map(mapApiMessage)
         setChats((prev) =>
           prev.map((c) =>
@@ -144,9 +144,9 @@ export function useChatWorkspace() {
     setChatsLoading(true)
     setChatsError(null)
     try {
-      const { chats: apiChats } = await listChats(userId)
+      const { chats: apiChats } = await listChats(userId ?? undefined)
       if (apiChats.length === 0) {
-        const created = await newChat(undefined, userId)
+        const created = await newChat(undefined, userId ?? undefined)
         const fresh = mapApiChat(created)
         setChats([fresh])
         setActiveChatId(created.id)
@@ -186,7 +186,7 @@ export function useChatWorkspace() {
 
   const handleNewChat = useCallback(async () => {
     try {
-      const created = await newChat(activeSyllabusId ?? undefined, userId)
+      const created = await newChat(activeSyllabusId ?? undefined, userId ?? undefined)
       const fresh = mapApiChat(created)
       setChats((prev) => [fresh, ...prev])
       setActiveChatId(created.id)
@@ -200,7 +200,7 @@ export function useChatWorkspace() {
   const handleDeleteChat = useCallback(
     async (id: string) => {
       try {
-        await deleteChat(id, userId)
+        await deleteChat(id, userId ?? undefined)
         const remaining = chats.filter((c) => c.id !== id)
         if (id === activeChatId) {
           if (remaining.length > 0) {
@@ -209,7 +209,7 @@ export function useChatWorkspace() {
             loadChatMessages(remaining[0].id)
             restoreSyllabusForChat(remaining[0])
           } else {
-            const created = await newChat(activeSyllabusId ?? undefined, userId)
+            const created = await newChat(activeSyllabusId ?? undefined, userId ?? undefined)
             const fresh = mapApiChat(created)
             setChats([fresh])
             setActiveChatId(created.id)
@@ -227,7 +227,7 @@ export function useChatWorkspace() {
   const handleRenameChat = useCallback(
     async (id: string, title: string) => {
       try {
-        const updated = await updateChat(id, { title }, userId)
+        const updated = await updateChat(id, { title }, userId ?? undefined)
         setChats((prev) => prev.map((c) => (c.id === id ? { ...c, title: updated.title } : c)))
       } catch (err) {
         showError(err, "Failed to rename chat")
@@ -239,7 +239,7 @@ export function useChatWorkspace() {
   const bindSyllabusToChat = useCallback(
     async (chatId: string, syllabusId: string, filename?: string) => {
       try {
-        await updateChat(chatId, { syllabus_id: syllabusId }, userId)
+        await updateChat(chatId, { syllabus_id: syllabusId }, userId ?? undefined)
         setChats((prev) =>
           prev.map((c) => (c.id === chatId ? { ...c, syllabusId } : c)),
         )
@@ -255,7 +255,7 @@ export function useChatWorkspace() {
     async (model: string) => {
       if (!activeChatId) return
       try {
-        const updated = await updateChat(activeChatId, { active_model: model }, userId)
+        const updated = await updateChat(activeChatId, { active_model: model }, userId ?? undefined)
         setChats((prev) =>
           prev.map((c) => (c.id === activeChatId ? { ...c, activeModel: updated.active_model } : c)),
         )
@@ -293,7 +293,7 @@ export function useChatWorkspace() {
         ),
       )
 
-      querySyllabus(activeSyllabusId, trimmed, chatIdForRequest, userId, controller.signal)
+      querySyllabus(activeSyllabusId, trimmed, chatIdForRequest, userId ?? undefined, controller.signal)
         .then((data) => {
           if (activeChatIdRef.current !== chatIdForRequest) return
           setChats((prev) =>
@@ -364,7 +364,7 @@ export function useChatWorkspace() {
 
       if (file.file) {
         try {
-          const data = await uploadSyllabus(file.file, userId)
+          const data = await uploadSyllabus(file.file, userId ?? undefined)
           setAttachments((prev) =>
             prev.map((f) =>
               f.id === file.id ? { ...f, status: "ready", syllabus_id: data.syllabus_id } : f,
@@ -418,7 +418,7 @@ export function useChatWorkspace() {
       setActiveSyllabusId(null)
       setActiveDocumentName(null)
       if (activeChatId) {
-        updateChat(activeChatId, { syllabus_id: null }, userId).catch((err) =>
+        updateChat(activeChatId, { syllabus_id: null }, userId ?? undefined).catch((err) =>
           showError(err, "Failed to unbind syllabus"),
         )
         setChats((prev) =>
@@ -432,7 +432,7 @@ export function useChatWorkspace() {
   const loadGraph = useCallback(async () => {
     if (!activeSyllabusId) return
     try {
-      const data = await fetchGraph(activeSyllabusId, userId)
+      const data = await fetchGraph(activeSyllabusId, userId ?? undefined)
       setGraphData(data)
     } catch (e) {
       showError(e, "Failed to load graph")
@@ -442,7 +442,7 @@ export function useChatWorkspace() {
   const handleReprocessGraph = useCallback(async () => {
     if (!activeSyllabusId) return
     try {
-      const data = await reprocessGraph(activeSyllabusId, userId)
+      const data = await reprocessGraph(activeSyllabusId, userId ?? undefined)
       setGraphData(data)
       toast.info("Graph reprocessing started")
     } catch (e) {

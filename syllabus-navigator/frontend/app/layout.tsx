@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import { Inter, Roboto_Mono } from "next/font/google"
 import "./globals.css"
-import { ClientProviders } from "@/components/ClientProviders"
+import ClientProviders from "@/components/ClientProviders"
 
 const geist = Inter({
   subsets: ["latin"],

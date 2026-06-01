@@ -16,7 +16,7 @@ export default function FileUpload({ onUploaded, userId }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const data = await uploadSyllabus(file, userId);
+      const data = await uploadSyllabus(file);
       setActiveSyllabusId(data.syllabus_id);
       if (onUploaded) {
         onUploaded(data.syllabus_id);

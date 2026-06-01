@@ -1,16 +1,20 @@
 "use client"
 
-import { Toaster } from "sonner"
-import { SyllabusProvider } from "@/context/SyllabusContext"
+import { SessionProvider } from "next-auth/react"
+import { ThemeProvider } from "next-themes"
 import { UserProvider } from "@/context/UserContext"
+import { SyllabusProvider } from "@/context/SyllabusContext"
 
-export function ClientProviders({ children }: { children: React.ReactNode }) {
+export default function ClientProviders({ children }: { children: React.ReactNode }) {
   return (
-    <UserProvider>
-      <SyllabusProvider>
-        {children}
-        <Toaster richColors position="top-center" />
-      </SyllabusProvider>
-    </UserProvider>
+    <SessionProvider>
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+        <UserProvider>
+          <SyllabusProvider>
+            {children}
+          </SyllabusProvider>
+        </UserProvider>
+      </ThemeProvider>
+    </SessionProvider>
   )
 }
