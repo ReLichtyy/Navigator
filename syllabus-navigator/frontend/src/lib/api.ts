@@ -57,49 +57,16 @@ async function request<T>(
 // Types
 // ============================================================================
 
-export interface CitationAPI {
-  chunk_id: string
-  page_start: number | null
-  page_end: number | null
-  quote: string
-}
+import type { 
+  CitationAPI,
+  ChatOutAPI, 
+  ChatDetailAPI, 
+  MessageOutAPI, 
+  SyllabusUploadAPI, 
+  GraphResponseAPI 
+} from "@/types/api"
 
-export interface ChatOutAPI {
-  id: string
-  title: string
-  active_model: string
-  syllabus_id: string | null
-  created_at: string
-  message_count: number
-}
-
-export interface MessageOutAPI {
-  id: string
-  role: "user" | "ai"
-  content: string
-  created_at: string
-  citations: CitationAPI[]
-}
-
-export interface ChatDetailAPI extends ChatOutAPI {
-  messages: MessageOutAPI[]
-}
-
-export interface SyllabusUploadAPI {
-  id: string
-  original_filename: string
-  status: string
-  graph_status: string
-  created_at: string
-}
-
-export interface GraphResponseAPI {
-  syllabus_id: string
-  graph_status: string
-  graph_error: string | null
-  nodes: { id: string; label: string; weight_percent: number }[]
-  edges: { source: string; target: string }[]
-}
+export type { CitationAPI, ChatOutAPI, ChatDetailAPI, MessageOutAPI, SyllabusUploadAPI, GraphResponseAPI }
 
 export interface UserPreferencesAPI {
   defaultProvider: string

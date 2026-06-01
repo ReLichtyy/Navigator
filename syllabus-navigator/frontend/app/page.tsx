@@ -7,7 +7,7 @@ import { MobileHistorySheet } from "@/components/navigator/mobile-history-sheet"
 import { TopHeader } from "@/components/navigator/top-header"
 import { GuestBanner } from "@/components/navigator/guest-banner"
 import GraphCanvas from "@/components/GraphCanvas"
-import { useChatWorkspace } from "@/hooks/useChatWorkspace"
+import { ChatWorkspaceProvider, useChatWorkspace } from "@/features/chat/context/ChatContext"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useEffect, useRef } from "react"
@@ -141,7 +141,9 @@ function PageContent() {
 export default function Page() {
   return (
     <Suspense fallback={<div className="flex h-dvh items-center justify-center">Loading...</div>}>
-      <PageContent />
+      <ChatWorkspaceProvider>
+        <PageContent />
+      </ChatWorkspaceProvider>
     </Suspense>
   )
 }

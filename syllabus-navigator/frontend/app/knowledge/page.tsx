@@ -254,7 +254,7 @@ export default function KnowledgeBasePage() {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          doc.status === 'processed' 
+                          doc.status === 'ready' 
                             ? 'bg-green-500/10 text-green-500'
                             : doc.status === 'error'
                               ? 'bg-red-500/10 text-red-500'
