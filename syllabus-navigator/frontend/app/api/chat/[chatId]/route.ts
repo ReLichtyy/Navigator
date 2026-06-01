@@ -28,7 +28,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     const chatRows = await sql`
       SELECT id, title, active_model, syllabus_id, created_at
       FROM chats
-      WHERE id = ${chatId}::uuid AND user_id = ${userId}::uuid
+      WHERE id = ${chatId}::uuid AND user_id = ${userId}
     `
     const chat = (chatRows as Record<string, unknown>[])[0]
     if (!chat) {
@@ -69,7 +69,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     // Verify ownership
     const existing = await sql`
-      SELECT id FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}::uuid
+      SELECT id FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}
     `
     if ((existing as unknown[]).length === 0) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
@@ -81,7 +81,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     if (body.title !== undefined) {
       const rows = await sql`
-        UPDATE chats SET title = ${body.title} WHERE id = ${chatId}::uuid AND user_id = ${userId}::uuid
+        UPDATE chats SET title = ${body.title} WHERE id = ${chatId}::uuid AND user_id = ${userId}
         RETURNING id, title, active_model, syllabus_id, created_at
       `
       await invalidatePrefix(`chats:list:${userId}`)
@@ -90,7 +90,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     if (body.active_model !== undefined) {
       const rows = await sql`
-        UPDATE chats SET active_model = ${body.active_model} WHERE id = ${chatId}::uuid AND user_id = ${userId}::uuid
+        UPDATE chats SET active_model = ${body.active_model} WHERE id = ${chatId}::uuid AND user_id = ${userId}
         RETURNING id, title, active_model, syllabus_id, created_at
       `
       return NextResponse.json((rows as Record<string, unknown>[])[0])
@@ -99,7 +99,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (body.syllabus_id !== undefined) {
       const syllabusId = body.syllabus_id || null
       const rows = await sql`
-        UPDATE chats SET syllabus_id = ${syllabusId}::uuid WHERE id = ${chatId}::uuid AND user_id = ${userId}::uuid
+        UPDATE chats SET syllabus_id = ${syllabusId}::uuid WHERE id = ${chatId}::uuid AND user_id = ${userId}
         RETURNING id, title, active_model, syllabus_id, created_at
       `
       return NextResponse.json((rows as Record<string, unknown>[])[0])
@@ -126,7 +126,7 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
 
     // Delete messages first (cascade), then chat
     await sql`DELETE FROM messages WHERE chat_id = ${chatId}::uuid`
-    await sql`DELETE FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}::uuid`
+    await sql`DELETE FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}`
 
     await invalidatePrefix(`chats:list:${userId}`)
 

@@ -11,12 +11,27 @@ import { useChatWorkspace } from "@/hooks/useChatWorkspace"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useEffect, useRef } from "react"
+import { Suspense } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 
-export default function Page() {
+function PageContent() {
   const ws = useChatWorkspace()
   const { status, ready } = useUser()
   const { openAuthModal, isOpen } = useAuthModal()
   const hasShownWelcome = useRef(false)
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
+  useEffect(() => {
+    if (!ready || !ws.chatsLoading && ws.activeChatId) {
+      const docId = searchParams.get("docId")
+      const docName = searchParams.get("docName")
+      if (docId && docName && status !== "anonymous") {
+        ws.selectKnowledge({ id: docId, original_filename: docName })
+        router.replace("/") // clear the query params
+      }
+    }
+  }, [ready, ws.chatsLoading, ws.activeChatId, searchParams, status, ws, router])
 
   useEffect(() => {
     if (ready && status === "anonymous" && !hasShownWelcome.current) {
@@ -108,6 +123,7 @@ export default function Page() {
                   attachments={ws.attachments}
                   activeModel={ws.activeChat?.activeModel}
                   hasSyllabus={Boolean(ws.activeSyllabusId)}
+                  disabled={!ws.activeChatId}
                   onAddAttachment={ws.addAttachment}
                   onRemoveAttachment={ws.removeAttachment}
                   onSend={ws.sendMessage}
@@ -119,5 +135,13 @@ export default function Page() {
         </section>
       </div>
     </main>
+  )
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="flex h-dvh items-center justify-center">Loading...</div>}>
+      <PageContent />
+    </Suspense>
   )
 }

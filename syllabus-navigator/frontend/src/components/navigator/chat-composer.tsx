@@ -14,6 +14,7 @@ export function ChatComposer({
   attachments,
   activeModel,
   hasSyllabus,
+  disabled,
   onAddAttachment,
   onRemoveAttachment,
   onSend,
@@ -22,6 +23,7 @@ export function ChatComposer({
   attachments: AttachedFile[]
   activeModel?: string
   hasSyllabus?: boolean
+  disabled?: boolean
   onAddAttachment: (file: AttachedFile) => void
   onRemoveAttachment: (id: string) => void
   onSend: (text: string) => void
@@ -36,7 +38,7 @@ export function ChatComposer({
 
   const hasText = value.trim().length > 0
   const currentModel = activeModel ?? models[0] ?? "gpt-4o-mini"
-  const canSend = hasText && hasSyllabus
+  const canSend = hasText && !disabled
 
   useEffect(() => {
     fetchChatModels()
@@ -156,8 +158,9 @@ export function ChatComposer({
             <button
               type="button"
               onClick={() => setModelOpen((v) => !v)}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
               aria-label="Select model"
+              disabled={disabled}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
               <span className="max-w-[100px] truncate">{currentModel}</span>
@@ -188,8 +191,9 @@ export function ChatComposer({
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Attach a PDF"
+            disabled={disabled}
           >
             <Paperclip className="h-4 w-4" />
           </button>
@@ -203,12 +207,11 @@ export function ChatComposer({
             placeholder={
               isDragging
                 ? "Drop PDFs to attach…"
-                : hasSyllabus
-                  ? "Type your message..."
-                  : "Upload a PDF first, then ask questions..."
+                : "Type your message..."
             }
             rows={1}
-            className="min-h-9 max-h-40 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
+            disabled={disabled}
+            className="min-h-9 max-h-40 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           />
 
           <button
@@ -228,12 +231,9 @@ export function ChatComposer({
         </div>
       </div>
 
-      <div className="flex h-4 items-center justify-between px-1">
-        {!hasSyllabus && (
-          <p className="text-[11px] text-muted-foreground">Attach a syllabus PDF to enable chat.</p>
-        )}
-        {value.length === 0 && hasSyllabus && (
-          <p className="ml-auto hidden text-[11px] text-muted-foreground sm:block">
+      <div className="flex h-4 items-center justify-end px-1">
+        {value.length === 0 && !disabled && (
+          <p className="hidden text-[11px] text-muted-foreground sm:block">
             Press <kbd className="rounded border border-border bg-secondary px-1 font-mono text-[10px]">Enter</kbd> to send
           </p>
         )}

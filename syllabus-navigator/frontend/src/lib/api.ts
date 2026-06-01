@@ -157,7 +157,7 @@ export async function fetchChatModels() {
 }
 
 export async function querySyllabus(
-  syllabusId: string,
+  syllabusId: string | null,
   question: string,
   chatId: string,
   userId?: string, // Deprecated, kept for compatibility with useChatWorkspace hook signature
@@ -189,6 +189,10 @@ export async function uploadSyllabus(file: File) {
     json: false,
     body: form,
   })
+}
+
+export async function deleteSyllabus(id: string) {
+  return request<{ success: boolean }>(`/upload/${id}`, { method: "DELETE", json: false })
 }
 
 // ============================================================================

@@ -29,7 +29,7 @@ export async function GET() {
           COUNT(m.id)::int AS message_count
         FROM chats c
         LEFT JOIN messages m ON m.chat_id = c.id
-        WHERE c.user_id = ${userId}::uuid
+        WHERE c.user_id = ${userId}
         GROUP BY c.id
         ORDER BY c.created_at DESC
       `
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
     const rows = await sql`
       INSERT INTO chats (user_id, title, active_model, syllabus_id)
       VALUES (
-        ${userId}::uuid,
+        ${userId},
         'New chat',
         'gpt-4o-mini',
         ${syllabusId}::uuid

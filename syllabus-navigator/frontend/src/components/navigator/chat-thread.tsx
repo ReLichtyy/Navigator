@@ -42,7 +42,7 @@ export function ChatThread({ messages, onPrompt }: { messages: Message[]; onProm
       <div className="animate-fade-in flex h-full flex-col items-center justify-center gap-6 py-10">
         <div className="flex flex-col items-center text-center">
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Sube un sílabo PDF y prueba con una de estas preguntas:
+            Start a conversation or upload a document to get started:
           </p>
         </div>
 

@@ -264,7 +264,10 @@ export function useChatWorkspace() {
 
   const handleModelChange = useCallback(
     async (model: string) => {
-      if (!activeChatId) return
+      if (!activeChatId) {
+        toast.error("No active chat. Please create a new chat first.")
+        return
+      }
       try {
         const updated = await updateChat(activeChatId, { active_model: model })
         setChats((prev) =>
@@ -285,10 +288,10 @@ export function useChatWorkspace() {
       }
 
       const trimmed = text.trim()
-      if (!trimmed || !activeChatId) return
-
-      if (!activeSyllabusId) {
-        toast.info("Upload a syllabus PDF first before asking questions.")
+      if (!trimmed) return
+      
+      if (!activeChatId) {
+        toast.error("No active chat. Please create a new chat first.")
         return
       }
 

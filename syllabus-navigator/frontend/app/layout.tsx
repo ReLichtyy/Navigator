@@ -20,6 +20,8 @@ export const metadata: Metadata = {
 
 import { auth } from "@/lib/auth/config"
 
+import { AppSidebar } from "@/components/navigator/app-sidebar"
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -29,8 +31,13 @@ export default async function RootLayout({
 
   return (
     <html lang="es" className={`${geist.variable} ${geistMono.variable} bg-background`}>
-      <body className="font-sans antialiased">
-        <ClientProviders session={session}>{children}</ClientProviders>
+      <body className="font-sans antialiased flex h-dvh w-full overflow-hidden text-foreground">
+        <ClientProviders session={session}>
+          <AppSidebar />
+          <div className="flex-1 flex flex-col min-w-0">
+            {children}
+          </div>
+        </ClientProviders>
       </body>
     </html>
   )
