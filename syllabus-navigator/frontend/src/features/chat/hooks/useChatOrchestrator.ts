@@ -17,6 +17,7 @@ interface UseChatOrchestratorProps {
   activeChat: Chat | null
   setActiveChat: React.Dispatch<React.SetStateAction<Chat | null>>
   initializeSession: (chat: Chat) => void
+  updateMessage: (msgId: string, updates: Partial<Message>) => void
   abortRef: React.MutableRefObject<AbortController | null>
   activeChatIdRef: React.MutableRefObject<string>
   setTransitionKey: React.Dispatch<React.SetStateAction<number>>
@@ -35,6 +36,7 @@ export function useChatOrchestrator({
   activeChat,
   setActiveChat,
   initializeSession,
+  updateMessage,
   abortRef,
   activeChatIdRef,
   setTransitionKey,
@@ -122,23 +124,50 @@ export function useChatOrchestrator({
 
     setActiveChat((prev) => prev ? { ...prev, messages: [...prev.messages, userMsg, pendingMsg] } : prev)
 
-    // 3. Backend Mutation
+    // 3. Backend Mutation via SSE Stream
     try {
-      const data = await querySyllabus(activeSyllabusId ?? null, trimmed, targetChatId, undefined, controller.signal)
-      
+      const data = await querySyllabus(
+        activeSyllabusId ?? null,
+        trimmed,
+        targetChatId,
+        (chunk) => {
+          // Stream each text chunk into the pending bubble
+          if (activeChatIdRef.current === targetChatId) {
+            updateMessage(pendingId, {
+              content: undefined as any, // signal: accumulate
+            })
+            setActiveChat((prev) => {
+              if (!prev) return prev
+              return {
+                ...prev,
+                messages: prev.messages.map((m) =>
+                  m.id === pendingId
+                    ? { ...m, content: m.content + chunk }
+                    : m
+                ),
+              }
+            })
+          }
+        },
+        controller.signal,
+      )
+
       if (activeChatIdRef.current === targetChatId) {
+        // Mark pending as done, attach title/citations from final event
         setActiveChat((prev) => {
           if (!prev) return prev
           return {
             ...prev,
             title: data.title ?? prev.title,
-            messages: prev.messages.map((m) => 
-              m.id === pendingId ? { ...m, pending: false, content: data.answer, citations: data.citations as any } : m
-            )
+            messages: prev.messages.map((m) =>
+              m.id === pendingId
+                ? { ...m, pending: false, citations: (data.citations ?? []) as any }
+                : m
+            ),
           }
         })
       }
-      
+
       setChats((prev) => prev.map((c) => c.id === targetChatId ? { ...c, title: data.title ?? c.title } : c))
       setIsSending(false)
       return true
@@ -147,7 +176,7 @@ export function useChatOrchestrator({
         setIsSending(false)
         return true // User switched chats, don't rollback text
       }
-      
+
       // Rollback UI
       if (activeChatIdRef.current === targetChatId) {
         setActiveChat((prev) => {
@@ -158,7 +187,7 @@ export function useChatOrchestrator({
           }
         })
       }
-      
+
       const friendlyMsg = error instanceof ApiError ? error.message : "Sorry, I encountered an error."
       toast.error(friendlyMsg)
       setIsSending(false)

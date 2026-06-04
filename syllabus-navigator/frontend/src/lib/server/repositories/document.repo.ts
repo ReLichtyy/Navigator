@@ -43,6 +43,16 @@ export const DocumentRepository = {
       RETURNING id, original_filename
     `
     return rows[0] as { id: string; original_filename: string }
+  },
+
+  async renameDocument(docId: string, userId: string, newName: string): Promise<DbDocument | undefined> {
+    const rows = await sql`
+      UPDATE syllabus_uploads
+      SET original_filename = ${newName}
+      WHERE id = ${docId}::uuid AND user_id = ${userId}
+      RETURNING id, original_filename, status, graph_status
+    `
+    return rows[0] as DbDocument | undefined
   }
 }
 

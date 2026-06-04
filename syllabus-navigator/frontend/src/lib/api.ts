@@ -123,21 +123,81 @@ export async function fetchChatModels() {
   return request<{ models: string[]; default: string }>("/chat/models", { method: "GET", json: false })
 }
 
+export interface StreamResult {
+  title?: string
+  citations?: CitationAPI[]
+  provider?: string
+  model?: string
+}
+
 export async function querySyllabus(
   syllabusId: string | null,
   question: string,
   chatId: string,
-  userId?: string, // Deprecated, kept for compatibility with useChatWorkspace hook signature
+  onChunk: (text: string) => void,
   signal?: AbortSignal,
-) {
-  return request<{ answer: string; citations: CitationAPI[]; title?: string }>(
-    `/chat/${chatId}/messages`,
-    {
-      method: "POST",
-      body: JSON.stringify({ question }),
-      signal,
-    },
-  )
+): Promise<StreamResult> {
+  const res = await fetch(`${API_BASE}/chat/${chatId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const errMsg = await parseError(res)
+    throw new ApiError(errMsg, res.status)
+  }
+
+  // Read SSE stream
+  const reader = res.body?.getReader()
+  if (!reader) throw new ApiError("No response body", 500)
+
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let result: StreamResult = {}
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() ?? ""
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue
+        const payload = line.slice(6).trim()
+        if (payload === "[DONE]") continue
+        try {
+          const parsed = JSON.parse(payload)
+          if (parsed.error) {
+            throw new ApiError(parsed.error, 500)
+          }
+          if (parsed.content) {
+            onChunk(parsed.content)
+          }
+          // Final event carries title, citations, provider, model
+          if (parsed.title !== undefined || parsed.citations !== undefined) {
+            result = {
+              title: parsed.title,
+              citations: parsed.citations ?? [],
+              provider: parsed.provider,
+              model: parsed.model,
+            }
+          }
+        } catch (parseErr) {
+          if (parseErr instanceof ApiError) throw parseErr
+          // Malformed SSE line — skip it
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  return result
 }
 
 // ============================================================================
@@ -160,6 +220,13 @@ export async function uploadSyllabus(file: File) {
 
 export async function deleteSyllabus(id: string) {
   return request<{ success: boolean }>(`/upload/${id}`, { method: "DELETE", json: false })
+}
+
+export async function renameDocument(id: string, name: string) {
+  return request<{ upload: SyllabusUploadAPI }>(`/upload/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  })
 }
 
 // ============================================================================

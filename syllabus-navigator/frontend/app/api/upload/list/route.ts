@@ -3,8 +3,8 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth/auth"
-import { sql } from "@/lib/db"
+import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
+import { DocumentRepository } from "@/lib/server/repositories/document.repo"
 import { cached } from "@/lib/cache"
 import { logError } from "@/lib/observability/logger"
 
@@ -12,25 +12,17 @@ export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    const { userId } = await requireAuth()
 
-    const userId = session.user.id
-
-    const uploads = await cached(`uploads:list:${userId}`, 60, async () => {
-      const rows = await sql`
-        SELECT id, original_filename, status, graph_status, created_at
-        FROM syllabus_uploads
-        WHERE user_id = ${userId}::uuid
-        ORDER BY created_at DESC
-      `
-      return rows
+    const uploads = await cached(`uploads:list:${userId}`, 10, async () => {
+      return DocumentRepository.listUploads(userId)
     })
 
     return NextResponse.json({ uploads })
   } catch (err) {
+    if (err instanceof ApiErrorResponse) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
     logError("api.upload.list_error", {
       error: err instanceof Error ? err.message : String(err),
     })

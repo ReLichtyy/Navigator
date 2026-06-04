@@ -80,7 +80,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
 
   // --- Domain Hooks ---
   const { chats, setChats, chatsLoading, chatsError, createChat, deleteChat, renameChat } = useChatList()
-  const { activeChat, setActiveChat, initializeSession, messagesLoading } = useChatSession(activeChatId)
+  const { activeChat, setActiveChat, initializeSession, updateMessage, messagesLoading } = useChatSession(activeChatId)
 
   // --- Orchestrator ---
   const { handleNewChat, sendMessage, isSending, isCreatingChat } = useChatOrchestrator({
@@ -95,6 +95,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     activeChat,
     setActiveChat,
     initializeSession,
+    updateMessage,
     abortRef,
     activeChatIdRef,
     setTransitionKey,

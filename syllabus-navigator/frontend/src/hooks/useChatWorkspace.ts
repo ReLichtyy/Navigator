@@ -312,7 +312,26 @@ export function useChatWorkspace() {
         ),
       )
 
-      querySyllabus(activeSyllabusId, trimmed, chatIdForRequest, undefined, controller.signal)
+      let accumulatedContent = ""
+      querySyllabus(activeSyllabusId, trimmed, chatIdForRequest,
+        (chunk) => {
+          accumulatedContent += chunk
+          if (activeChatIdRef.current !== chatIdForRequest) return
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === chatIdForRequest
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === pendingId ? { ...m, content: accumulatedContent } : m,
+                    ),
+                  }
+                : c,
+            ),
+          )
+        },
+        controller.signal,
+      )
         .then((data) => {
           if (activeChatIdRef.current !== chatIdForRequest) return
           setChats((prev) =>
@@ -326,7 +345,7 @@ export function useChatWorkspace() {
                         ? {
                             ...m,
                             pending: false,
-                            content: data.answer,
+                            content: accumulatedContent,
                             citations: data.citations ?? [],
                           }
                         : m,

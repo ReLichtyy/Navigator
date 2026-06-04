@@ -1,13 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
-import { listSyllabi, uploadSyllabus, deleteSyllabus, fetchGraph, reprocessGraph } from "@/lib/api"
+import { listSyllabi, uploadSyllabus, deleteSyllabus, fetchGraph, reprocessGraph, renameDocument } from "@/lib/api"
 import type { SyllabusUploadAPI, GraphResponseAPI } from "@/lib/api"
-import { Search, Plus, FileText, Loader2, Library, MessageSquare, Trash2, Eye, X } from "lucide-react"
-import { useRef } from "react"
+import { Search, Plus, FileText, Loader2, Library, MessageSquare, Trash2, Eye, X, Pencil, Check } from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
 
@@ -23,64 +22,78 @@ export default function KnowledgeBasePage() {
   const [previewDoc, setPreviewDoc] = useState<{ id: string; name: string } | null>(null)
   const [previewGraph, setPreviewGraph] = useState<GraphResponseAPI | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  // Rename state: { [docId]: draftName }
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const [isSavingRename, setIsSavingRename] = useState(false)
   
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // BUG FIX #4: Use ref for interval to prevent stale closure race condition
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const isMountedRef = useRef(true)
   const router = useRouter()
 
+  const clearPolling = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+      intervalRef.current = null
+    }
+  }
+
+  const fetchUploads = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true)
+      const data = await listSyllabi()
+      if (!isMountedRef.current) return
+      
+      // Filter out any optimistic "uploading" rows before merging
+      setUploads((prev) => {
+        const optimistic = prev.filter((u) => (u as any)._optimistic)
+        const merged = [...data.uploads]
+        // Keep optimistic rows for files not yet returned by the server
+        for (const op of optimistic) {
+          if (!merged.find((u) => u.id === op.id)) merged.unshift(op)
+        }
+        return merged
+      })
+      setError(null)
+
+      // BUG FIX #4: Use ref to manage interval, never create more than one
+      const needsPolling = data.uploads.some(
+        (u) => u.status === "pending" || u.graph_status === "pending" || u.graph_status === "processing"
+      )
+      if (needsPolling && !intervalRef.current) {
+        intervalRef.current = setInterval(() => fetchUploads(true), 3000)
+      } else if (!needsPolling && intervalRef.current) {
+        clearPolling()
+      }
+    } catch (err) {
+      if (isMountedRef.current && !silent) setError("Failed to load documents.")
+    } finally {
+      if (isMountedRef.current && !silent) setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
+    isMountedRef.current = true
     if (!ready) return
     if (status === "anonymous" || status === "guest") {
       setLoading(false)
       return
     }
-
-    let isMounted = true
-    let intervalId: ReturnType<typeof setInterval> | null = null
-
-    const fetchUploads = async (isPolling = false) => {
-      try {
-        if (!isPolling) setLoading(true)
-        const data = await listSyllabi()
-        if (isMounted) {
-          setUploads(data.uploads)
-          setError(null)
-
-          const needsPolling = data.uploads.some(
-            (u) =>
-              u.status === "pending" ||
-              u.graph_status === "pending" ||
-              u.graph_status === "processing"
-          )
-          
-          if (needsPolling && !intervalId) {
-            intervalId = setInterval(() => fetchUploads(true), 3000)
-          } else if (!needsPolling && intervalId) {
-            clearInterval(intervalId)
-            intervalId = null
-          }
-        }
-      } catch (err) {
-        if (isMounted && !isPolling) setError("Failed to load documents.")
-      } finally {
-        if (isMounted && !isPolling) setLoading(false)
-      }
-    }
-
     fetchUploads()
-
     return () => {
-      isMounted = false
-      if (intervalId) clearInterval(intervalId)
+      isMountedRef.current = false
+      clearPolling()
     }
-  }, [ready, status])
+  }, [ready, status, fetchUploads])
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click()
-  }
+  const handleUploadClick = () => fileInputRef.current?.click()
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     if (files.length === 0) return
+    if (fileInputRef.current) fileInputRef.current.value = ""
 
     setIsUploading(true)
     for (const file of files) {
@@ -88,28 +101,46 @@ export default function KnowledgeBasePage() {
         toast.error(`${file.name} is not a PDF.`)
         continue
       }
+
+      // BUG FIX #3 + Feature: Add optimistic row immediately
+      const tempId = `optimistic-${Date.now()}`
+      const optimisticRow: SyllabusUploadAPI & { _optimistic?: boolean } = {
+        id: tempId,
+        original_filename: file.name,
+        status: "pending",
+        graph_status: "pending",
+        created_at: new Date().toISOString(),
+        _optimistic: true,
+      }
+      setUploads((prev) => [optimisticRow as any, ...prev])
+
       try {
         await uploadSyllabus(file)
         toast.success(`${file.name} uploaded successfully.`)
-      } catch (err) {
-        toast.error(`Failed to upload ${file.name}.`)
+      } catch (err: any) {
+        toast.error(err?.message ?? `Failed to upload ${file.name}.`)
+      } finally {
+        // Remove the optimistic row
+        setUploads((prev) => prev.filter((u) => u.id !== tempId))
       }
     }
+
     setIsUploading(false)
-    if (fileInputRef.current) fileInputRef.current.value = ""
-    
-    // Refresh list immediately
-    listSyllabi().then((data) => setUploads(data.uploads)).catch(console.error)
+    // BUG FIX #3: Controlled refresh with loading state
+    await fetchUploads(true)
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete ${name}?`)) return
+    if (!confirm(`Are you sure you want to delete "${name}"?`)) return
+    // Optimistic removal
+    setUploads((prev) => prev.filter((u) => u.id !== id))
     try {
       await deleteSyllabus(id)
-      setUploads((prev) => prev.filter((u) => u.id !== id))
       toast.success("Document deleted.")
     } catch (err) {
       toast.error("Failed to delete document.")
+      // Revert on failure
+      await fetchUploads(true)
     }
   }
 
@@ -120,12 +151,12 @@ export default function KnowledgeBasePage() {
   const handlePreview = async (id: string, name: string) => {
     setPreviewDoc({ id, name })
     setPreviewLoading(true)
+    setPreviewGraph(null)
     try {
       const data = await fetchGraph(id)
       setPreviewGraph(data)
-    } catch (err) {
+    } catch {
       toast.error("Failed to load graph preview.")
-      setPreviewGraph(null)
     } finally {
       setPreviewLoading(false)
     }
@@ -137,12 +168,34 @@ export default function KnowledgeBasePage() {
       const data = await reprocessGraph(previewDoc.id)
       setPreviewGraph(data)
       toast.success("Reprocessing started.")
-    } catch (err) {
+    } catch {
       toast.error("Failed to reprocess graph.")
     }
   }
 
-  // Simple auth gate representation
+  const startRename = (doc: SyllabusUploadAPI) => {
+    setRenamingId(doc.id)
+    setRenameValue(doc.original_filename.replace(/\.pdf$/i, ""))
+  }
+
+  const commitRename = async (id: string) => {
+    const trimmed = renameValue.trim()
+    if (!trimmed) { setRenamingId(null); return }
+    
+    const newName = trimmed.endsWith(".pdf") ? trimmed : `${trimmed}.pdf`
+    setIsSavingRename(true)
+    try {
+      await renameDocument(id, newName)
+      setUploads((prev) => prev.map((u) => u.id === id ? { ...u, original_filename: newName } : u))
+      toast.success("Document renamed.")
+    } catch {
+      toast.error("Failed to rename document.")
+    } finally {
+      setRenamingId(null)
+      setIsSavingRename(false)
+    }
+  }
+
   if (ready && (status === "anonymous" || status === "guest")) {
     return (
       <main className="flex h-dvh w-full items-center justify-center bg-background text-foreground">
@@ -216,7 +269,7 @@ export default function KnowledgeBasePage() {
               <div className="flex h-64 flex-col items-center justify-center text-center p-6">
                 <p className="text-red-500 mb-2">{error}</p>
                 <button 
-                  onClick={() => window.location.reload()}
+                  onClick={() => fetchUploads()}
                   className="text-sm underline text-muted-foreground hover:text-foreground"
                 >
                   Retry
@@ -244,47 +297,92 @@ export default function KnowledgeBasePage() {
                 </thead>
                 <tbody className="divide-y divide-border/40">
                   {filteredUploads.map((doc) => (
-                    <tr key={doc.id} className="hover:bg-secondary/20 transition-colors">
-                      <td className="px-6 py-4 font-medium flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-accent/70" />
-                        {doc.original_filename}
+                    <tr key={doc.id} className="hover:bg-secondary/20 transition-colors group">
+                      <td className="px-6 py-4 font-medium">
+                        {renamingId === doc.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              autoFocus
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitRename(doc.id)
+                                if (e.key === "Escape") setRenamingId(null)
+                              }}
+                              className="flex-1 rounded border border-accent bg-background px-2 py-0.5 text-sm focus:outline-none"
+                            />
+                            <button
+                              onClick={() => commitRename(doc.id)}
+                              disabled={isSavingRename}
+                              className="text-accent hover:text-accent/80"
+                              title="Save"
+                            >
+                              {isSavingRename ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                            </button>
+                            <button onClick={() => setRenamingId(null)} className="text-muted-foreground hover:text-foreground" title="Cancel">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-accent/70 shrink-0" />
+                            <span
+                              className="truncate max-w-[260px]"
+                              title={doc.original_filename}
+                            >
+                              {doc.original_filename}
+                            </span>
+                            <button
+                              onClick={() => startRename(doc)}
+                              className="invisible group-hover:visible text-muted-foreground hover:text-foreground transition-colors"
+                              title="Rename"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-muted-foreground">
                         {new Date(doc.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          doc.status === 'ready' 
-                            ? 'bg-green-500/10 text-green-500'
-                            : doc.status === 'error'
-                              ? 'bg-red-500/10 text-red-500'
-                              : 'bg-accent/10 text-accent animate-pulse'
+                          doc.status === "ready" 
+                            ? "bg-green-500/10 text-green-500"
+                            : doc.status === "error"
+                              ? "bg-red-500/10 text-red-500"
+                              : "bg-accent/10 text-accent animate-pulse"
                         }`}>
-                          {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                          {(doc as any)._optimistic ? "Uploading…" : doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right flex justify-end gap-2">
-                        <button
-                          onClick={() => handlePreview(doc.id, doc.original_filename)}
-                          className="flex items-center gap-1.5 rounded-md bg-secondary/40 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
-                        >
-                          <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-                          Preview
-                        </button>
-                        <button
-                          onClick={() => handleChat(doc.id, doc.original_filename)}
-                          className="flex items-center gap-1.5 rounded-md bg-secondary/80 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary"
-                        >
-                          <MessageSquare className="h-3.5 w-3.5 text-accent" />
-                          Chat
-                        </button>
-                        <button
-                          onClick={() => handleDelete(doc.id, doc.original_filename)}
-                          className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500"
-                          title="Delete document"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => handlePreview(doc.id, doc.original_filename)}
+                            disabled={!!(doc as any)._optimistic}
+                            className="flex items-center gap-1.5 rounded-md bg-secondary/40 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                          >
+                            <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                            Preview
+                          </button>
+                          <button
+                            onClick={() => handleChat(doc.id, doc.original_filename)}
+                            disabled={!!(doc as any)._optimistic}
+                            className="flex items-center gap-1.5 rounded-md bg-secondary/80 px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5 text-accent" />
+                            Chat
+                          </button>
+                          <button
+                            onClick={() => handleDelete(doc.id, doc.original_filename)}
+                            disabled={!!(doc as any)._optimistic}
+                            className="flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40"
+                            title="Delete document"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -305,10 +403,7 @@ export default function KnowledgeBasePage() {
                 <p className="text-xs text-muted-foreground">Knowledge Graph Preview</p>
               </div>
               <button
-                onClick={() => {
-                  setPreviewDoc(null)
-                  setPreviewGraph(null)
-                }}
+                onClick={() => { setPreviewDoc(null); setPreviewGraph(null) }}
                 className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
               >
                 <X className="h-5 w-5" />
