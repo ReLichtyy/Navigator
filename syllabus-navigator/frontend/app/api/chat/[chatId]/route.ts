@@ -124,9 +124,15 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     const { chatId } = await params
     const userId = session.user.id
 
-    // Delete messages first (cascade), then chat
-    await sql`DELETE FROM messages WHERE chat_id = ${chatId}::uuid`
-    await sql`DELETE FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}`
+    // Delete the chat scoped to its owner. messages.chat_id has ON DELETE CASCADE,
+    // so the rows are removed automatically — and we never touch another user's data.
+    const deleted = await sql`
+      DELETE FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}
+      RETURNING id
+    `
+    if ((deleted as unknown[]).length === 0) {
+      return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+    }
 
     await invalidatePrefix(`chats:list:${userId}`)
 

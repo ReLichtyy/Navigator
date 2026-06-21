@@ -4,6 +4,7 @@
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS vector;  -- pgvector: embeddings para retrieval RAG
 
 -- ---------------------------------------------------------------------------
 -- Users & Preferences
@@ -44,13 +45,40 @@ CREATE TABLE IF NOT EXISTS syllabus_uploads (
   graph_status     TEXT        NOT NULL DEFAULT 'pending',
   graph_error      TEXT,
   graph_generated_at TIMESTAMPTZ,
+  file_url         TEXT,        -- URL del PDF en blob store (solo cuentas; NULL para invitados)
+  expires_at       TIMESTAMPTZ, -- NULL = persistente; con valor = efímero (invitado), borrado por cron
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, source_hash)
 );
 
+-- Columnas añadidas para despliegues existentes (idempotente)
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS file_url   TEXT;
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_user_id ON syllabus_uploads(user_id);
 CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_status  ON syllabus_uploads(status);
+CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_expires ON syllabus_uploads(expires_at);
+
+-- ---------------------------------------------------------------------------
+-- Chunks + embeddings (pgvector) — núcleo del retrieval RAG
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chunks (
+  id           UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+  syllabus_id  UUID          NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  chunk_index  INT           NOT NULL,
+  content      TEXT          NOT NULL,
+  embedding    vector(1536),               -- text-embedding-3-small
+  page_start   INT,
+  page_end     INT,
+  created_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  UNIQUE (syllabus_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_syllabus_id ON chunks(syllabus_id);
+-- Índice ANN por similitud coseno (operador <=>). Requiere pgvector >= 0.5 (HNSW).
+CREATE INDEX IF NOT EXISTS idx_chunks_embedding
+  ON chunks USING hnsw (embedding vector_cosine_ops);
 
 -- ---------------------------------------------------------------------------
 -- Future schema: programs / courses / syllabi (Sprint 4)

@@ -66,7 +66,15 @@ const DDL = readFileSync(schemaPath, "utf-8")
 const { neon } = require("@neondatabase/serverless")
 const sql = neon(DATABASE_URL)
 
-const statements = DDL.split(";")
+// Strip `--` line comments before splitting: comments may contain `;`
+// (e.g. "solo cuentas; NULL para invitados"), which would otherwise break
+// the naive split and shatter a CREATE TABLE into invalid fragments.
+const statements = DDL
+  .replace(/\r/g, "")          // normalize CRLF so the comment strip below works
+  .split("\n")
+  .map((line) => line.replace(/--.*/, ""))
+  .join("\n")
+  .split(";")
   .map((s) => s.trim())
   .filter(Boolean)
 

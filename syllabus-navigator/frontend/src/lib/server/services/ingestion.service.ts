@@ -1,0 +1,97 @@
+/**
+ * server/services/ingestion.service.ts — async RAG worker pipeline.
+ *
+ * Phase 1 (text extraction + chunking) runs synchronously in the upload request
+ * (see document.service.ts). This worker runs phase 2 from a `jobs` row:
+ *   embed chunks → status 'processed' → generate graph → graph_status 'ready'.
+ *
+ * Port of the embedding/graph parts of backend/app/services/ingestor.py.
+ */
+
+import { embedTexts } from "@/lib/llm/embeddings"
+import { ChunkRepository } from "../repositories/chunk.repo"
+import { GraphRepository } from "../repositories/graph.repo"
+import { DocumentRepository } from "../repositories/document.repo"
+import { JobRepository } from "../repositories/job.repo"
+import { extractGraphFromText } from "../rag/graph-gen"
+import { logError, logInfo } from "@/lib/observability/logger"
+
+const JOB_TYPE = "ingest"
+
+export const IngestionService = {
+  /** Process one ingestion job (idempotent: re-running re-embeds pending chunks). */
+  async runIngestJob(syllabusId: string): Promise<{ embedded: number; topics: number }> {
+    let embedded = 0
+    let topics = 0
+
+    // --- Embeddings ---
+    try {
+      const pending = await ChunkRepository.listPendingEmbeddings(syllabusId)
+      if (pending.length > 0) {
+        const vectors = await embedTexts(pending.map((c) => c.content))
+        for (let i = 0; i < pending.length; i++) {
+          await ChunkRepository.setEmbedding(pending[i].id, vectors[i])
+        }
+        embedded = pending.length
+      }
+      await DocumentRepository.setStatus(syllabusId, "processed")
+      logInfo("ingestion.embedded", { syllabusId, embedded })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      await DocumentRepository.setStatus(syllabusId, "error", msg.slice(0, 2000))
+      logError("ingestion.embed_failed", { syllabusId, error: msg })
+      throw err // graph won't run if embeddings failed
+    }
+
+    // --- Graph generation (best-effort: a failure here doesn't fail the upload) ---
+    try {
+      await DocumentRepository.setGraphStatus(syllabusId, "processing")
+      const text = await ChunkRepository.getConcatenatedText(syllabusId)
+      const nodes = await extractGraphFromText(text)
+      await GraphRepository.replaceGraph(syllabusId, nodes)
+      await DocumentRepository.setGraphStatus(syllabusId, "ready")
+      topics = nodes.length
+      logInfo("ingestion.graph_ready", { syllabusId, topics })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      await DocumentRepository.setGraphStatus(syllabusId, "failed", msg.slice(0, 2000))
+      logError("ingestion.graph_failed", { syllabusId, error: msg })
+    }
+
+    return { embedded, topics }
+  },
+
+  /**
+   * Claim and process pending ingest jobs until the queue is empty or maxJobs is
+   * reached. Called by the cron/process route (Vercel Cron + fire-and-forget
+   * trigger from upload). Job claiming is atomic, so concurrent runs are safe.
+   */
+  async drainQueue(maxJobs = 5): Promise<{ processed: number; failed: number }> {
+    let processed = 0
+    let failed = 0
+
+    for (let i = 0; i < maxJobs; i++) {
+      const job = await JobRepository.claimNext(JOB_TYPE)
+      if (!job) break
+
+      const syllabusId = (job.payload as { syllabusId?: string }).syllabusId
+      if (!syllabusId) {
+        await JobRepository.fail(job.id, "Missing syllabusId in payload")
+        failed++
+        continue
+      }
+
+      try {
+        const result = await this.runIngestJob(syllabusId)
+        await JobRepository.complete(job.id, result)
+        processed++
+      } catch (err) {
+        await JobRepository.fail(job.id, err instanceof Error ? err.message : String(err))
+        failed++
+      }
+    }
+
+    if (processed || failed) logInfo("ingestion.drain", { processed, failed })
+    return { processed, failed }
+  },
+}

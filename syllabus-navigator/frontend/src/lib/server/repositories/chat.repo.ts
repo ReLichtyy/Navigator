@@ -47,10 +47,16 @@ export const ChatRepository = {
     return rows as DbMessage[]
   },
 
-  async saveMessage(chatId: string, role: string, content: string): Promise<void> {
+  async saveMessage(
+    chatId: string,
+    role: string,
+    content: string,
+    citations?: unknown[],
+  ): Promise<void> {
+    const citationsJson = citations && citations.length > 0 ? JSON.stringify(citations) : null
     await sql`
-      INSERT INTO messages (chat_id, role, content)
-      VALUES (${chatId}::uuid, ${role}, ${content})
+      INSERT INTO messages (chat_id, role, content, citations)
+      VALUES (${chatId}::uuid, ${role}, ${content}, ${citationsJson}::jsonb)
     `
   },
 
@@ -63,7 +69,9 @@ export const ChatRepository = {
   },
 
   async countChats(userId: string): Promise<number> {
-    const rows = await sql`SELECT COUNT(id)::int as total FROM chats WHERE user_id = ${userId}::uuid`
+    // chats.user_id is TEXT (not UUID) — comparing against a ::uuid cast throws
+    // "operator does not exist: text = uuid" in Postgres. Keep it TEXT = TEXT.
+    const rows = await sql`SELECT COUNT(id)::int as total FROM chats WHERE user_id = ${userId}`
     return (rows as { total: number }[])[0].total
   },
 

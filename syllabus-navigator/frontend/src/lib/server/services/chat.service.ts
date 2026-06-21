@@ -8,11 +8,45 @@ import { timed } from "@/lib/observability/timing"
 import { logError } from "@/lib/observability/logger"
 import { ChatRepository } from "../repositories/chat.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
+import { RetrievalService, GROUNDED_SYSTEM_PROMPT } from "./retrieval.service"
 import type { LLMMessage } from "@/lib/llm"
+import type { CitationAPI } from "@/types/api"
 
 const MAX_HISTORY_TURNS = 6
 
 export const ChatService = {
+  /**
+   * Build the LLM messages for a turn. If the chat is bound to a syllabus, run
+   * retrieval and inject the grounded context + return citations; otherwise fall
+   * back to the plain chat prompt.
+   */
+  async prepareMessages(
+    syllabusId: string | null,
+    recentHistory: { role: string; content: string }[],
+    question: string,
+  ): Promise<{ messages: LLMMessage[]; citations: CitationAPI[] }> {
+    let systemContent = getPrompt("chat:general").system
+    let userContent = question
+    let citations: CitationAPI[] = []
+
+    if (syllabusId) {
+      const retrieval = await RetrievalService.retrieve(syllabusId, question)
+      systemContent = GROUNDED_SYSTEM_PROMPT
+      if (retrieval.hasContext) {
+        userContent = RetrievalService.buildGroundedUserContent(retrieval.contextBlock, question)
+        citations = retrieval.citations
+      }
+    }
+
+    const messages: LLMMessage[] = [{ role: "system", content: systemContent }]
+    for (const msg of recentHistory) {
+      messages.push({ role: msg.role === "ai" ? "assistant" : "user", content: msg.content })
+    }
+    messages.push({ role: "user", content: userContent })
+
+    return { messages, citations }
+  },
+
   async processMessage(chatId: string, userId: string, userRole: Role, question: string) {
     // 1. Input guardrails
     const inputCheck = validateInput(question)
@@ -33,17 +67,12 @@ export const ChatService = {
     // 4. Save user message
     await ChatRepository.saveMessage(chatId, "user", question)
 
-    // 5. Build prompt
-    const prompt = getPrompt("chat:general")
-    const messages: LLMMessage[] = [{ role: "system", content: prompt.system }]
-
-    for (const msg of recentHistory) {
-      messages.push({
-        role: msg.role === "ai" ? "assistant" : "user",
-        content: msg.content,
-      })
-    }
-    messages.push({ role: "user", content: question })
+    // 5. Build prompt (with RAG retrieval if the chat is bound to a syllabus)
+    const { messages, citations } = await this.prepareMessages(
+      chat.syllabus_id,
+      recentHistory,
+      question,
+    )
 
     // 6. Route model
     const routing = selectModel({
@@ -65,7 +94,7 @@ export const ChatService = {
     const finalAnswer = outputCheck.sanitized ?? llmResponse.content
 
     // 9. Save AI message
-    await ChatRepository.saveMessage(chatId, "ai", finalAnswer)
+    await ChatRepository.saveMessage(chatId, "ai", finalAnswer, citations)
 
     // 10. Generate title for first message
     let title: string | undefined
@@ -108,6 +137,7 @@ export const ChatService = {
     return {
       finalAnswer,
       title,
+      citations,
       provider: llmResponse.provider,
       model: llmResponse.model,
       latencyMs: llmLatencyMs
@@ -136,17 +166,12 @@ export const ChatService = {
     // 4. Save user message
     await ChatRepository.saveMessage(chatId, "user", question)
 
-    // 5. Build prompt
-    const prompt = getPrompt("chat:general")
-    const messages: LLMMessage[] = [{ role: "system", content: prompt.system }]
-
-    for (const msg of recentHistory) {
-      messages.push({
-        role: msg.role === "ai" ? "assistant" : "user",
-        content: msg.content,
-      })
-    }
-    messages.push({ role: "user", content: question })
+    // 5. Build prompt (with RAG retrieval if the chat is bound to a syllabus)
+    const { messages, citations } = await this.prepareMessages(
+      chat.syllabus_id,
+      recentHistory,
+      question,
+    )
 
     // 6. Route model
     const routing = selectModel({
@@ -215,7 +240,7 @@ export const ChatService = {
           const outputCheck = validateOutput(fullContent)
           const finalAnswer = outputCheck.sanitized ?? fullContent
 
-          await ChatRepository.saveMessage(chatId, "ai", finalAnswer)
+          await ChatRepository.saveMessage(chatId, "ai", finalAnswer, citations)
 
           const ms = Date.now() - startTime
           await recordUsage({
@@ -234,10 +259,10 @@ export const ChatService = {
           const generatedTitle = await titlePromise
 
           // Final event
-          const finalEvent = `data: ${JSON.stringify({ 
+          const finalEvent = `data: ${JSON.stringify({
             id: crypto.randomUUID(),
             content: "", // We already sent the content
-            citations: [], 
+            citations,
             title: generatedTitle,
             provider: llmProvider,
             model: llmModel

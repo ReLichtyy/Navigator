@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentService } from "@/lib/server/services/document.service"
+import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
 
@@ -8,11 +9,8 @@ export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
   try {
+    // Guests may upload too — their upload is ephemeral (24h, no blob). See document.service.
     const { userId, role } = await requireAuth()
-
-    if (role === "guest") {
-      return NextResponse.json({ error: "Guests cannot upload files. Please create an account to unlock this feature." }, { status: 403 })
-    }
 
     await requireRateLimit(userId, role)
 
@@ -26,16 +24,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No file provided." }, { status: 400 })
     }
 
-    const upload = await DocumentService.processUpload(userId, file)
+    const upload = await DocumentService.processUpload(userId, role, file)
 
     await invalidatePrefix(`uploads:list:${userId}`)
+
+    // Kick the async worker (embeddings + graph). Non-blocking in prod.
+    triggerIngestionWorker()
 
     logInfo("api.upload.success", { userId, uploadId: upload.id, filename: upload.original_filename })
 
     return NextResponse.json(
       {
         syllabus_id: upload.id,
-        message: "File uploaded successfully.",
+        status: "processing",
+        message: "File uploaded. Processing has started.",
       },
       { status: 201 }
     )
