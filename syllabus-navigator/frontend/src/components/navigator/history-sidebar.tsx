@@ -154,14 +154,21 @@ export function HistorySidebar({
 
                 return (
                   <li key={chat.id} className="relative">
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => {
                         if (!isEditing) onSelect(chat.id)
                       }}
+                      onKeyDown={(e) => {
+                        if (!isEditing && (e.key === "Enter" || e.key === " ")) {
+                          e.preventDefault()
+                          onSelect(chat.id)
+                        }
+                      }}
                       aria-current={isActive ? "true" : undefined}
                       className={cn(
-                        "group relative flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
+                        "group relative flex w-full cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
                         isActive
                           ? "bg-accent-soft text-sidebar-foreground"
                           : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
@@ -220,7 +227,7 @@ export function HistorySidebar({
                           className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_0_3px_var(--color-accent-soft)]"
                         />
                       )}
-                    </button>
+                    </div>
 
                     {isMenuOpen && (
                       <div

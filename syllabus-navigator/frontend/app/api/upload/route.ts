@@ -6,6 +6,7 @@ import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 60 // embeddings + graph LLM run inline before responding
 
 export async function POST(request: Request) {
   try {
@@ -26,18 +27,18 @@ export async function POST(request: Request) {
 
     const upload = await DocumentService.processUpload(userId, role, file)
 
+    // Run the worker (embeddings + graph) inline so it actually completes on
+    // serverless, then invalidate so the list reflects the final status.
+    await triggerIngestionWorker()
     await invalidatePrefix(`uploads:list:${userId}`)
-
-    // Kick the async worker (embeddings + graph). Non-blocking in prod.
-    triggerIngestionWorker()
 
     logInfo("api.upload.success", { userId, uploadId: upload.id, filename: upload.original_filename })
 
     return NextResponse.json(
       {
         syllabus_id: upload.id,
-        status: "processing",
-        message: "File uploaded. Processing has started.",
+        status: "processed",
+        message: "File uploaded and processed.",
       },
       { status: 201 }
     )

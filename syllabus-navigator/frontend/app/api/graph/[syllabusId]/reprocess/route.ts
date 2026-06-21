@@ -11,6 +11,7 @@ import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 60 // graph LLM runs inline before responding
 
 type RouteParams = { params: Promise<{ syllabusId: string }> }
 
@@ -21,8 +22,8 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const graph = await GraphService.reprocess(userId, syllabusId)
 
-    // Kick the async worker (embeddings + graph). Non-blocking in prod.
-    triggerIngestionWorker()
+    // Run the worker inline so it completes on serverless before we respond.
+    await triggerIngestionWorker()
 
     logInfo("api.graph.reprocess", { userId, syllabusId })
     return NextResponse.json(graph)

@@ -131,18 +131,16 @@ export function useChatOrchestrator({
         trimmed,
         targetChatId,
         (chunk) => {
-          // Stream each text chunk into the pending bubble
+          // Append each text chunk to the pending bubble. Guard against an
+          // undefined starting value so we never render the literal "undefined".
           if (activeChatIdRef.current === targetChatId) {
-            updateMessage(pendingId, {
-              content: undefined as any, // signal: accumulate
-            })
             setActiveChat((prev) => {
               if (!prev) return prev
               return {
                 ...prev,
                 messages: prev.messages.map((m) =>
                   m.id === pendingId
-                    ? { ...m, content: m.content + chunk }
+                    ? { ...m, content: (m.content ?? "") + chunk }
                     : m
                 ),
               }
@@ -177,21 +175,28 @@ export function useChatOrchestrator({
         return true // User switched chats, don't rollback text
       }
 
-      // Rollback UI
+      const friendlyMsg = error instanceof ApiError ? error.message : "Sorry, I encountered an error."
+
+      // Keep the user's message in the thread; turn the empty pending bubble into
+      // an error reply instead of deleting both (which looked like the message
+      // "disappeared"). The composer keeps its input clear since the turn is shown.
       if (activeChatIdRef.current === targetChatId) {
         setActiveChat((prev) => {
           if (!prev) return prev
           return {
             ...prev,
-            messages: prev.messages.filter(m => m.id !== pendingId && m.id !== userMsg.id)
+            messages: prev.messages.map((m) =>
+              m.id === pendingId
+                ? ({ ...m, pending: false, content: friendlyMsg, error: true } as any)
+                : m
+            ),
           }
         })
       }
 
-      const friendlyMsg = error instanceof ApiError ? error.message : "Sorry, I encountered an error."
       toast.error(friendlyMsg)
       setIsSending(false)
-      return false // Indicates failure, composer should restore text
+      return true // turn is preserved in the thread; don't restore composer text
     }
   }, [
     canMutateChat, isSending, isCreatingChat, activeChatId, activeSyllabusId,
