@@ -116,8 +116,8 @@ export const ChatService = {
       }
     }
 
-    // 11. Record usage
-    await recordUsage({
+    // 11. Record usage (fire-and-forget; recordUsage is void and self-handles errors)
+    recordUsage({
       userId,
       provider: llmResponse.provider,
       model: llmResponse.model,
@@ -243,7 +243,7 @@ export const ChatService = {
           await ChatRepository.saveMessage(chatId, "ai", finalAnswer, citations)
 
           const ms = Date.now() - startTime
-          await recordUsage({
+          recordUsage({
             userId,
             provider: llmProvider,
             model: llmModel,

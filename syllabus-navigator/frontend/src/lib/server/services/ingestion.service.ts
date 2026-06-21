@@ -66,9 +66,10 @@ export const IngestionService = {
    * reached. Called by the cron/process route (Vercel Cron + fire-and-forget
    * trigger from upload). Job claiming is atomic, so concurrent runs are safe.
    */
-  async drainQueue(maxJobs = 5): Promise<{ processed: number; failed: number }> {
+  async drainQueue(maxJobs = 5): Promise<{ processed: number; failed: number; retried: number }> {
     let processed = 0
     let failed = 0
+    let retried = 0
 
     for (let i = 0; i < maxJobs; i++) {
       const job = await JobRepository.claimNext(JOB_TYPE)
@@ -76,7 +77,8 @@ export const IngestionService = {
 
       const syllabusId = (job.payload as { syllabusId?: string }).syllabusId
       if (!syllabusId) {
-        await JobRepository.fail(job.id, "Missing syllabusId in payload")
+        // Unrecoverable payload error — don't waste retries on it.
+        await JobRepository.fail(job.id, "Missing syllabusId in payload", true)
         failed++
         continue
       }
@@ -86,12 +88,16 @@ export const IngestionService = {
         await JobRepository.complete(job.id, result)
         processed++
       } catch (err) {
-        await JobRepository.fail(job.id, err instanceof Error ? err.message : String(err))
-        failed++
+        const { retried: willRetry } = await JobRepository.fail(
+          job.id,
+          err instanceof Error ? err.message : String(err),
+        )
+        if (willRetry) retried++
+        else failed++
       }
     }
 
-    if (processed || failed) logInfo("ingestion.drain", { processed, failed })
-    return { processed, failed }
+    if (processed || failed || retried) logInfo("ingestion.drain", { processed, failed, retried })
+    return { processed, failed, retried }
   },
 }

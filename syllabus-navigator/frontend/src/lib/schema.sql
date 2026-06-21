@@ -12,13 +12,18 @@ CREATE EXTENSION IF NOT EXISTS vector;  -- pgvector: embeddings para retrieval R
 CREATE TABLE IF NOT EXISTS users (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email         TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
+  password_hash TEXT,                                  -- NULL para cuentas OAuth (Google)
   display_name  TEXT NOT NULL DEFAULT 'User',
   role          TEXT NOT NULL DEFAULT 'free',
+  image         TEXT,                                  -- avatar URL del proveedor OAuth
   tenant_id     UUID,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migración de despliegues existentes: password_hash deja de ser obligatorio (OAuth)
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
@@ -200,9 +205,18 @@ CREATE TABLE IF NOT EXISTS jobs (
   payload      JSONB NOT NULL DEFAULT '{}',
   status       TEXT NOT NULL DEFAULT 'pending',
   priority     INT NOT NULL DEFAULT 0,
+  attempts     INT NOT NULL DEFAULT 0,
+  max_attempts INT NOT NULL DEFAULT 3,
+  scheduled_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   result       JSONB,
   error        TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   started_at   TIMESTAMPTZ,
   completed_at TIMESTAMPTZ
 );
+-- Retry/backoff columns for existing deployments.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS attempts     INT NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_attempts INT NOT NULL DEFAULT 3;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ NOT NULL DEFAULT now();
+-- Claim ordering / due-time lookups.
+CREATE INDEX IF NOT EXISTS jobs_claim_idx ON jobs (type, status, scheduled_at);

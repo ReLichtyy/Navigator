@@ -56,7 +56,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     }
 
     // Delete the upload.
-    await DocumentRepository.deleteDocument(id)
+    await DocumentRepository.deleteDocument(id, userId)
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.deleted", { userId, uploadId: id })

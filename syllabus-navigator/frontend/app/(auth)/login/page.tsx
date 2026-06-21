@@ -4,6 +4,7 @@ import { useState } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { GoogleButton } from "@/components/auth/google-button"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -134,6 +135,9 @@ export default function LoginPage() {
               <span className="bg-card px-2 text-muted-foreground">Or</span>
             </div>
           </div>
+
+          {/* Google OAuth */}
+          <GoogleButton callbackUrl="/" disabled={loading || isGuestLoading} />
 
           {/* Guest Mode */}
           <div className="flex flex-col gap-3">

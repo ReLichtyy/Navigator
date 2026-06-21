@@ -40,10 +40,7 @@ export async function GET() {
     logError("api.user.prefs.get_error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json({ 
-      error: "Failed to load preferences.",
-      details: err instanceof Error ? err.message : String(err)
-    }, { status: 500 })
+    return NextResponse.json({ error: "Failed to load preferences." }, { status: 500 })
   }
 }
 
@@ -101,9 +98,6 @@ export async function PATCH(request: Request) {
     logError("api.user.prefs.patch_error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json({ 
-      error: "Failed to update preferences.",
-      details: err instanceof Error ? err.message : String(err)
-    }, { status: 500 })
+    return NextResponse.json({ error: "Failed to update preferences." }, { status: 500 })
   }
 }

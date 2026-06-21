@@ -47,6 +47,40 @@ const limiters = {
     : null,
 }
 
+// ---- In-memory fallback (no Upstash) ----------------------------------------
+// Best-effort sliding window kept in process memory. On Vercel this is per-instance
+// and resets on cold start, so it won't catch a distributed flood — but it does stop
+// a burst hammering one warm instance, which is strictly better than allow-all.
+const WINDOW_MS = 60_000
+const memoryHits = new Map<string, number[]>()
+
+function inMemoryLimit(key: string, limit: number): RateLimitResult {
+  const now = Date.now()
+  const cutoff = now - WINDOW_MS
+  const hits = (memoryHits.get(key) ?? []).filter((t) => t > cutoff)
+
+  const success = hits.length < limit
+  if (success) hits.push(now)
+  memoryHits.set(key, hits)
+
+  // Opportunistic cleanup so the map can't grow unbounded across many identifiers.
+  if (memoryHits.size > 5000) {
+    for (const [k, v] of memoryHits) {
+      const live = v.filter((t) => t > cutoff)
+      if (live.length === 0) memoryHits.delete(k)
+      else memoryHits.set(k, live)
+    }
+  }
+
+  const oldest = hits[0] ?? now
+  return {
+    success,
+    limit,
+    remaining: Math.max(0, limit - hits.length),
+    reset: oldest + WINDOW_MS,
+  }
+}
+
 export type RateLimitTier = "anonymous" | "guest" | "authenticated"
 
 export interface RateLimitResult {
@@ -65,36 +99,27 @@ export async function checkRateLimit(
   tier: RateLimitTier
 ): Promise<RateLimitResult> {
   const limiter = limiters[tier]
+  const key = `rl_${tier}_${identifier}`
 
   if (!limiter) {
-    // If Upstash isn't configured, allow by default but log it occasionally
+    // No Upstash → use the in-memory fallback instead of allowing everything.
     if (Math.random() < 0.05) {
-      logInfo("rate_limit.bypassed_missing_redis", { identifier, tier })
+      logInfo("rate_limit.using_memory_fallback", { identifier, tier })
     }
-    return {
-      success: true,
-      limit: LIMITS[tier],
-      remaining: 999,
-      reset: Date.now() + 60000,
-    }
+    return inMemoryLimit(key, LIMITS[tier])
   }
 
   try {
-    const { success, limit, remaining, reset } = await limiter.limit(`rl_${tier}_${identifier}`)
-    
+    const { success, limit, remaining, reset } = await limiter.limit(key)
+
     if (!success) {
       logInfo("rate_limit.exceeded", { identifier, tier, limit })
     }
-    
+
     return { success, limit, remaining, reset }
   } catch (error) {
-    // Fallback to allow if Redis call fails (e.g. network timeout)
+    // Redis call failed (e.g. network timeout) → degrade to in-memory, not allow-all.
     logError("rate_limit.check_failed", { error: String(error), identifier })
-    return {
-      success: true,
-      limit: LIMITS[tier],
-      remaining: 999,
-      reset: Date.now() + 60000,
-    }
+    return inMemoryLimit(key, LIMITS[tier])
   }
 }

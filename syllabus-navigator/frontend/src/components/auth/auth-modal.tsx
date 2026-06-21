@@ -5,6 +5,7 @@ import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useUser } from "@/context/UserContext"
+import { GoogleButton } from "@/components/auth/google-button"
 
 export type AuthModalView = "welcome" | "login" | "signup"
 
@@ -34,11 +35,30 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
   }, [open, initialView])
 
   const createGuestSession = async () => {
+    // Already signed in (guest or full account) → don't mint another identity.
+    if (status === "guest" || status === "authenticated") {
+      onOpenChange(false)
+      return
+    }
     setError(null)
     setIsGuestLoading(true)
     try {
+      // Persist a stable guest id so repeated visits reuse the same DB row
+      // instead of creating a new guest user every time.
+      let guestId = ""
+      try {
+        guestId = localStorage.getItem("navigator_guest_id") ?? ""
+        if (!guestId) {
+          guestId = crypto.randomUUID()
+          localStorage.setItem("navigator_guest_id", guestId)
+        }
+      } catch {
+        // localStorage unavailable (private mode) → server mints a fresh guest.
+      }
+
       const result = await signIn("credentials", {
         isGuest: "true",
+        guestId,
         redirect: false,
       })
 
@@ -165,6 +185,8 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
 
           {view === "welcome" && (
             <div className="flex flex-col gap-4">
+              <GoogleButton callbackUrl="/" disabled={isGuestLoading} />
+
               <button
                 type="button"
                 onClick={createGuestSession}
@@ -190,6 +212,7 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
 
           {view === "login" && (
             <form onSubmit={handleLogin} className="flex flex-col gap-4">
+              <GoogleButton callbackUrl="/" disabled={loading} />
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-foreground text-left">Email</label>
                 <input
@@ -233,6 +256,7 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
 
           {view === "signup" && (
             <form onSubmit={handleSignup} className="flex flex-col gap-4">
+              <GoogleButton callbackUrl="/" label="Sign up with Google" disabled={loading} />
               <div className="flex flex-col gap-1.5">
                 <label className="text-sm font-medium text-foreground text-left">Name</label>
                 <input

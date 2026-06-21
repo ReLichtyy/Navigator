@@ -7,6 +7,7 @@ export interface DbDocument {
   source_hash: string
   status: string
   graph_status: string
+  error_message?: string | null
   graph_error?: string | null
   file_url?: string | null
   expires_at?: string | null
@@ -22,16 +23,16 @@ export const DocumentRepository = {
     return rows[0] as DbDocument | undefined
   },
 
-  async deleteDocument(docId: string): Promise<void> {
+  async deleteDocument(docId: string, userId: string): Promise<void> {
     await sql`
       DELETE FROM syllabus_uploads
-      WHERE id = ${docId}::uuid
+      WHERE id = ${docId}::uuid AND user_id = ${userId}
     `
   },
 
   async listUploads(userId: string): Promise<DbDocument[]> {
     const rows = await sql`
-      SELECT id, original_filename, status, graph_status, created_at 
+      SELECT id, original_filename, status, graph_status, error_message, graph_error, created_at
       FROM syllabus_uploads
       WHERE user_id = ${userId}
       ORDER BY created_at DESC

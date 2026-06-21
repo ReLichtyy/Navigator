@@ -136,12 +136,64 @@ PDF crudo nunca se persiste para invitados; solo el texto derivado (que es lo qu
    Invitados permitidos (middleware no bloquea `/api/graph`). Typecheck OK.
    ✅ **Happy-path verificado (2026-06-21):** upload PDF de prueba → worker → `GET /api/graph`
    = 10 nodos / 12 edges; `POST .../reprocess` → pending → ready de nuevo (10/12).
-3. ⏳ Interacciones del grafo en `GraphCanvas` (UI) — único pendiente de P1.
+3. ✅ **Interacciones del grafo en `GraphCanvas` (UI)** — implementadas: layout topológico por
+   niveles (BFS), hover/click resaltan ruta de prerequisitos (morado) y sucesores (teal),
+   doble-click manda el tema al chat (`queryTopicInChat`), MiniMap + Controls, estados
+   pending/processing/failed con spinner y botón de reprocesar. P1 completo.
 
 ### P2 — Robustez
-6. Validar tamaño/tipo real del PDF, manejo de errores de procesamiento en la UI.
-7. Job/cola para procesamiento asíncrono (la tabla `jobs` ya existe) si los PDFs son grandes.
-8. Tests de las rutas nuevas.
+6. ✅ **Validar tamaño/tipo real del PDF + manejo de errores de procesamiento en la UI** *(2026-06-21)*.
+   - **Tipo real (no MIME del cliente):** `document.service.ts` ahora verifica la firma mágica
+     `%PDF-` en los bytes (`hasPdfMagic`, busca en los primeros 1KB) → 400 "This file is not a valid
+     PDF". Añadido rechazo de archivo vacío (`file.size === 0`). El límite de 5MB ya existía.
+   - **Cliente:** `knowledge/page.tsx#handleFileChange` pre-valida tipo/empty/5MB con toast antes de
+     subir (evita el round-trip).
+   - **Errores en la UI:** `listUploads` (repo) ahora devuelve `error_message`/`graph_error`;
+     `SyllabusUploadAPI` los expone. Nuevo helper `getDocStatus` muestra estados ricos
+     (Ready / Processing… / Building graph… / **Failed** / **Graph failed**) con tooltip del error real
+     y botón **Retry** (`handleReprocessRow` → `reprocessGraph`) para filas en error/grafo-fallido.
+   Typecheck OK.
+7. ✅ **Job/cola async con reintentos + backoff** *(2026-06-21)*. La cola base (claim atómico
+   `FOR UPDATE SKIP LOCKED`, recuperación de jobs stale a 10min) ya existía del P0 #3. Añadido lo
+   que faltaba para PDFs grandes / fallos transitorios (rate-limit/timeout de OpenAI):
+   - **Schema** (`schema.sql`): `jobs` + `attempts`, `max_attempts` (def 3), `scheduled_at` (con
+     `ALTER ... ADD COLUMN IF NOT EXISTS` para deploys existentes) + índice `jobs_claim_idx`.
+   - **`claimNext`** incrementa `attempts` al reclamar y solo toma pendientes con `scheduled_at <= now()`
+     (así el backoff se respeta); orden `priority DESC, scheduled_at ASC, created_at ASC`.
+   - **`fail`** re-encola a `'pending'` con backoff exponencial (`2^attempts` min) mientras
+     `attempts < max_attempts`; al agotarse → `'failed'`. Flag `permanent=true` para errores
+     irrecuperables (payload inválido) que no deben reintentar. Devuelve `{ retried }`.
+   - **`drainQueue`** distingue `retried` de `failed` en contadores y logging.
+   Typecheck OK; 28 tests verde.
+8. ✅ **Tests de las rutas nuevas** (2026-06-21). Vitest (`npm test`, config `vitest.config.ts`,
+   alias `@→src`). 16 tests en `frontend/tests/`: `graph.route` (GET/reprocess: 401/404/200,
+   ownership scoped, re-enqueue + worker), `upload-id.route` (DELETE/PATCH: 401/404/400/200,
+   `deleteDocument` scoped por `userId`), `usage.route` (401/200 + no fuga de error en 500),
+   `chat.route` (DELETE IDOR scopeado por `user_id` + límite de 3 chats de invitado: 403/200/
+   no-cap-para-no-invitados), `upload.route` (POST: 401/400 sin file/201 + worker + propagación de
+   `ApiErrorResponse` del service). **28 tests, 5 archivos, todos verdes.** Mocks a nivel auth +
+   repos/`sql` (sin DB real). Typecheck OK.
+9. ✅ **Tests del route SSE `chat/[chatId]/messages`** (POST) *(2026-06-21)*. `messages.route.test.ts`
+   (4 tests): 401 sin auth, 400 body inválido (falta `question`), 404 chat ajeno (service lanza
+   `ApiErrorResponse`), 200 con `Content-Type: text/event-stream` + parseo del stream `data: {...}`
+   → evento final con `title`/`citations`/`provider`/`model` y wiring `(chatId, userId, role, question)`.
+   **Total ahora: 32 tests, 6 archivos, todos verdes.** Typecheck OK.
+10. ✅ **CI GitHub Actions** *(2026-06-21)*. `.github/workflows/ci.yml`: en push a `main` y en cada PR
+    corre `npm ci` → `tsc --noEmit` → `npm test` (Node 20, cache npm, working-dir
+    `syllabus-navigator/frontend`). No requiere secrets (los 32 tests mockean auth/DB). El lockfile
+    `package-lock.json` está trackeado, así que `npm ci` reproduce el árbol exacto.
+11. ✅ **Más cobertura de tests** *(2026-06-21)*. `chat-detail.route.test.ts` (8): GET 401/404/200
+    (chat+messages+count); PATCH 401/404/400-sin-campos/200 title/200 active_model. `auth.route.test.ts`
+    (6): signup 429 rate-limit, 400 falta campos / email inválido / pass corta, 409 duplicado, 201
+    crea user + prefs (email normalizado a lowercase). **Total: 46 tests, 8 archivos, todos verdes.**
+    Typecheck OK.
+12. ✅ **Prep deploy** *(2026-06-21)*. Auditado cron auth (Vercel inyecta `Bearer CRON_SECRET`),
+    worker-trigger y build config. Acciones: (a) `.env.example` + `BLOB_READ_WRITE_TOKEN` y nota de
+    que `CRON_SECRET` también arma el worker; (b) **`DEPLOY_CHECKLIST.md`** nuevo (pre-flight
+    accionable: Neon/pgvector, Vercel root-dir, env vars req/opt, crons Hobby vs Pro, smoke test);
+    (c) **`npm run build` verde** — 21 rutas + 4 páginas (si sale `PageNotFoundError /_document`,
+    limpiar `.next`: cache vieja). Falta solo lo que requiere tu acceso a Vercel/Neon (crear
+    proyectos, setear secrets, deploy real).
 
 ---
 
@@ -192,21 +244,48 @@ rate-limit, metering y rutas `app/api/*`. Lo verificado en código:
    variable a `frontend/.env.example`.
 
 ### 🟠 Calidad / riesgo
-4. **Dos implementaciones de rate-limit en conflicto.** `lib/rate-limit.ts` (la que realmente se
-   resuelve y usa Upstash) vs `lib/rate-limit/index.ts` (huérfana, tiers distintos, dice estar
-   "integrada en middleware" pero no lo está). Frágil: borrar el `.ts` cambiaría el comportamiento
-   en silencio. *Fix:* eliminar la huérfana.
-5. **`deleteDocument` no filtra por `userId`** (`document.repo.ts`). Hoy mitigado porque la ruta
-   verifica ownership antes, pero falta defensa en profundidad. *Fix:* añadir `AND user_id = ...`.
-6. **Rate limit efectivamente off sin Upstash.** `rate-limit.ts` devuelve `success: true` cuando no
-   hay Redis. En Vercel sin Upstash no hay límite real (salvo el de 3 chats por invitado). A saber.
-7. **Fuga de detalles de error al cliente.** P. ej. `usage/route.ts` devuelve `details: err.message`
-   en el 500. *Fix:* no exponer mensajes internos en producción.
+4. ✅ **Dos implementaciones de rate-limit en conflicto.** La huérfana `lib/rate-limit/index.ts` ya
+   no existe; queda solo `lib/rate-limit.ts` (Upstash). Resuelto.
+5. ✅ **`deleteDocument` no filtra por `userId`** (`document.repo.ts`). *Resuelto (2026-06-21):*
+   `deleteDocument(docId, userId)` ahora hace `AND user_id = ${userId}` (defensa en profundidad);
+   la ruta `upload/[id]` pasa el `userId`.
+6. ✅ **Rate limit efectivamente off sin Upstash** *(2026-06-21)*. Antes `rate-limit.ts` devolvía
+   `success: true` (allow-all) sin Redis y también ante error de Redis. *Resuelto:* añadido fallback
+   `inMemoryLimit` (sliding window de 60s en memoria de proceso) que ahora se usa en ambos casos
+   (Redis ausente / llamada fallida) en vez de allow-all. Mismos límites por tier (anon 5 / guest 10 /
+   auth 100 rpm). Limpieza oportunista del Map (>5000 claves) para no crecer sin límite.
+   ⚠️ Best-effort: en Vercel es por-instancia y se reinicia en cold start → no frena un flood
+   distribuido, pero sí un burst contra una instancia caliente. Upstash sigue siendo lo recomendado
+   en prod. Typecheck OK.
+7. ✅ **Fuga de detalles de error al cliente.** *Resuelto (2026-06-21):* `usage/route.ts` y
+   `user/preferences/route.ts` ya no devuelven `details: err.message` en el 500 (el error sigue en
+   `logError` server-side). `health` mantiene `detail` a propósito (endpoint de diagnóstico ops).
 
 ### 🟡 Menores
-8. `recordUsage` es `void` (fire-and-forget) pero se le hace `await` en `chat.service.ts` (inocuo).
-9. `MessageRequestSchema.activeModel` se valida pero no se usa.
-10. Cada login de invitado inserta una fila nueva en `users` (crecimiento; mitigado por el cron 24h).
+8. ✅ **`await` innecesario sobre `recordUsage`** *(2026-06-21)*. `recordUsage` es `void`
+   (fire-and-forget, maneja sus errores con `.catch`). Quitado el `await` en los dos sitios de
+   `chat.service.ts` (rutas stream y no-stream). Sin cambio de comportamiento; refleja la intención
+   fire-and-forget. Typecheck OK.
+9. ✅ `MessageRequestSchema.activeModel` se validaba pero no se usaba. *Resuelto (2026-06-21):*
+   campo eliminado del schema; el modelo se toma de `chat.active_model` server-side (zod descarta
+   claves extra, así que clientes que aún lo manden no rompen).
+10. ✅ **Cada login de invitado insertaba una fila nueva en `users`** *(2026-06-21)*. *Resuelto:*
+    identidad de invitado **estable y reutilizable**:
+    - **Cliente** (`auth-modal.tsx`): genera/persiste `navigator_guest_id` en `localStorage` y lo manda
+      como credencial `guestId`. Si ya hay sesión (`guest`/`authenticated`) no vuelve a crear identidad
+      (cierra el modal). Degrada bien si `localStorage` no está (modo privado).
+    - **Server** (`auth.ts`): si llega un `guestId` UUID válido, busca el guest existente
+      (`guest-<id>@navigator.local`) y lo **reutiliza** (verifica ownership con `bcrypt.compare`) en
+      vez de insertar. INSERT con `ON CONFLICT (email) DO NOTHING` + relectura ante carrera; prefs con
+      `ON CONFLICT (user_id) DO NOTHING`.
+    Efecto: clicks repetidos / pérdida de cookie / múltiples pestañas en la ventana de 24h ya no
+    multiplican filas. El cron 24h sigue limpiando guests viejos (al reaparecer se re-crea con el mismo
+    id). Typecheck OK; 46 tests verde.
+11. ✅ **Badge de estado nunca se ponía verde + tipos mentían.** *Resuelto (2026-06-21):* la página
+    `knowledge` comparaba `doc.status === "ready"`, pero el worker setea `'processed'` → el badge
+    quedaba en "pulse" infinito. Causa raíz: `SyllabusUploadAPI` declaraba uniones equivocadas
+    (`status`/`graph_status` mezclados). Corregido a los valores reales: `status` =
+    `pending|processed|error`; `graph_status` = `pending|processing|ready|failed`. Typecheck OK.
 
 ---
 

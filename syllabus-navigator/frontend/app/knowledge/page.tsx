@@ -6,9 +6,54 @@ import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { listSyllabi, uploadSyllabus, deleteSyllabus, fetchGraph, reprocessGraph, renameDocument } from "@/lib/api"
 import type { SyllabusUploadAPI, GraphResponseAPI } from "@/lib/api"
-import { Search, Plus, FileText, Loader2, Library, MessageSquare, Trash2, Eye, X, Pencil, Check } from "lucide-react"
+import { Search, Plus, FileText, Loader2, Library, MessageSquare, Trash2, Eye, X, Pencil, Check, RefreshCw, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
+
+type DocTone = "ok" | "error" | "warn" | "pending"
+interface DocStatusView {
+  label: string
+  tone: DocTone
+  tooltip?: string
+  canReprocess: boolean
+}
+
+function getDocStatus(doc: SyllabusUploadAPI & { _optimistic?: boolean }): DocStatusView {
+  if (doc._optimistic) return { label: "Uploading…", tone: "pending", canReprocess: false }
+
+  if (doc.status === "error") {
+    return {
+      label: "Failed",
+      tone: "error",
+      tooltip: doc.error_message ?? "Processing failed.",
+      canReprocess: true,
+    }
+  }
+  if (doc.status === "pending") {
+    return { label: "Processing…", tone: "pending", canReprocess: false }
+  }
+
+  // status === "processed" → look at the graph stage
+  if (doc.graph_status === "failed") {
+    return {
+      label: "Graph failed",
+      tone: "warn",
+      tooltip: doc.graph_error ?? "Graph generation failed.",
+      canReprocess: true,
+    }
+  }
+  if (doc.graph_status === "pending" || doc.graph_status === "processing") {
+    return { label: "Building graph…", tone: "pending", canReprocess: false }
+  }
+  return { label: "Ready", tone: "ok", canReprocess: false }
+}
+
+const TONE_CLASS: Record<DocTone, string> = {
+  ok: "bg-green-500/10 text-green-500",
+  error: "bg-red-500/10 text-red-500",
+  warn: "bg-amber-500/10 text-amber-500",
+  pending: "bg-accent/10 text-accent animate-pulse",
+}
 
 export default function KnowledgeBasePage() {
   const { status, ready } = useUser()
@@ -95,10 +140,20 @@ export default function KnowledgeBasePage() {
     if (files.length === 0) return
     if (fileInputRef.current) fileInputRef.current.value = ""
 
+    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB — must match document.service.ts
+
     setIsUploading(true)
     for (const file of files) {
       if (file.type !== "application/pdf") {
         toast.error(`${file.name} is not a PDF.`)
+        continue
+      }
+      if (file.size === 0) {
+        toast.error(`${file.name} is empty.`)
+        continue
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`${file.name} exceeds the 5MB limit.`)
         continue
       }
 
@@ -170,6 +225,21 @@ export default function KnowledgeBasePage() {
       toast.success("Reprocessing started.")
     } catch {
       toast.error("Failed to reprocess graph.")
+    }
+  }
+
+  const [reprocessingId, setReprocessingId] = useState<string | null>(null)
+
+  const handleReprocessRow = async (id: string) => {
+    setReprocessingId(id)
+    try {
+      await reprocessGraph(id)
+      toast.success("Reprocessing started.")
+      await fetchUploads(true)
+    } catch {
+      toast.error("Failed to start reprocessing.")
+    } finally {
+      setReprocessingId(null)
     }
   }
 
@@ -346,15 +416,33 @@ export default function KnowledgeBasePage() {
                         {new Date(doc.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          doc.status === "ready" 
-                            ? "bg-green-500/10 text-green-500"
-                            : doc.status === "error"
-                              ? "bg-red-500/10 text-red-500"
-                              : "bg-accent/10 text-accent animate-pulse"
-                        }`}>
-                          {(doc as any)._optimistic ? "Uploading…" : doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                        </span>
+                        {(() => {
+                          const sv = getDocStatus(doc as any)
+                          return (
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${TONE_CLASS[sv.tone]}`}
+                                title={sv.tooltip}
+                              >
+                                {(sv.tone === "error" || sv.tone === "warn") && (
+                                  <AlertTriangle className="h-3 w-3" />
+                                )}
+                                {sv.label}
+                              </span>
+                              {sv.canReprocess && (
+                                <button
+                                  onClick={() => handleReprocessRow(doc.id)}
+                                  disabled={reprocessingId === doc.id}
+                                  className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                                  title="Reprocess this document"
+                                >
+                                  <RefreshCw className={`h-3 w-3 ${reprocessingId === doc.id ? "animate-spin" : ""}`} />
+                                  Retry
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">

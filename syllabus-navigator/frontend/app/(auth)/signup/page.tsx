@@ -4,6 +4,7 @@ import { useState } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { GoogleButton } from "@/components/auth/google-button"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -163,6 +164,8 @@ export default function SignupPage() {
           </span>
         </div>
       </div>
+
+      <GoogleButton callbackUrl="/" label="Sign up with Google" disabled={loading || isGuestLoading} />
 
       <button
         type="button"

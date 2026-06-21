@@ -34,8 +34,10 @@ export interface ChatDetailAPI extends ChatOutAPI {
 export interface SyllabusUploadAPI {
   id: string
   original_filename: string
-  status: "pending" | "processing" | "ready" | "error"
-  graph_status: "pending" | "processing" | "ready" | "error"
+  status: "pending" | "processed" | "error"
+  graph_status: "pending" | "processing" | "ready" | "failed"
+  error_message?: string | null
+  graph_error?: string | null
   created_at: string
 }
 
