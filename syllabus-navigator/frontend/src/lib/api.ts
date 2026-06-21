@@ -119,8 +119,13 @@ export async function getChatDetail(chatId: string) {
   return request<ChatDetailAPI>(`/chat/${chatId}`, { method: "GET", json: false })
 }
 
+export interface ChatModelAPI {
+  id: string
+  displayName: string
+}
+
 export async function fetchChatModels() {
-  return request<{ models: string[]; default: string }>("/chat/models", { method: "GET", json: false })
+  return request<{ models: ChatModelAPI[]; default: string }>("/chat/models", { method: "GET", json: false })
 }
 
 export interface StreamResult {

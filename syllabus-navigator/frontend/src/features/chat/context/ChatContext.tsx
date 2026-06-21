@@ -139,14 +139,20 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
   }, [renameChat])
 
   const handleModelChange = useCallback(async (model: string) => {
-    if (!activeChatId) return
+    // Optimistically reflect the change in the UI (composer reads
+    // activeChat.activeModel). Do this even for a brand-new "draft" chat that
+    // hasn't been persisted yet — the model is carried over when it's created.
+    setActiveChat(prev => prev ? { ...prev, activeModel: model } : prev)
+    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, activeModel: model } : c))
+
+    // Only persist when there is a real (saved) chat to PATCH.
+    if (!activeChatId || activeChatId === "draft") return
     try {
       await updateChat(activeChatId, { active_model: model })
-      setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, activeModel: model } : c))
     } catch (err) {
       toast.error("Failed to change model")
     }
-  }, [activeChatId, setChats])
+  }, [activeChatId, setChats, setActiveChat])
 
 
 

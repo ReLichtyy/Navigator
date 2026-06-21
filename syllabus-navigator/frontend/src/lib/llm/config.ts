@@ -21,6 +21,16 @@ export const DEFAULT_MODEL = "gpt-4o-mini"
 
 export const MODELS: ModelDefinition[] = [
   {
+    id: "gpt-5.5",
+    provider: "openai",
+    displayName: "GPT-5.5",
+    contextWindow: 400_000,
+    // Pricing is an estimate — adjust to the real OpenAI rate when published.
+    costPer1kPrompt: 0.005,
+    costPer1kCompletion: 0.015,
+    tier: "pro",
+  },
+  {
     id: "gpt-4o-mini",
     provider: "openai",
     displayName: "GPT-4o Mini",

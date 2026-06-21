@@ -8,6 +8,19 @@ import { authConfig } from "./auth.config"
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// Owner accounts that should always be `admin` (see all models, no tier limits).
+// Extend at runtime with ADMIN_EMAILS="a@x.com,b@y.com".
+const ADMIN_EMAILS = new Set(
+  [
+    "joshuabellocalero@gmail.com",
+    "joshua1230684@gmail.com",
+    "cloudiaholochat@gmail.com",
+    ...(process.env.ADMIN_EMAILS ?? "").split(","),
+  ]
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+)
+
 /**
  * Find-or-create a DB user for a Google sign-in. Returns the real Neon row
  * (its UUID + role) so the JWT carries our id, not Google's `sub`.
@@ -18,21 +31,30 @@ async function upsertOAuthUser(input: {
   image?: string | null
 }): Promise<{ id: string; role: Role; display_name: string } | null> {
   const email = input.email.toLowerCase().trim()
+  const desiredRole: Role = ADMIN_EMAILS.has(email) ? "admin" : "free"
   try {
     const existing = (await sql`
       SELECT id, role, display_name FROM users WHERE email = ${email}
     `) as { id: string; role: Role; display_name: string }[]
 
     if (existing[0]) {
-      if (input.image) {
-        await sql`UPDATE users SET image = ${input.image}, updated_at = now() WHERE id = ${existing[0].id}::uuid`
+      // Keep image fresh and ensure owner accounts are promoted to admin.
+      const promote = ADMIN_EMAILS.has(email) && existing[0].role !== "admin"
+      if (input.image || promote) {
+        await sql`
+          UPDATE users
+          SET image = COALESCE(${input.image ?? null}, image),
+              role = ${promote ? "admin" : existing[0].role},
+              updated_at = now()
+          WHERE id = ${existing[0].id}::uuid
+        `
       }
-      return existing[0]
+      return { ...existing[0], role: promote ? "admin" : existing[0].role }
     }
 
     const rows = (await sql`
       INSERT INTO users (email, display_name, role, image)
-      VALUES (${email}, ${input.name?.trim() || "User"}, 'free', ${input.image ?? null})
+      VALUES (${email}, ${input.name?.trim() || "User"}, ${desiredRole}, ${input.image ?? null})
       RETURNING id, role, display_name
     `) as { id: string; role: Role; display_name: string }[]
     const user = rows[0]

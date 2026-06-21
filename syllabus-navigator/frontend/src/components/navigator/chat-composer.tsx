@@ -6,9 +6,12 @@ import { ArrowUp, ChevronDown, FileText, Paperclip, X } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import type { AttachedFile } from "@/components/navigator/types"
-import { fetchChatModels } from "@/lib/api"
+import { fetchChatModels, type ChatModelAPI } from "@/lib/api"
 
-const DEFAULT_MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"]
+const DEFAULT_MODELS: ChatModelAPI[] = [
+  { id: "gpt-4o-mini", displayName: "GPT-4o Mini" },
+  { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini" },
+]
 
 export function ChatComposer({
   attachments,
@@ -31,13 +34,15 @@ export function ChatComposer({
 }) {
   const [value, setValue] = useState("")
   const [isDragging, setIsDragging] = useState(false)
-  const [models, setModels] = useState<string[]>(DEFAULT_MODELS)
+  const [models, setModels] = useState<ChatModelAPI[]>(DEFAULT_MODELS)
   const [modelOpen, setModelOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelRef = useRef<HTMLDivElement>(null)
 
   const hasText = value.trim().length > 0
-  const currentModel = activeModel ?? models[0] ?? "gpt-4o-mini"
+  const currentModelId = activeModel ?? models[0]?.id ?? "gpt-4o-mini"
+  const currentModelLabel =
+    models.find((m) => m.id === currentModelId)?.displayName ?? currentModelId
   const canSend = hasText && !disabled
 
   useEffect(() => {
@@ -170,25 +175,25 @@ export function ChatComposer({
               disabled={disabled}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
-              <span className="max-w-[100px] truncate">{currentModel}</span>
+              <span className="max-w-[120px] truncate">{currentModelLabel}</span>
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.25} />
             </button>
             {modelOpen && (
               <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[160px] rounded-lg border border-border bg-card py-1 shadow-lg">
                 {models.map((m) => (
                   <button
-                    key={m}
+                    key={m.id}
                     type="button"
                     onClick={() => {
-                      onModelChange?.(m)
+                      onModelChange?.(m.id)
                       setModelOpen(false)
                     }}
                     className={cn(
                       "flex w-full px-3 py-2 text-left text-xs hover:bg-secondary",
-                      m === currentModel && "font-semibold text-accent",
+                      m.id === currentModelId && "font-semibold text-accent",
                     )}
                   >
-                    {m}
+                    {m.displayName}
                   </button>
                 ))}
               </div>

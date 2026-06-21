@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/lib/auth/auth"
 import { getAvailableModels, DEFAULT_MODEL } from "@/lib/llm"
+import { getModelDef } from "@/lib/llm/config"
 import { cached } from "@/lib/cache"
 import type { Role } from "@/lib/auth/rbac"
 
@@ -16,8 +17,12 @@ export async function GET() {
 
   const userRole = (session.user.role ?? "free") as Role
 
-  const models = await cached("models:list", 300, async () =>
-    getAvailableModels(userRole),
+  // Cache per-role so admins/pro get the full list and free users the trimmed one.
+  const models = await cached(`models:list:${userRole}`, 300, async () =>
+    getAvailableModels(userRole).map((id) => ({
+      id,
+      displayName: getModelDef(id)?.displayName ?? id,
+    })),
   )
 
   return NextResponse.json({
