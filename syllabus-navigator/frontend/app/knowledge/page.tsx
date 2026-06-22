@@ -509,6 +509,19 @@ export default function KnowledgeBasePage() {
                   graphStatus={previewGraph.graph_status}
                   graphError={previewGraph.graph_error}
                   onReprocess={handleReprocess}
+                  editable
+                  syllabusId={previewDoc.id}
+                  onSaved={(g) =>
+                    setPreviewGraph((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            nodes: g.nodes.map((n) => ({ ...n, weight_percent: n.weight_percent ?? 0 })),
+                            edges: g.edges,
+                          }
+                        : prev,
+                    )
+                  }
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">

@@ -11,18 +11,21 @@
 import { embedTexts } from "@/lib/llm/embeddings"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { GraphRepository } from "../repositories/graph.repo"
+import { ScheduleRepository } from "../repositories/schedule.repo"
 import { DocumentRepository } from "../repositories/document.repo"
 import { JobRepository } from "../repositories/job.repo"
 import { extractGraphFromText } from "../rag/graph-gen"
+import { extractScheduleFromText } from "../rag/schedule-gen"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 const JOB_TYPE = "ingest"
 
 export const IngestionService = {
   /** Process one ingestion job (idempotent: re-running re-embeds pending chunks). */
-  async runIngestJob(syllabusId: string): Promise<{ embedded: number; topics: number }> {
+  async runIngestJob(syllabusId: string): Promise<{ embedded: number; topics: number; events: number }> {
     let embedded = 0
     let topics = 0
+    let events = 0
 
     // --- Embeddings ---
     try {
@@ -43,10 +46,12 @@ export const IngestionService = {
       throw err // graph won't run if embeddings failed
     }
 
+    // Concatenated text is reused by both graph and schedule extraction.
+    const text = await ChunkRepository.getConcatenatedText(syllabusId)
+
     // --- Graph generation (best-effort: a failure here doesn't fail the upload) ---
     try {
       await DocumentRepository.setGraphStatus(syllabusId, "processing")
-      const text = await ChunkRepository.getConcatenatedText(syllabusId)
       const nodes = await extractGraphFromText(text)
       await GraphRepository.replaceGraph(syllabusId, nodes)
       await DocumentRepository.setGraphStatus(syllabusId, "ready")
@@ -58,7 +63,19 @@ export const IngestionService = {
       logError("ingestion.graph_failed", { syllabusId, error: msg })
     }
 
-    return { embedded, topics }
+    // --- Schedule extraction (best-effort; independent of the graph) ---
+    try {
+      const extracted = await extractScheduleFromText(text)
+      events = await ScheduleRepository.replaceEvents(syllabusId, extracted)
+      logInfo("ingestion.schedule_ready", { syllabusId, events })
+    } catch (err) {
+      logError("ingestion.schedule_failed", {
+        syllabusId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+
+    return { embedded, topics, events }
   },
 
   /**

@@ -8,6 +8,9 @@ export interface CitationAPI {
   page_start: number | null
   page_end: number | null
   quote: string
+  /** Source document name — set for cross-course retrieval so the UI can show which course. */
+  source_name?: string | null
+  syllabus_id?: string | null
 }
 
 export interface ChatOutAPI {

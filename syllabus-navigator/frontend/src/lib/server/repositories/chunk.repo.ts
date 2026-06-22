@@ -9,6 +9,8 @@ export interface RetrievedChunk {
   page_start: number | null
   page_end: number | null
   distance: number
+  source_name?: string | null
+  syllabus_id?: string | null
 }
 
 export interface PendingChunk {
@@ -79,6 +81,29 @@ export const ChunkRepository = {
              embedding <=> ${qvec}::vector AS distance
       FROM chunks
       WHERE syllabus_id = ${syllabusId}::uuid AND embedding IS NOT NULL
+      ORDER BY distance ASC
+      LIMIT ${limit}
+    `
+    return rows as RetrievedChunk[]
+  },
+
+  /**
+   * Retrieval across ALL of a user's processed syllabi (multi-course chat).
+   * Returns the source document name so citations can show which course.
+   */
+  async searchByUser(
+    userId: string,
+    queryEmbedding: number[],
+    limit = 8,
+  ): Promise<RetrievedChunk[]> {
+    const qvec = toVectorLiteral(queryEmbedding)
+    const rows = await sql`
+      SELECT c.id, c.chunk_index, c.content, c.page_start, c.page_end,
+             c.syllabus_id, su.original_filename AS source_name,
+             c.embedding <=> ${qvec}::vector AS distance
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE su.user_id = ${userId} AND c.embedding IS NOT NULL
       ORDER BY distance ASC
       LIMIT ${limit}
     `

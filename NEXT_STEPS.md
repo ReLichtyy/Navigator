@@ -289,6 +289,85 @@ rate-limit, metering y rutas `app/api/*`. Lo verificado en código:
 
 ---
 
+## 4.ter Mejoras de funcionalidad + config (2026-06-22)
+
+Verificado primero el estado real: typecheck OK, 50 tests verde, `npm run build` OK (24 rutas),
+DB Neon viva (pgvector ON, 14 tablas, datos reales: 13 chunks / 2 uploads / 3 users),
+`/api/health` ok (DB+LLM+cache), auth gating ok (401). El núcleo **funciona**.
+
+Cambios aplicados:
+1. ✅ **Gate de relevancia en RAG** (`retrieval.service.ts`). `ChunkRepository.search` ya devolvía
+   `distance` pero se ignoraba → preguntas off-topic inyectaban igual el top-8 (ruido →
+   alucinación). Ahora: si el chunk más cercano supera `MAX_DISTANCE` → **sin contexto**; los chunks
+   borderline de la cola también se descartan. Umbral **0.9** tuneado contra datos reales (sílabo en
+   español): on-topic ~0.65-0.84, off-topic ~0.94+ (`What is the capital of France?` = 0.967,
+   `best pizza recipe` = 0.942). Override `RAG_MAX_DISTANCE`. Tests nuevos: `retrieval.service.test.ts` (4).
+2. ✅ **No-context cableado** (`chat.service.ts`). `NO_CONTEXT_MESSAGE` estaba definido pero sin usar:
+   en chat con sílabo y sin contexto relevante, el modelo respondía de conocimiento general pese al
+   prompt "usa solo el contexto". Ahora se le instruye declinar con el mensaje fijo (sin citations).
+3. ✅ **Config `DATABASE_URL_DIRECT`** apuntaba al host `-pooler` (igual que el pooled). Corregido al
+   endpoint directo (sin `-pooler`); verificado reachable. `.env.example` aclara pooler vs directo y
+   documenta `RAG_MAX_DISTANCE`. (Nota: `migrate.mjs` usa `DATABASE_URL`, y el driver HTTP de Neon
+   tolera el pooler, así que el bug era cosmético — corregido por corrección.)
+
+**Total tests: 50, 9 archivos, todos verdes.** Typecheck OK.
+
+> **Pendiente operativo (requiere tu acceso):** crear Vercel Blob store → `BLOB_READ_WRITE_TOKEN`
+> (sin él los PDFs de cuenta no se persisten, degrada con warning) y el deploy real a Vercel/Neon prod.
+
+## 4.quater Schedule-aware chat + GPT-5.5 fix (2026-06-22)
+
+Objetivo del usuario: el chat debe responder en cualquier momento sobre **quizes/exámenes de la
+semana** y **qué temas se ven por semana** según el cronograma del knowledge base, a través de
+**varios cursos**; arreglar GPT-5.5; mind map editable + recomendaciones dinámicas; expandir la app.
+
+Hecho este turno:
+1. ✅ **GPT-5.5 arreglado** (`lib/llm/providers/openai.ts`). Causa real (verificada contra la API):
+   los modelos GPT-5 / o-series rechazan `max_tokens` (requieren `max_completion_tokens`) y solo
+   aceptan `temperature` por defecto (1). Nuevo `buildParams()` arma los params por familia de modelo
+   (`isNextGenModel` = `^(gpt-5|o[134])`), aplicado a chat y stream. Test: `openai.provider.test.ts` (3).
+   Verificado: `gpt-5.5-2026-04-23` responde OK.
+2. ✅ **Extracción de cronograma** (`rag/schedule-gen.ts`, structured output). Corre en el worker
+   (`ingestion.service`, best-effort tras el grafo) → tabla nueva `schedule_events`
+   (`schema.sql`: type/title/date ISO opcional/week_label/weight, `user_id` denormalizado para agenda
+   multi-curso). Repo `schedule.repo.ts`. Verificado: extrajo 8 eventos del sílabo real (temas
+   "Semana 3", sin inventar fechas).
+3. ✅ **Chat consciente del cronograma** (`chat.service.ts`). `prepareMessages` ahora recibe `userId` e
+   inyecta `Hoy es <fecha>` + **agenda de TODOS los cursos del usuario** (no solo el sílabo ligado al
+   chat) en el system prompt → responde "qué temas/quizes esta semana" en cualquier chat. E2E
+   verificado con gpt-5.5: lista correcta de temas de la semana + curso.
+4. ✅ **API `GET /api/schedule`** (`schedule.service.ts` + route) — agenda del usuario, o
+   `?syllabusId=` para el cronograma de un curso. Adaptadores `fetchAgenda`/`fetchSchedule` en `api.ts`.
+5. ✅ **RAG no-context** ya no bloquea preguntas de agenda (se responde desde la agenda inyectada).
+
+**Total tests: 53, 10 archivos, verdes.** Typecheck OK. `npm run build` OK (25 rutas).
+
+### ✅ Las 4 features pedidas — IMPLEMENTADAS (2026-06-22)
+1. ✅ **Retrieval de contenido multi-curso.** `chunk.repo#searchByUser` (join chunks→uploads por
+   `user_id`) + `RetrievalService.retrieveForUser`. En `chat.service`: chat **sin** sílabo ligado ahora
+   recupera contenido de TODOS los cursos del usuario; las citations llevan `source_name` (qué curso).
+2. ✅ **Vista Agenda** (`app/agenda/page.tsx` + nav en `app-sidebar`). Panel "Esta semana"
+   (evaluaciones próximas + temas) y agenda completa agrupada por curso. Consume `/api/schedule` +
+   `/api/recommendations`.
+3. ✅ **Recomendaciones dinámicas** (`recommendation.service.ts` + `/api/recommendations`). Cruza
+   `schedule_events` con el grafo de prereqs (`graph.repo#listUserTopicsWithPrereqs`): evaluaciones
+   próximas (días restantes) + "Repasa primero: A, B" (prereqs del tema que hace match con el título)
+   + temas de la semana (rango lunes-domingo). SQL verificado en vivo.
+4. ✅ **Mind map editable** (`GraphCanvas` → `EditableGraph` con `useNodesState/useEdgesState`):
+   add/rename/delete nodos, conectar aristas (drag handle), guardar. Backend: `PATCH /api/graph/[id]`
+   → `GraphService.updateGraph` (ownership + validación de ciclos + `replaceGraph`), schema
+   `GraphUpdateSchema`, adapter `updateGraph`. Activado en el modal de preview de Knowledge. 5 tests
+   PATCH (401/404/400-body/400-ciclo/200).
+
+**Total tests: 58, 10 archivos, verdes.** Typecheck OK. `npm run build` OK (27 rutas + /agenda).
+
+### Notas / siguientes
+- Resolución de fechas "Semana N": pendiente decidir (term-start por curso vs semana relativa). Hoy
+  el chat razona por week_label cuando no hay fecha ISO.
+- Editable map: persiste topología, no posiciones (el layout se recalcula). Tras guardar, ids nuevos.
+- Falta tests UI (agenda/GraphCanvas edit) y de `searchByUser`/recommendation.service (cubiertos por
+  typecheck + verificación SQL en vivo).
+
 ## 5. Preguntas abiertas
 - ¿Confirmamos "todo en Next.js" o conservamos FastAPI?
 - ¿El FastAPI sigue desplegado en Railway con datos que haya que migrar, o ya está apagado?

@@ -20,6 +20,27 @@ function getClient(): OpenAI {
   return _client
 }
 
+/**
+ * GPT-5 family + reasoning (o-series) models changed the chat-completions
+ * contract: `max_tokens` is rejected (must be `max_completion_tokens`) and
+ * `temperature` only accepts the default (1). Build the param set per family so
+ * one provider serves both the old (gpt-4*) and new models.
+ */
+function isNextGenModel(model: string): boolean {
+  return /^(gpt-5|o[134])/.test(model)
+}
+
+function buildParams(model: string, config: LLMConfig) {
+  if (isNextGenModel(model)) {
+    // Omit temperature (only default 1 allowed); rename the token cap.
+    return config.maxTokens ? { max_completion_tokens: config.maxTokens } : {}
+  }
+  return {
+    temperature: config.temperature ?? 0.2,
+    ...(config.maxTokens ? { max_tokens: config.maxTokens } : {}),
+  }
+}
+
 export const openaiProvider: LLMProviderAdapter = {
   name: "openai",
 
@@ -37,8 +58,7 @@ export const openaiProvider: LLMProviderAdapter = {
           role: m.role,
           content: m.content,
         })),
-        temperature: config.temperature ?? 0.2,
-        max_tokens: config.maxTokens,
+        ...buildParams(config.model, config),
       })
 
       const choice = completion.choices[0]
@@ -74,8 +94,7 @@ export const openaiProvider: LLMProviderAdapter = {
           role: m.role,
           content: m.content,
         })),
-        temperature: config.temperature ?? 0.2,
-        max_tokens: config.maxTokens,
+        ...buildParams(config.model, config),
         stream: true,
         stream_options: { include_usage: true },
       })

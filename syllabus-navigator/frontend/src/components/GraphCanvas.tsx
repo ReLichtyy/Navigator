@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   ReactFlow,
   MiniMap,
@@ -9,10 +9,16 @@ import {
   MarkerType,
   Handle,
   Position,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  type Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useSyllabus } from '@/context/SyllabusContext';
-import { fetchGraph, reprocessGraph } from '@/lib/api';
+import { fetchGraph, reprocessGraph, updateGraph } from '@/lib/api';
+import { toast } from 'sonner';
+import { Pencil, Plus, Save, X } from 'lucide-react';
 
 type GraphNode = { id: string; label: string; weight_percent?: number };
 type GraphEdge = { source: string; target: string };
@@ -23,7 +29,24 @@ type Props = {
   graphStatus?: string;
   graphError?: string | null;
   onReprocess?: () => void;
+  /** Enable manual editing (add/rename/delete nodes, connect edges, save). */
+  editable?: boolean;
+  /** Required for saving edits. */
+  syllabusId?: string;
+  /** Called after a successful save with the persisted graph. */
+  onSaved?: (graph: { nodes: GraphNode[]; edges: GraphEdge[] }) => void;
 };
+
+const EDIT_NODE_STYLE = {
+  background: 'rgba(15, 23, 42, 0.65)',
+  border: '1px solid rgba(255, 255, 255, 0.12)',
+  borderRadius: '12px',
+  padding: '12px 16px',
+  width: 230,
+  height: 100,
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
+} as const;
 
 
 // Custom Node for premium glassmorphism card rendering
@@ -80,16 +103,151 @@ const nodeTypes = {
   customTopicNode: CustomTopicNode,
 };
 
-export default function GraphCanvas({ 
-  nodes: propNodes, 
-  edges: propEdges, 
-  graphStatus: propStatus, 
-  graphError: propError, 
-  onReprocess: propOnReprocess 
+/**
+ * Interactive editing surface. Seeded from the read-only graph + computed
+ * positions. Supports: drag, connect (drag handle→handle), add node, rename
+ * (double-click), delete (select + Backspace/Delete). Save persists via PATCH.
+ */
+function EditableGraph({
+  baseNodes,
+  baseEdges,
+  positions,
+  syllabusId,
+  onDone,
+}: {
+  baseNodes: GraphNode[];
+  baseEdges: GraphEdge[];
+  positions: Record<string, { x: number; y: number }>;
+  syllabusId: string;
+  onDone: (graph?: { nodes: GraphNode[]; edges: GraphEdge[] }) => void;
+}) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(
+    baseNodes.map((n) => ({
+      id: n.id,
+      position: positions[n.id] || { x: 0, y: 0 },
+      data: { label: n.label, weight: n.weight_percent },
+      type: 'customTopicNode',
+      style: EDIT_NODE_STYLE,
+    })),
+  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState(
+    baseEdges.map((e) => ({
+      id: `e-${e.source}-${e.target}`,
+      source: e.source,
+      target: e.target,
+      markerEnd: { type: MarkerType.ArrowClosed },
+    })),
+  );
+  const [saving, setSaving] = useState(false);
+
+  const onConnect = useCallback(
+    (c: Connection) => setEdges((eds) => addEdge({ ...c, markerEnd: { type: MarkerType.ArrowClosed } }, eds)),
+    [setEdges],
+  );
+
+  const addNode = () => {
+    const label = window.prompt('Nombre del tema');
+    if (!label?.trim()) return;
+    const id = `new-${Date.now()}`;
+    setNodes((ns) => [
+      ...ns,
+      {
+        id,
+        position: { x: 120 + Math.random() * 120, y: 120 + Math.random() * 120 },
+        data: { label: label.trim(), weight: undefined },
+        type: 'customTopicNode',
+        style: EDIT_NODE_STYLE,
+      },
+    ]);
+  };
+
+  const renameNode = (_: unknown, node: { id: string; data: { label?: unknown } }) => {
+    const next = window.prompt('Renombrar tema', String(node.data.label ?? ''));
+    if (next?.trim()) {
+      setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, data: { ...n.data, label: next.trim() } } : n)));
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        nodes: nodes.map((n) => ({
+          id: n.id,
+          label: String(n.data.label ?? 'Tema'),
+          weight_percent: (n.data.weight as number | undefined) ?? null,
+        })),
+        edges: edges.map((e) => ({ source: e.source, target: e.target })),
+      };
+      const saved = await updateGraph(syllabusId, payload);
+      toast.success('Mapa guardado.');
+      onDone({ nodes: saved.nodes, edges: saved.edges });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo guardar el mapa.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="w-full h-[600px] border border-accent/40 rounded-2xl overflow-hidden bg-[#090d16] relative">
+      <div className="absolute top-3 right-3 z-10 flex gap-2">
+        <button
+          onClick={addNode}
+          className="inline-flex items-center gap-1 rounded-lg bg-slate-800/90 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-700 transition-colors"
+        >
+          <Plus className="h-3.5 w-3.5" /> Tema
+        </button>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent/90 transition-colors disabled:opacity-50"
+        >
+          <Save className="h-3.5 w-3.5" /> {saving ? 'Guardando…' : 'Guardar'}
+        </button>
+        <button
+          onClick={() => onDone()}
+          className="inline-flex items-center gap-1 rounded-lg bg-slate-800/90 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-700 transition-colors"
+        >
+          <X className="h-3.5 w-3.5" /> Cancelar
+        </button>
+      </div>
+      <div className="absolute bottom-3 left-3 z-10 bg-slate-950/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-800/60 text-[10px] text-slate-400 max-w-xs pointer-events-none">
+        <strong>Editar:</strong> arrastra para mover · une los puntos para crear prerequisito ·
+        doble-click para renombrar · selecciona + Supr para borrar.
+      </div>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onNodeDoubleClick={renameNode}
+        deleteKeyCode={['Backspace', 'Delete']}
+        fitView
+      >
+        <Controls className="bg-slate-900 border border-slate-800 text-slate-300 fill-slate-300 [&_button]:border-slate-800 [&_button]:bg-slate-950 hover:[&_button]:bg-slate-900 rounded-lg" />
+        <Background color="#1e293b" gap={18} size={1} />
+      </ReactFlow>
+    </div>
+  );
+}
+
+export default function GraphCanvas({
+  nodes: propNodes,
+  edges: propEdges,
+  graphStatus: propStatus,
+  graphError: propError,
+  onReprocess: propOnReprocess,
+  editable = false,
+  syllabusId,
+  onSaved,
 }: Props) {
   const { queryTopicInChat, activeSyllabusId } = useSyllabus();
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   // Local state for context-driven integration
   const [localNodes, setLocalNodes] = useState<GraphNode[]>([]);
@@ -523,8 +681,33 @@ export default function GraphCanvas({
     );
   }
 
+  const editSyllabusId = syllabusId ?? activeSyllabusId ?? undefined;
+
+  if (editing && editSyllabusId) {
+    return (
+      <EditableGraph
+        baseNodes={nodes}
+        baseEdges={edges}
+        positions={computedLayout}
+        syllabusId={editSyllabusId}
+        onDone={(graph) => {
+          setEditing(false);
+          if (graph) onSaved?.(graph);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="w-full h-[600px] border border-slate-800/80 rounded-2xl overflow-hidden bg-[#090d16] relative group">
+      {editable && editSyllabusId && (
+        <button
+          onClick={() => setEditing(true)}
+          className="absolute top-4 right-4 z-10 inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent/90 transition-colors"
+        >
+          <Pencil className="h-3.5 w-3.5" /> Editar mapa
+        </button>
+      )}
       {/* Dynamic Overlay Info Panel */}
       <div className="absolute top-4 left-4 z-10 bg-slate-950/85 backdrop-blur-md px-4 py-3 rounded-xl border border-slate-800/60 shadow-xl max-w-sm pointer-events-none transition-all duration-300">
         <h4 className="text-xs font-bold text-slate-200 tracking-wide uppercase mb-1">Interactive Roadmap</h4>

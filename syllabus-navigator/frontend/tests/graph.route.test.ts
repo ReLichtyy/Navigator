@@ -8,7 +8,7 @@ vi.mock("@/lib/server/repositories/document.repo", () => ({
   DocumentRepository: { findByIdAndUser: vi.fn(), setGraphStatus: vi.fn() },
 }))
 vi.mock("@/lib/server/repositories/graph.repo", () => ({
-  GraphRepository: { getGraph: vi.fn() },
+  GraphRepository: { getGraph: vi.fn(), replaceGraph: vi.fn() },
 }))
 vi.mock("@/lib/server/repositories/job.repo", () => ({
   JobRepository: { enqueue: vi.fn() },
@@ -20,8 +20,11 @@ import { DocumentRepository } from "@/lib/server/repositories/document.repo"
 import { GraphRepository } from "@/lib/server/repositories/graph.repo"
 import { JobRepository } from "@/lib/server/repositories/job.repo"
 import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
-import { GET } from "../app/api/graph/[syllabusId]/route"
+import { GET, PATCH } from "../app/api/graph/[syllabusId]/route"
 import { POST } from "../app/api/graph/[syllabusId]/reprocess/route"
+
+const patchReq = (body: unknown) =>
+  new Request("http://t/api/graph/s1", { method: "PATCH", body: JSON.stringify(body) })
 
 const params = (syllabusId: string) => ({ params: Promise.resolve({ syllabusId }) })
 const asUser = (id = "u1") => vi.mocked(auth).mockResolvedValue({ user: { id, role: "free" } } as any)
@@ -93,5 +96,62 @@ describe("POST /api/graph/[syllabusId]/reprocess", () => {
     expect(DocumentRepository.setGraphStatus).toHaveBeenCalledWith("s1", "pending", null)
     expect(JobRepository.enqueue).toHaveBeenCalledWith("ingest", { syllabusId: "s1" })
     expect(triggerIngestionWorker).toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/graph/[syllabusId] (editable mind map)", () => {
+  it("401 when unauthenticated", async () => {
+    anon()
+    const res = await PATCH(patchReq({ nodes: [], edges: [] }), params("s1"))
+    expect(res.status).toBe(401)
+  })
+
+  it("404 when not owned", async () => {
+    asUser()
+    vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue(undefined)
+    const res = await PATCH(patchReq({ nodes: [{ id: "a", label: "A" }], edges: [] }), params("s1"))
+    expect(res.status).toBe(404)
+    expect(GraphRepository.replaceGraph).not.toHaveBeenCalled()
+  })
+
+  it("400 on invalid body (missing label)", async () => {
+    asUser()
+    vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue(DOC as any)
+    const res = await PATCH(patchReq({ nodes: [{ id: "a" }], edges: [] }), params("s1"))
+    expect(res.status).toBe(400)
+  })
+
+  it("400 when the edited graph has a cycle", async () => {
+    asUser()
+    vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue(DOC as any)
+    const res = await PATCH(
+      patchReq({
+        nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+        edges: [{ source: "a", target: "b" }, { source: "b", target: "a" }],
+      }),
+      params("s1"),
+    )
+    expect(res.status).toBe(400)
+    expect(GraphRepository.replaceGraph).not.toHaveBeenCalled()
+  })
+
+  it("200 persists the edited graph and marks ready", async () => {
+    asUser()
+    vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue(DOC as any)
+    vi.mocked(GraphRepository.getGraph).mockResolvedValue(GRAPH as any)
+    const res = await PATCH(
+      patchReq({
+        nodes: [{ id: "a", label: "A", weight_percent: 20 }, { id: "b", label: "B" }],
+        edges: [{ source: "a", target: "b" }],
+      }),
+      params("s1"),
+    )
+    expect(res.status).toBe(200)
+    expect(GraphRepository.replaceGraph).toHaveBeenCalledTimes(1)
+    const [sid, nodes] = vi.mocked(GraphRepository.replaceGraph).mock.calls[0]
+    expect(sid).toBe("s1")
+    // node "b" depends on "a" (edge a→b)
+    expect(nodes.find((n: any) => n.externalId === "b")?.dependencies).toEqual(["a"])
+    expect(DocumentRepository.setGraphStatus).toHaveBeenCalledWith("s1", "ready", null)
   })
 })

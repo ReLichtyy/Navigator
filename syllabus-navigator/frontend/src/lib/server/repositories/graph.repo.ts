@@ -53,6 +53,25 @@ export const GraphRepository = {
     }
   },
 
+  /**
+   * All topics the user owns (across courses) with their prerequisite labels.
+   * Used by recommendations to suggest "review first" topics for an assessment.
+   */
+  async listUserTopicsWithPrereqs(
+    userId: string,
+  ): Promise<{ syllabus_id: string; label: string; prereqs: string[] }[]> {
+    const rows = await sql`
+      SELECT t.syllabus_id, t.label,
+             array_remove(array_agg(pt.label), NULL) AS prereqs
+      FROM topics t
+      JOIN syllabus_uploads su ON su.id = t.syllabus_id AND su.user_id = ${userId}
+      LEFT JOIN topic_dependencies td ON td.target_topic_id = t.id
+      LEFT JOIN topics pt ON pt.id = td.prerequisite_topic_id
+      GROUP BY t.syllabus_id, t.label
+    `
+    return rows as { syllabus_id: string; label: string; prereqs: string[] }[]
+  },
+
   async getGraph(syllabusId: string): Promise<{ topics: GraphTopic[]; edges: GraphEdge[] }> {
     const topics = (await sql`
       SELECT id, external_id, label, weight_percent

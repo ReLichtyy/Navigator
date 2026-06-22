@@ -282,3 +282,70 @@ export async function reprocessGraph(syllabusId: string) {
     json: false,
   })
 }
+
+/** Save a manually-edited mind map. Returns the persisted graph (with new ids). */
+export async function updateGraph(
+  syllabusId: string,
+  graph: {
+    nodes: { id: string; label: string; weight_percent?: number | null }[]
+    edges: { source: string; target: string }[]
+  },
+) {
+  return request<GraphResponseAPI>(`/graph/${syllabusId}`, {
+    method: "PATCH",
+    body: JSON.stringify(graph),
+  })
+}
+
+export interface ScheduleEventAPI {
+  id: string
+  syllabus_id: string
+  course_name: string
+  event_type: string
+  title: string
+  description: string | null
+  event_date: string | null
+  week_label: string | null
+  weight_percent: number | null
+}
+
+/** Upcoming agenda across all the user's courses. */
+export async function fetchAgenda() {
+  return request<{ today: string; events: ScheduleEventAPI[] }>(`/schedule`, {
+    method: "GET",
+    json: false,
+  })
+}
+
+/** Full schedule for one syllabus. */
+export async function fetchSchedule(syllabusId: string) {
+  return request<{ events: ScheduleEventAPI[] }>(
+    `/schedule?syllabusId=${encodeURIComponent(syllabusId)}`,
+    { method: "GET", json: false },
+  )
+}
+
+export interface UpcomingAssessmentAPI {
+  id: string
+  course_name: string
+  event_type: string
+  title: string
+  event_date: string | null
+  week_label: string | null
+  weight_percent: number | null
+  days_until: number | null
+  review_first: string[]
+}
+
+export interface WeeklyPlanAPI {
+  today: string
+  week_start: string
+  week_end: string
+  this_week_topics: ScheduleEventAPI[]
+  upcoming_assessments: UpcomingAssessmentAPI[]
+}
+
+/** Dynamic weekly study plan (assessments + this week's topics + review hints). */
+export async function fetchRecommendations() {
+  return request<WeeklyPlanAPI>(`/recommendations`, { method: "GET", json: false })
+}

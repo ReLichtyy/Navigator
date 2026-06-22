@@ -144,6 +144,27 @@ CREATE TABLE IF NOT EXISTS topic_dependencies (
 );
 
 -- ---------------------------------------------------------------------------
+-- Schedule / cronograma — structured calendar events extracted from the syllabus
+-- Powers "what quizzes/topics this week?" chat answers and the agenda view.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS schedule_events (
+  id             UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  syllabus_id    UUID        NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  user_id        TEXT        NOT NULL,  -- denormalized so "my agenda" spans all courses
+  event_type     TEXT        NOT NULL DEFAULT 'other', -- quiz|exam|assignment|project|class|reading|other
+  title          TEXT        NOT NULL,
+  description    TEXT,
+  event_date     DATE,                  -- absolute date when resolvable, else NULL
+  week_label     TEXT,                  -- e.g. "Semana 3" when no absolute date
+  weight_percent NUMERIC(5,2) CHECK (weight_percent >= 0 AND weight_percent <= 100),
+  source_excerpt TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_syllabus   ON schedule_events(syllabus_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_user_date  ON schedule_events(user_id, event_date);
+
+-- ---------------------------------------------------------------------------
 -- Chat threads and messages
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS chats (

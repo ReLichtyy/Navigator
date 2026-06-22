@@ -7,12 +7,53 @@ import { getRateLimitTier, type Role } from "@/lib/auth/rbac"
 import { timed } from "@/lib/observability/timing"
 import { logError } from "@/lib/observability/logger"
 import { ChatRepository } from "../repositories/chat.repo"
+import { ScheduleRepository, type ScheduleEvent } from "../repositories/schedule.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
-import { RetrievalService, GROUNDED_SYSTEM_PROMPT } from "./retrieval.service"
+import { RetrievalService, GROUNDED_SYSTEM_PROMPT, NO_CONTEXT_MESSAGE } from "./retrieval.service"
 import type { LLMMessage } from "@/lib/llm"
 import type { CitationAPI } from "@/types/api"
 
 const MAX_HISTORY_TURNS = 6
+const MAX_AGENDA_ITEMS = 40
+
+/** Local (server-tz) date as YYYY-MM-DD. */
+function todayISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+function formatAgendaLine(e: ScheduleEvent): string {
+  const when = e.event_date ?? e.week_label ?? "sin fecha"
+  const weight = e.weight_percent ? ` (${e.weight_percent}%)` : ""
+  return `- [${e.event_type}] ${when} · ${e.course_name} · ${e.title}${weight}`
+}
+
+/**
+ * Build a compact agenda block from the student's upcoming events across ALL
+ * their courses, plus today's date, so the chat can answer schedule questions
+ * ("quizzes this week", "topics this week") at any time — independent of which
+ * syllabus the chat is bound to.
+ */
+async function buildScheduleContext(userId: string): Promise<string> {
+  const today = todayISO()
+  let events: ScheduleEvent[] = []
+  try {
+    events = await ScheduleRepository.listAgendaByUser(userId, today, MAX_AGENDA_ITEMS)
+  } catch {
+    return `Hoy es ${today}.`
+  }
+  if (events.length === 0) {
+    return `Hoy es ${today}. El estudiante no tiene una agenda extraída todavía.`
+  }
+  return (
+    `Hoy es ${today}.\n` +
+    `Agenda del estudiante (próximos eventos de todos sus cursos; las fechas son ISO YYYY-MM-DD):\n` +
+    events.map(formatAgendaLine).join("\n") +
+    `\n\nUsa esta agenda para responder sobre fechas, "esta semana", próximos quizes/exámenes ` +
+    `y temas por semana. Para "esta semana", calcula el rango lunes-domingo respecto a hoy. ` +
+    `Si un evento solo tiene week_label (sin fecha ISO), trátalo como relativo. No inventes fechas.`
+  )
+}
 
 export const ChatService = {
   /**
@@ -22,6 +63,7 @@ export const ChatService = {
    */
   async prepareMessages(
     syllabusId: string | null,
+    userId: string,
     recentHistory: { role: string; content: string }[],
     question: string,
   ): Promise<{ messages: LLMMessage[]; citations: CitationAPI[] }> {
@@ -30,13 +72,36 @@ export const ChatService = {
     let citations: CitationAPI[] = []
 
     if (syllabusId) {
+      // Chat bound to one course → retrieve within that syllabus.
       const retrieval = await RetrievalService.retrieve(syllabusId, question)
       systemContent = GROUNDED_SYSTEM_PROMPT
       if (retrieval.hasContext) {
         userContent = RetrievalService.buildGroundedUserContent(retrieval.contextBlock, question)
         citations = retrieval.citations
+      } else {
+        // No syllabus match. Schedule questions are answered from the injected
+        // agenda below, so don't hard-decline — just note the text had no match.
+        userContent =
+          `No encontré fragmentos del sílabo relevantes para esta pregunta; ` +
+          `si es sobre fechas/agenda usa la agenda del sistema, de lo contrario ` +
+          `responde: "${NO_CONTEXT_MESSAGE}"\n\nPregunta: ${question}`
       }
+    } else {
+      // Unbound chat → retrieve across ALL the user's courses so the assistant
+      // can answer content questions without picking a syllabus first.
+      const retrieval = await RetrievalService.retrieveForUser(userId, question)
+      if (retrieval.hasContext) {
+        systemContent = GROUNDED_SYSTEM_PROMPT
+        userContent = RetrievalService.buildGroundedUserContent(retrieval.contextBlock, question)
+        citations = retrieval.citations
+      }
+      // else: keep the general prompt (no course content matched).
     }
+
+    // Schedule awareness: prepend today's date + the student's cross-course
+    // agenda so "what quizzes/topics this week?" works in any chat.
+    const scheduleContext = await buildScheduleContext(userId)
+    systemContent = `${systemContent}\n\n=== AGENDA / CRONOGRAMA ===\n${scheduleContext}`
 
     const messages: LLMMessage[] = [{ role: "system", content: systemContent }]
     for (const msg of recentHistory) {
@@ -70,6 +135,7 @@ export const ChatService = {
     // 5. Build prompt (with RAG retrieval if the chat is bound to a syllabus)
     const { messages, citations } = await this.prepareMessages(
       chat.syllabus_id,
+      userId,
       recentHistory,
       question,
     )
@@ -169,6 +235,7 @@ export const ChatService = {
     // 5. Build prompt (with RAG retrieval if the chat is bound to a syllabus)
     const { messages, citations } = await this.prepareMessages(
       chat.syllabus_id,
+      userId,
       recentHistory,
       question,
     )
