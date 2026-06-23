@@ -484,6 +484,68 @@ elegante e inline; y poder **renombrar cursos** sin cambiar la referencia (id).
 **Total: 176 tests, 22 archivos, verde.** Typecheck OK. `npm run build` OK.
 
 ## 5. Preguntas abiertas
-- ¿Confirmamos "todo en Next.js" o conservamos FastAPI?
+- ✅ *(2026-06-23)* **Todo en Next.js, confirmado.** FastAPI `backend/` se **borra del todo**
+  (git rm) en el Sprint LIMPIEZA — queda en el historial git si se necesita. Mismo trato para los `docs/`
+  del plan de 2 servicios.
 - ¿El FastAPI sigue desplegado en Railway con datos que haya que migrar, o ya está apagado?
+  *(verificar antes de borrar; si hay datos vivos, exportarlos primero)*
 - ¿Blob store preferido para los PDFs (Vercel Blob vs S3)?
+
+---
+
+## 6. Sprints (quirúrgicos) — estado a 2026-06-23
+
+> Re-diagnóstico (2026-06-23): typecheck limpio, **184 tests verde** (23 archivos),
+> `npm run build` OK (27 rutas + 6 páginas). El núcleo RAG/grafo/estudio/agenda **funciona**.
+> `CLAUDE.md` se actualizó este turno para reflejar la realidad (rutas graph/schedule/study/notes,
+> chunks+pgvector, páginas agenda/estudio/mapa, dirs `rag/`+`storage/`, vars nuevas). Lo que queda
+> es **operativo** (deploy) y **deuda técnica** (sin tooling de formato/lint, FastAPI muerto, gaps
+> de tests). Cada sprint abajo es de alcance cerrado: archivos concretos + criterio de aceptación.
+
+### Sprint OPS — Deploy a producción  *(BLOQUEADO: requiere tu acceso Vercel/Neon)*
+Alcance: poner la app viva. Todo el código ya está listo (`DEPLOY_CHECKLIST.md` tiene el detalle).
+- [ ] Neon prod: crear proyecto, `CREATE EXTENSION vector`, copiar `DATABASE_URL` (pooled) +
+      `DATABASE_URL_DIRECT` (directo, **sin** `-pooler`). Correr `npm run db:migrate`.
+- [ ] Vercel: New Project, **Root Directory = `syllabus-navigator/frontend`**, build `vercel-build`.
+- [ ] Env vars req: `AUTH_SECRET`, `NEXTAUTH_URL`, `DATABASE_URL`, `DATABASE_URL_DIRECT`,
+      `OPENAI_API_KEY`, `CRON_SECRET`. Opc: `BLOB_READ_WRITE_TOKEN` (Storage→Blob), Upstash,
+      `OPENROUTER_API_KEY`, Google OAuth.
+- [ ] Smoke test post-deploy (mismo checklist del §3): `/api/health` 200 → signup → upload→processed
+      → chat con citations reales → grafo 10/12 (no 404).
+- **Aceptación:** los 4 ítems del smoke test pasan en la URL pública.
+
+### Sprint LIMPIEZA — Higiene: formato + código muerto  *(autónomo, sin tu acceso)*
+Hoy **no hay tooling de formato ni lint** (sin prettier, eslint, knip en `package.json`) → estilo
+inconsistente y no se detecta código no usado. Alcance cerrado:
+- [ ] Añadir **Prettier** (`.prettierrc` + `npm run format` / `format:check`) y correr `--write` una
+      vez sobre `src/`+`app/` (commit de formato **separado** del resto para diffs limpios).
+- [ ] Añadir **ESLint** con `eslint-config-next` (`npm run lint`); arreglar errores reales, no warnings de estilo (eso lo cubre Prettier).
+- [ ] Añadir **`knip`** (o `ts-prune`) como dev-dep → listar exports/archivos no usados. Borrar los
+      confirmados muertos. Ya detectado a mano: `CLAUDE.md` citaba `ChatPanel`/`FileUpload`
+      (ya no existen — doc corregido); verificar que no queden más huérfanos.
+- [ ] **FastAPI `backend/` (354K, 0 llamadas desde el front): BORRAR** *(decidido 2026-06-23)*.
+      `git rm -r syllabus-navigator/backend` + `docs/*.md` del plan de 2 servicios + `scripts/bulk_ingest.py`
+      (tooling del backend) + el servicio `backend` de `docker/docker-compose.yml`. Antes de borrar:
+      verificar que el FastAPI de Railway no tenga datos vivos que migrar (pregunta abierta §5).
+      Después: purgar referencias muertas en `CLAUDE.md`/`README.md` (la sección "dos backends").
+- [ ] (Opc) Wire los nuevos scripts en CI (`.github/workflows/ci.yml`): `lint` + `format:check`.
+- **Aceptación:** `format:check` limpio, `lint` sin errores, `knip` con 0 huérfanos (o documentados),
+      **typecheck + 184 tests siguen verdes**, `npm run build` OK. Sin cambios de comportamiento.
+
+### Sprint COBERTURA — Cerrar gaps de tests  *(autónomo)*
+Notas del §4.quater/quinquies marcan paths sin cobertura. Alcance:
+- [ ] Unit: `chunk.repo#searchByUser` (scoping por `user_id`), `recommendation.service`
+      (cruce schedule×prereqs, rango de semana).
+- [ ] Render UI: sub-vistas de `/estudio` (flashcards flip, quiz score), `/agenda` (calendario +
+      notas inline), edición de `GraphCanvas`/`EditableGraph` (add/rename/connect/save).
+- **Aceptación:** tests nuevos verdes, total > 184; typecheck OK.
+
+### Sprint WORKER — Cadencia del worker + resolución de fechas  *(mixto)*
+- [ ] `vercel.json`: los crons están **diarios** (`0 0 * * *`, límite Hobby). El worker real se
+      dispara fire-and-forget en cada upload (`triggerIngestionWorker`), así que el cron es solo
+      respaldo — **documentar esto** y, si subes a Vercel Pro, poner `cron/process` en `*/5 * * * *`.
+- [ ] "Semana N" → fecha: hoy el chat razona por `week_label` cuando no hay fecha ISO. Decidir
+      modelo (term-start por curso vs semana relativa) y, si se elige term-start, añadir columna
+      `courses.term_start` + resolver en `recommendation.service`. **Requiere tu decisión de producto.**
+- **Aceptación:** comportamiento del worker documentado; (si se aborda) fechas "Semana N" resuelven a
+      fecha real en agenda/recomendaciones.

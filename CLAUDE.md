@@ -28,9 +28,12 @@ PROYECTO/
 There are **two backends**, but only one is live:
 
 - **`frontend/`** evolved into a full-stack Next.js app. `src/lib/api.ts` calls `"/api"`
-  (its **own internal** App Router routes). This is what gets deployed (Vercel).
-- **`backend/`** (FastAPI + Chroma) holds the *original* RAG/graph logic in Python but the
-  frontend **no longer calls it**. Treat it as reference, not a running dependency.
+  (its **own internal** App Router routes). This is what gets deployed (Vercel). The **RAG +
+  graph pipeline now lives here in TypeScript** (chunks+pgvector, async worker, retrieval,
+  graph-gen, schedule extraction, study OS). The architecture decision is closed: **all in
+  Next.js**; FastAPI is not a runtime dependency.
+- **`backend/`** (FastAPI + Chroma) holds the *original* RAG/graph logic in Python. The frontend
+  **no longer calls it** and the TS port superseded it. Treat it as reference/history only.
 
 Do not assume the FastAPI backend is involved in a request unless a route explicitly fetches it.
 
@@ -53,7 +56,9 @@ Cross-cutting helpers used by services:
 |---|---|---|
 | Auth gating | `lib/server/utils/auth-helpers.ts` | `requireAuth()`, `requireRateLimit()`, `ApiErrorResponse` |
 | Input validation | `lib/server/validators/api.schemas.ts` | zod schemas |
-| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai` + `openrouter` |
+| RAG / ingestion | `lib/server/rag/` | `chunking` (`pdfToPageChunks` via `unpdf`), `graph-gen`, `schedule-gen`, `study-gen` (all OpenAI structured output) |
+| PDF storage | `lib/server/storage/blob.ts` | `storePdf` → Vercel Blob (accounts only); degrades w/ warning if no token |
+| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai` + `openrouter`. GPT-5/o-series params built per family in `providers/openai.ts` (`max_completion_tokens`, temp=1) |
 | Model catalog/pricing | `lib/llm/config.ts` | `MODELS`, `DEFAULT_MODEL`, `estimateCost` |
 | Caching | `lib/cache/` | L1 in-memory + optional L2 Upstash; `invalidatePrefix` |
 | Guardrails | `lib/guardrails/` | `validateInput` / `validateOutput` |
@@ -69,14 +74,14 @@ Cross-cutting helpers used by services:
 
 | Path | Contents |
 |---|---|
-| `app/` | Routes. Pages: `/` (chat workspace), `/knowledge`, `/settings`, `(auth)/login`, `(auth)/signup` |
+| `app/` | Routes. Pages: `/` (chat workspace), `/knowledge`, `/agenda`, `/estudio`, `/mapa`, `/settings`, `(auth)/login`, `(auth)/signup` |
 | `app/api/` | API routes (see table below) |
 | `src/lib/api.ts` | **Single frontend→backend adapter.** All client calls go through here. SSE for chat. |
-| `src/lib/server/` | Server-only: `services/`, `repositories/`, `validators/`, `utils/` |
+| `src/lib/server/` | Server-only: `services/`, `repositories/`, `rag/`, `storage/`, `validators/`, `utils/` |
 | `src/lib/` | Cross-cutting libs (llm, cache, guardrails, metering, observability, prompts, auth, db) |
 | `src/components/ui/` | shadcn-style primitives (via `@base-ui` / Radix). **Use these; don't hand-roll.** |
 | `src/components/navigator/` | App shell: `app-sidebar`, `top-header`, `history-sidebar`, `chat-thread`, `chat-composer` |
-| `src/components/` | Feature components: `GraphCanvas` (xyflow), `FileUpload`, `ChatPanel` |
+| `src/components/` | Feature components: `GraphCanvas`/`EditableGraph` (xyflow), `SelectionAsk`, `ClientProviders`; feature dirs `agenda/`, `estudio/`, `auth/` |
 | `src/context/` | `UserContext`, `AuthModalContext`, `SyllabusContext` |
 | `src/features/chat/` | `context/ChatContext` (`useChatWorkspace`), `hooks/` (chat orchestration) |
 | `src/hooks/` | `useChatWorkspace`, `use-mobile`, `use-toast` |
@@ -93,20 +98,26 @@ Cross-cutting helpers used by services:
 | `chat/[chatId]` (GET/PATCH/DELETE) | Chat detail, rename, set model/syllabus, delete |
 | `chat/[chatId]/messages` (POST) | Send message → **SSE stream** of the answer |
 | `chat/models` | Available models for the user's tier |
-| `upload` (POST), `upload/list`, `upload/[id]` (PATCH/DELETE) | Document upload & management |
+| `upload` (POST), `upload/list`, `upload/[id]` (PATCH/DELETE) | Document upload & management (guests allowed) |
+| `graph/[syllabusId]` (GET/PATCH), `graph/[syllabusId]/reprocess` (POST) | Read graph, save edited mind map (cycle-validated), re-enqueue ingest |
+| `schedule` (GET), `recommendations` (GET) | Cronograma agenda (all courses / `?syllabusId=`); weekly plan (assessments + this-week topics + review hints) |
+| `study/[syllabusId]` (GET), `study/review` (POST), `study/stats` (GET) | Study OS: flashcards/quiz/summary/mindmap (`?refresh&difficulty&topic`); record review; streak/cards |
+| `notes` (GET/POST), `notes/[id]` (PATCH/DELETE) | Per-date agenda notes (`?dates=1` for calendar markers, `?date=` for a day) |
 | `usage`, `user/preferences`, `feedback` | Metering summary, settings, thumbs up/down |
-| `health`, `cron/cleanup` | Ops: healthcheck, scheduled guest cleanup (needs `CRON_SECRET`). `db/migrate` exists but is disabled (404). |
-
-> There is **no `app/api/graph` route yet** — `api.ts#fetchGraph` will 404. See `NEXT_STEPS.md`.
+| `health`, `cron/cleanup`, `cron/process` | Ops: healthcheck, scheduled guest cleanup, ingest-worker drain (crons need `CRON_SECRET`). `db/migrate` exists but is disabled (404). |
 
 ### Database (Neon Postgres)
 
 - Client: `src/lib/db.ts` — `sql` (pooled, runtime) and `sqlDirect` (migrations).
 - Schema: `src/lib/schema.sql`, idempotent (`IF NOT EXISTS`). Apply with `npm run db:migrate`
   (`scripts/migrate.mjs`). The `/api/db/migrate` route is **disabled** (returns 404, by design).
-- Tables: `users`, `user_preferences`, `syllabus_uploads`, `programs`, `courses`, `syllabi`,
-  `topics`, `topic_dependencies`, `chats`, `messages`, `usage_records`, `feedback`, `jobs`.
-- ⚠️ No embeddings/chunks table and no `pgvector` column → real retrieval is not possible yet.
+- Tables: `users`, `user_preferences`, `syllabus_uploads`, `chunks`, `programs`, `courses`,
+  `syllabi`, `topics`, `topic_dependencies`, `schedule_events`, `chats`, `messages`,
+  `usage_records`, `feedback`, `jobs`, `study_sets`, `date_notes`, `flashcard_reviews`.
+- ✅ Retrieval is live: `CREATE EXTENSION vector` + `chunks.embedding vector(1536)` with an HNSW
+  (`vector_cosine_ops`) index; `chunk.repo#search` / `searchByUser` do `embedding <=> $q`.
+- ⚠️ `schema.sql` adds new columns/tables via `IF NOT EXISTS` / `ALTER ... ADD COLUMN IF NOT
+  EXISTS`, so existing DBs need `npm run db:migrate` re-run after a pull that touches the schema.
 
 ### Auth & access control
 
@@ -142,8 +153,9 @@ Backend (legacy): FastAPI, SQLAlchemy, `psycopg`, ChromaDB, `pymupdf`, OpenAI.
 npm run dev            # dev server on :3000
 npm run build          # production build (Vercel uses `vercel-build` = next build)
 npm start              # serve production build
-npm run db:migrate     # apply src/lib/schema.sql to Neon
+npm run db:migrate     # apply src/lib/schema.sql to Neon (idempotent; re-run after schema pulls)
 npm run db:users       # list users (debug)
+npm test               # Vitest (tests/*, alias @→src; mocks auth+DB, no live services)
 
 # Backend (legacy/reference) — run from syllabus-navigator/backend
 uvicorn main:app --reload      # FastAPI on :8000, docs at /docs
@@ -163,9 +175,13 @@ docker compose -f syllabus-navigator/docker/docker-compose.yml up --build
 | `DATABASE_URL_DIRECT` | yes | Neon direct connection (migrations) |
 | `OPENAI_API_KEY` | yes | Default LLM provider |
 | `OPENROUTER_API_KEY` | no | Fallback / extended models |
+| `CRON_SECRET` | prod | Gates `cron/*`; also arms the fire-and-forget ingest worker trigger |
+| `BLOB_READ_WRITE_TOKEN` | no | Vercel Blob; without it account PDFs aren't persisted (degrades w/ warning) |
+| `GOOGLE_CLIENT_ID` / `_SECRET` | no | Google OAuth sign-in (NextAuth provider) |
 | `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` | no | Defaults: `openai` / `gpt-4o-mini` |
+| `RAG_MAX_DISTANCE` | no | Cosine cutoff for retrieval relevance gate (default `0.9`) |
 | `RATE_LIMIT_ENABLED`, `LOG_LEVEL` | no | Ops toggles |
-| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Omit → in-memory cache (resets on cold start) |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Omit → in-memory cache + rate-limit (per-instance, resets on cold start) |
 
 ---
 
