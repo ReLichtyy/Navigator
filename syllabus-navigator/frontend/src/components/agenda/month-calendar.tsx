@@ -42,9 +42,11 @@ function mondayIndex(year: number, monthZero: number, day: number): number {
 interface Props {
   events: ScheduleEventAPI[]
   today: string // ISO yyyy-mm-dd
+  /** Open the day panel (notes + events) for an ISO yyyy-mm-dd. */
+  onSelectDay?: (iso: string) => void
 }
 
-export function MonthCalendar({ events, today }: Props) {
+export function MonthCalendar({ events, today, onSelectDay }: Props) {
   // Parse "today" as the anchor; default to the first dated event's month if today unparseable.
   const anchor = useMemo(() => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today)
@@ -123,9 +125,12 @@ export function MonthCalendar({ events, today }: Props) {
                 const evs = buckets[cell.iso] ?? []
                 const isToday = cell.iso === todayIso
                 return (
-                  <div
+                  <button
                     key={ci}
-                    className={`flex min-h-[78px] flex-col gap-1 rounded-xl border p-1.5 ${
+                    type="button"
+                    onClick={() => onSelectDay?.(cell.iso)}
+                    aria-label={`Abrir ${cell.iso}`}
+                    className={`flex min-h-[78px] flex-col gap-1 rounded-xl border p-1.5 text-left transition-colors hover:border-accent/40 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
                       isToday ? "border-accent/45 bg-accent/5" : "border-border/50 bg-secondary/20"
                     }`}
                   >
@@ -137,12 +142,12 @@ export function MonthCalendar({ events, today }: Props) {
                       {cell.day}
                     </span>
                     {evs.slice(0, 3).map((e) => (
-                      <div key={e.id} className="flex items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5">
+                      <div key={e.id} className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5">
                         <span className={`h-1.5 w-1.5 flex-none rounded-full ${PALETTE[colorFor(e.course_name)]}`} />
                         <span className="min-w-0 flex-1 truncate text-[9.5px] font-medium text-foreground">{e.title}</span>
                       </div>
                     ))}
-                  </div>
+                  </button>
                 )
               })}
             </div>

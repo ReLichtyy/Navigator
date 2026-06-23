@@ -5,6 +5,10 @@ import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { GoogleButton } from "@/components/auth/google-button"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -81,16 +85,14 @@ export default function LoginPage() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                 {error}
               </div>
             )}
 
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="email" className="text-sm font-medium text-foreground">
-                Email
-              </label>
-              <input
+              <Label htmlFor="email">Email</Label>
+              <Input
                 id="email"
                 type="email"
                 value={email}
@@ -98,15 +100,12 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
-                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="password" className="text-sm font-medium text-foreground">
-                Password
-              </label>
-              <input
+              <Label htmlFor="password">Password</Label>
+              <Input
                 id="password"
                 type="password"
                 value={password}
@@ -114,24 +113,22 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 required
                 autoComplete="current-password"
-                className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/50 transition-colors focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
 
-            <button
+            <Button
               type="submit"
+              variant="accent"
               disabled={loading || isGuestLoading}
-              className="mt-2 h-10 w-full rounded-lg bg-accent font-medium text-accent-foreground shadow-sm transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-2 w-full"
             >
               {loading ? "Signing in..." : "Sign in"}
-            </button>
+            </Button>
           </form>
 
           <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border/60"></div>
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
+            <Separator />
+            <div className="absolute inset-0 flex justify-center text-xs uppercase -top-2">
               <span className="bg-card px-2 text-muted-foreground">Or</span>
             </div>
           </div>
@@ -141,14 +138,15 @@ export default function LoginPage() {
 
           {/* Guest Mode */}
           <div className="flex flex-col gap-3">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={handleGuest}
               disabled={loading || isGuestLoading}
-              className="h-10 w-full rounded-lg border border-border bg-secondary/50 font-medium text-foreground shadow-sm transition-colors hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full bg-secondary/50"
             >
               {isGuestLoading ? "Configurando..." : "Probar Navigator"}
-            </button>
+            </Button>
             <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
               Guest sessions are limited to 3 chats. Upgrade to unlock full access.
             </p>

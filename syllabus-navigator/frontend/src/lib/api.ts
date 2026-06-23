@@ -385,3 +385,74 @@ export async function fetchStudySet(syllabusId: string, refresh = false) {
     json: false,
   })
 }
+
+export interface StudyStatsAPI {
+  streakDays: number
+  cardsThisWeek: number
+}
+
+/** Study streak + cards reviewed this week (sidebar). */
+export async function fetchStudyStats() {
+  return request<StudyStatsAPI>(`/study/stats`, { method: "GET", json: false })
+}
+
+/** Stable key for a flashcard, surviving study-set regeneration. */
+export function flashcardKey(front: string): string {
+  let h = 0
+  for (let i = 0; i < front.length; i++) {
+    h = (Math.imul(31, h) + front.charCodeAt(i)) | 0
+  }
+  return `c${(h >>> 0).toString(36)}`
+}
+
+/** Record a flashcard review (fire-and-forget on the client). */
+export async function recordFlashcardReview(syllabusId: string, cardFront: string, known: boolean) {
+  return request<{ success: true }>(`/study/review`, {
+    method: "POST",
+    body: JSON.stringify({ syllabus_id: syllabusId, card_key: flashcardKey(cardFront), known }),
+  })
+}
+
+// ============================================================================
+// Agenda — per-date notes
+// ============================================================================
+
+export interface DateNoteAPI {
+  id: string
+  note_date: string // yyyy-mm-dd
+  body: string
+  created_at: string
+  updated_at: string
+}
+
+/** List the user's notes for one day. */
+export async function listNotes(date: string) {
+  return request<{ notes: DateNoteAPI[] }>(`/notes?date=${encodeURIComponent(date)}`, {
+    method: "GET",
+    json: false,
+  })
+}
+
+/** Create a note on a day. */
+export async function createNote(date: string, body: string) {
+  return request<{ note: DateNoteAPI }>(`/notes`, {
+    method: "POST",
+    body: JSON.stringify({ note_date: date, body }),
+  })
+}
+
+/** Edit a note the user owns. */
+export async function updateNote(id: string, body: string) {
+  return request<{ note: DateNoteAPI }>(`/notes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ body }),
+  })
+}
+
+/** Delete a note the user owns. */
+export async function deleteNote(id: string) {
+  return request<{ success: true }>(`/notes/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    json: false,
+  })
+}

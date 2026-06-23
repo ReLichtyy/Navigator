@@ -250,3 +250,31 @@ CREATE TABLE IF NOT EXISTS study_sets (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Free-form notes the student writes against a specific agenda date. Many per day.
+CREATE TABLE IF NOT EXISTS date_notes (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  note_date  DATE NOT NULL,
+  body       TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS date_notes_user_date_idx ON date_notes (user_id, note_date);
+
+-- Spaced-repetition state per flashcard (Modo repaso). card_key is a stable hash
+-- of the card front so it survives study-set regeneration. Leitner-style boxes.
+CREATE TABLE IF NOT EXISTS flashcard_reviews (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  syllabus_id UUID NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  card_key    TEXT NOT NULL,
+  box         INT NOT NULL DEFAULT 0,
+  due_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_result TEXT,
+  reviewed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, syllabus_id, card_key)
+);
+CREATE INDEX IF NOT EXISTS flashcard_reviews_due_idx ON flashcard_reviews (user_id, syllabus_id, due_at);
+CREATE INDEX IF NOT EXISTS flashcard_reviews_user_time_idx ON flashcard_reviews (user_id, reviewed_at);

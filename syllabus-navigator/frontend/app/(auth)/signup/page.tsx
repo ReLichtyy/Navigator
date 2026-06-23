@@ -5,6 +5,10 @@ import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { GoogleButton } from "@/components/auth/google-button"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 
 export default function SignupPage() {
   const router = useRouter()
@@ -92,31 +96,27 @@ export default function SignupPage() {
       {/* Form */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {error && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="name" className="text-sm font-medium text-foreground">
-            Name
-          </label>
-          <input
+          <Label htmlFor="name">Name</Label>
+          <Input
             id="name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Your name"
             autoComplete="name"
-            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="bg-card"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="email" className="text-sm font-medium text-foreground">
-            Email
-          </label>
-          <input
+          <Label htmlFor="email">Email</Label>
+          <Input
             id="email"
             type="email"
             value={email}
@@ -124,15 +124,13 @@ export default function SignupPage() {
             placeholder="you@example.com"
             required
             autoComplete="email"
-            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="bg-card"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="password" className="text-sm font-medium text-foreground">
-            Password
-          </label>
-          <input
+          <Label htmlFor="password">Password</Label>
+          <Input
             id="password"
             type="password"
             value={password}
@@ -141,40 +139,33 @@ export default function SignupPage() {
             required
             minLength={6}
             autoComplete="new-password"
-            className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="bg-card"
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={loading || isGuestLoading}
-          className="h-10 rounded-lg bg-accent font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
+        <Button type="submit" variant="accent" disabled={loading || isGuestLoading} className="w-full">
           {loading ? "Creating account..." : "Create account"}
-        </button>
+        </Button>
       </form>
 
       <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-border" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">
-            Or
-          </span>
+        <Separator />
+        <div className="absolute inset-0 flex justify-center text-xs uppercase -top-2">
+          <span className="bg-background px-2 text-muted-foreground">Or</span>
         </div>
       </div>
 
       <GoogleButton callbackUrl="/" label="Sign up with Google" disabled={loading || isGuestLoading} />
 
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={handleGuest}
         disabled={loading || isGuestLoading}
-        className="h-10 w-full rounded-lg border border-border bg-card font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+        className="w-full bg-card"
       >
         {isGuestLoading ? "Creating guest session..." : "Continue as Guest"}
-      </button>
+      </Button>
 
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}

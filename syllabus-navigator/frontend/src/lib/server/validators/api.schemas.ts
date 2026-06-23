@@ -31,3 +31,25 @@ export const GraphUpdateSchema = z.object({
 })
 
 export type GraphUpdateInput = z.infer<typeof GraphUpdateSchema>
+
+export const FlashcardReviewSchema = z.object({
+  syllabus_id: z.string().uuid("Invalid syllabus ID"),
+  card_key: z.string().min(1, "card_key required").max(200),
+  known: z.boolean(),
+})
+
+export type FlashcardReviewInput = z.infer<typeof FlashcardReviewSchema>
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+export const CreateNoteSchema = z.object({
+  note_date: z.string().regex(ISO_DATE, "Invalid date (expected YYYY-MM-DD)"),
+  body: z.string().trim().min(1, "Note is required").max(2000, "Note is too long"),
+})
+
+export const UpdateNoteSchema = z.object({
+  body: z.string().trim().min(1, "Note is required").max(2000, "Note is too long"),
+})
+
+export type CreateNoteInput = z.infer<typeof CreateNoteSchema>
+export type UpdateNoteInput = z.infer<typeof UpdateNoteSchema>

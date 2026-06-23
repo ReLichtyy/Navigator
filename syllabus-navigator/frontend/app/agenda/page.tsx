@@ -9,42 +9,14 @@ import {
   type ScheduleEventAPI,
   type WeeklyPlanAPI,
 } from "@/lib/api"
-import {
-  CalendarDays,
-  Loader2,
-  FileText,
-  AlertCircle,
-  BookOpen,
-  GraduationCap,
-  ClipboardList,
-} from "lucide-react"
-import { MonthCalendar } from "@/components/agenda/month-calendar"
-
-const TYPE_META: Record<string, { label: string; cls: string; Icon: typeof FileText }> = {
-  quiz: { label: "Quiz", cls: "bg-amber-500/10 text-amber-500", Icon: ClipboardList },
-  exam: { label: "Examen", cls: "bg-red-500/10 text-red-500", Icon: GraduationCap },
-  assignment: { label: "Tarea", cls: "bg-blue-500/10 text-blue-500", Icon: FileText },
-  project: { label: "Proyecto", cls: "bg-purple-500/10 text-purple-500", Icon: FileText },
-  class: { label: "Tema", cls: "bg-green-500/10 text-green-500", Icon: BookOpen },
-  reading: { label: "Lectura", cls: "bg-teal-500/10 text-teal-500", Icon: BookOpen },
-  other: { label: "Evento", cls: "bg-secondary text-muted-foreground", Icon: CalendarDays },
-}
-
-function meta(type: string) {
-  return TYPE_META[type] ?? TYPE_META.other
-}
-
-function whenLabel(e: { event_date: string | null; week_label: string | null }) {
-  return e.event_date ?? e.week_label ?? "Sin fecha"
-}
-
-function daysBadge(d: number | null): string | null {
-  if (d == null) return null
-  if (d < 0) return "Vencido"
-  if (d === 0) return "Hoy"
-  if (d === 1) return "Mañana"
-  return `En ${d} días`
-}
+import { CalendarDays, Loader2, FileText, AlertCircle, CheckCircle2 } from "lucide-react"
+import Link from "next/link"
+import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
+import { DayNotesSheet } from "@/components/agenda/day-notes-sheet"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Card } from "@/components/ui/card"
+import { meta, whenLabel, daysBadge } from "@/lib/ui/agenda-format"
 
 export default function AgendaPage() {
   const { status, ready } = useUser()
@@ -54,6 +26,10 @@ export default function AgendaPage() {
   const [events, setEvents] = useState<ScheduleEventAPI[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+
+  // Only registered users may keep notes (date_notes FKs users.id).
+  const canEditNotes = status !== "anonymous" && status !== "guest"
 
   useEffect(() => {
     if (!ready) return
@@ -84,12 +60,9 @@ export default function AgendaPage() {
           <p className="text-sm text-muted-foreground mb-6">
             Inicia sesión para ver tus quizes, exámenes y temas de la semana extraídos de tus cursos.
           </p>
-          <button
-            onClick={() => openAuthModal("signup")}
-            className="rounded-full bg-accent px-6 py-2.5 text-sm font-medium text-accent-foreground hover:bg-accent/90 transition-colors"
-          >
+          <Button variant="accent" size="pill" onClick={() => openAuthModal("signup")}>
             Crear cuenta
-          </button>
+          </Button>
         </div>
       </main>
     )
@@ -116,7 +89,7 @@ export default function AgendaPage() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : error ? (
-            <div className="flex h-40 flex-col items-center justify-center text-center text-red-500">
+            <div className="flex h-40 flex-col items-center justify-center text-center text-destructive">
               <AlertCircle className="h-8 w-8 mb-2" />
               <p>{error}</p>
             </div>
@@ -130,6 +103,22 @@ export default function AgendaPage() {
             </div>
           ) : (
             <>
+              {/* ─── Sync banner ─── */}
+              <Card className="flex-row items-center gap-3 border-accent/25 bg-accent/5 p-4">
+                <CheckCircle2 className="h-5 w-5 shrink-0 text-accent" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-foreground">
+                    Calendario sincronizado con tus cronogramas
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    Las fechas importantes se extraen automáticamente de los PDFs de cada curso.
+                  </div>
+                </div>
+                <Badge variant="accent" className="shrink-0">
+                  {events.length} fechas detectadas
+                </Badge>
+              </Card>
+
               {/* ─── This week / recommendations ─── */}
               {plan && (
                 <section className="rounded-xl border border-accent/30 bg-accent/5 p-5">
@@ -147,10 +136,10 @@ export default function AgendaPage() {
                           return (
                             <li key={a.id} className="rounded-lg bg-card border border-border/60 p-3">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${m.cls}`}>
+                                <Badge variant={m.variant}>
                                   <m.Icon className="h-3 w-3" />
                                   {m.label}
-                                </span>
+                                </Badge>
                                 <span className="font-medium text-sm">{a.title}</span>
                                 {a.weight_percent ? (
                                   <span className="text-xs text-muted-foreground">{a.weight_percent}%</span>
@@ -179,8 +168,8 @@ export default function AgendaPage() {
                     {plan.this_week_topics.length > 0 ? (
                       <ul className="flex flex-wrap gap-2">
                         {plan.this_week_topics.map((t) => (
-                          <li key={t.id} className="rounded-full bg-green-500/10 text-green-600 px-3 py-1 text-xs">
-                            {t.title}
+                          <li key={t.id}>
+                            <Badge variant="ok">{t.title}</Badge>
                           </li>
                         ))}
                       </ul>
@@ -194,7 +183,7 @@ export default function AgendaPage() {
               )}
 
               {/* ─── Month calendar (dated events) ─── */}
-              <MonthCalendar events={events} today={plan?.today ?? "2026-06-22"} />
+              <MonthCalendar events={events} today={plan?.today ?? "2026-06-22"} onSelectDay={setSelectedDate} />
 
               {/* ─── Full agenda by course ─── */}
               {Object.entries(byCourse).map(([course, evs]) => (
@@ -211,10 +200,10 @@ export default function AgendaPage() {
                           key={e.id}
                           className="flex items-center gap-3 rounded-lg border border-border/50 bg-card px-3 py-2 text-sm"
                         >
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium shrink-0 ${m.cls}`}>
+                          <Badge variant={m.variant} className="shrink-0">
                             <m.Icon className="h-3 w-3" />
                             {m.label}
-                          </span>
+                          </Badge>
                           <span className="flex-1 truncate">{e.title}</span>
                           {e.weight_percent ? (
                             <span className="text-xs text-muted-foreground shrink-0">{e.weight_percent}%</span>
@@ -228,10 +217,38 @@ export default function AgendaPage() {
                   </ul>
                 </section>
               ))}
+
+              {/* ─── Simulacro CTA for the next assessment ─── */}
+              {(() => {
+                const next = plan?.upcoming_assessments[0]
+                if (!next) return null
+                const syllabusId = events.find((e) => e.course_name === next.course_name)?.syllabus_id
+                if (!syllabusId) return null
+                return (
+                  <Card className="flex-row items-center justify-between gap-4 border-accent/30 bg-accent/5 p-5">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-foreground">¿Listo para {next.title}?</div>
+                      <div className="text-xs text-muted-foreground">
+                        Genera un simulacro con el material de {next.course_name}.
+                      </div>
+                    </div>
+                    <Button asChild variant="accent" size="pill" className="shrink-0">
+                      <Link href={`/estudio?course=${syllabusId}&mode=simulacro`}>Iniciar simulacro</Link>
+                    </Button>
+                  </Card>
+                )
+              })()}
             </>
           )}
         </div>
       </div>
+
+      <DayNotesSheet
+        date={selectedDate}
+        dayEvents={selectedDate ? bucketEventsByDate(events)[selectedDate] ?? [] : []}
+        canEdit={canEditNotes}
+        onClose={() => setSelectedDate(null)}
+      />
     </main>
   )
 }

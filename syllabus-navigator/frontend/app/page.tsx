@@ -8,6 +8,7 @@ import { MobileHistorySheet } from "@/components/navigator/mobile-history-sheet"
 import { TopHeader } from "@/components/navigator/top-header"
 import { GuestBanner } from "@/components/navigator/guest-banner"
 import GraphCanvas from "@/components/GraphCanvas"
+import { Button } from "@/components/ui/button"
 import { ChatWorkspaceProvider, useChatWorkspace } from "@/features/chat/context/ChatContext"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -84,12 +85,14 @@ function PageContent() {
           <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col px-4 sm:px-6">
             <div className="flex justify-end pt-2">
               {ws.activeSyllabusId && (
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={ws.toggleViewMode}
-                  className="text-xs bg-secondary px-3 py-1.5 rounded-full transition-colors hover:bg-secondary/80 text-foreground font-medium border border-border"
+                  className="rounded-full text-xs"
                 >
                   {ws.viewMode === "chat" ? "View Knowledge Graph" : "Back to Chat"}
-                </button>
+                </Button>
               )}
             </div>
             <div className="flex-1 overflow-hidden mt-2">

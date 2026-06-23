@@ -1,14 +1,17 @@
 import type { Metadata } from "next"
-import { Inter, Roboto_Mono } from "next/font/google"
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import ClientProviders from "@/components/ClientProviders"
 
-const geist = Inter({
+// Navigator.dc.html typefaces
+const geist = Plus_Jakarta_Sans({
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
   variable: "--font-geist",
 })
-const geistMono = Roboto_Mono({
+const geistMono = JetBrains_Mono({
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
   variable: "--font-geist-mono",
 })
 
@@ -30,7 +33,7 @@ export default async function RootLayout({
   const session = await auth()
 
   return (
-    <html lang="es" className={`${geist.variable} ${geistMono.variable} bg-background`}>
+    <html lang="es" className={`dark ${geist.variable} ${geistMono.variable} bg-background`}>
       <body className="font-sans antialiased flex h-dvh w-full overflow-hidden text-foreground">
         <ClientProviders session={session}>
           <AppSidebar />

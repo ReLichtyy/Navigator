@@ -20,6 +20,9 @@ import {
 import { FlashcardsView } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
 import { MindView, ResumenView } from "@/components/estudio/mind-resumen-view"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Card } from "@/components/ui/card"
 
 type Mode = "menu" | "flash" | "repaso" | "quiz" | "simulacro" | "mind" | "resumen"
 
@@ -123,9 +126,7 @@ function EstudioContent() {
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-6">
         <GraduationCap className="h-5 w-5 text-accent" />
         <h1 className="text-lg font-semibold">Área de Estudio</h1>
-        <span className="ml-1 rounded-md bg-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-foreground">
-          Nuevo
-        </span>
+        <Badge variant="new" className="ml-1 uppercase">Nuevo</Badge>
       </header>
 
       <div className="flex-1 overflow-auto p-6 sm:px-10 sm:py-9">
@@ -141,17 +142,14 @@ function EstudioContent() {
                 {readyCourses.map((c) => {
                   const active = c.id === courseId
                   return (
-                    <button
+                    <Button
                       key={c.id}
+                      variant={active ? "secondary" : "outline"}
                       onClick={() => pickCourse(c.id)}
-                      className={`rounded-xl border px-3.5 py-2 text-sm font-semibold transition-colors ${
-                        active
-                          ? "border-accent/40 bg-accent/10 text-foreground"
-                          : "border-border bg-card text-muted-foreground hover:border-accent/30"
-                      }`}
+                      className={active ? "border-accent/40 bg-accent/10 text-foreground" : "text-muted-foreground"}
                     >
                       {c.original_filename.replace(/\.pdf$/i, "")}
-                    </button>
+                    </Button>
                   )
                 })}
               </div>
@@ -165,6 +163,7 @@ function EstudioContent() {
                   <ModeRouter
                     mode={mode}
                     set={set}
+                    courseId={current.id}
                     courseName={current.original_filename.replace(/\.pdf$/i, "")}
                     regenerating={regenerating}
                     onRegenerate={() => courseId && loadSet(courseId, true)}
@@ -184,6 +183,7 @@ function EstudioContent() {
 function ModeRouter({
   mode,
   set,
+  courseId,
   courseName,
   regenerating,
   onRegenerate,
@@ -192,6 +192,7 @@ function ModeRouter({
 }: {
   mode: Mode
   set: StudySetAPI
+  courseId: string
   courseName: string
   regenerating: boolean
   onRegenerate: () => void
@@ -200,9 +201,9 @@ function ModeRouter({
 }) {
   switch (mode) {
     case "flash":
-      return <FlashcardsView title="Tarjetas dinámicas" courseLabel={courseName} cards={set.flashcards} onBack={backToMenu} />
+      return <FlashcardsView title="Tarjetas dinámicas" courseLabel={courseName} cards={set.flashcards} onBack={backToMenu} syllabusId={courseId} />
     case "repaso":
-      return <FlashcardsView title="Modo repaso" courseLabel={courseName} cards={set.flashcards} onBack={backToMenu} />
+      return <FlashcardsView title="Modo repaso" courseLabel={courseName} cards={set.flashcards} onBack={backToMenu} syllabusId={courseId} />
     case "quiz":
       return <QuizView title="Quiz dinámico" courseLabel={courseName} questions={set.quiz} onBack={backToMenu} />
     case "simulacro":
@@ -243,7 +244,7 @@ function Menu({ set, courseName, setMode }: { set: StudySetAPI; courseName: stri
         para empezar.
       </p>
 
-      <div className="mt-5 flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5">
+      <Card className="mt-5 flex-row items-center gap-3 p-3.5">
         <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-accent/10">
           <Zap className="h-4 w-4 text-accent" />
         </div>
@@ -252,27 +253,27 @@ function Menu({ set, courseName, setMode }: { set: StudySetAPI; courseName: stri
             <b>{courseName}</b> · carpeta de knowledge propia
           </div>
         </div>
-        <span className="flex-none rounded-lg border border-accent/25 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent">
-          ● Indexado
-        </span>
-      </div>
+        <Badge variant="accent" className="flex-none">● Indexado</Badge>
+      </Card>
 
       <div className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         {MODES.map((m) => (
-          <button
+          <Card
             key={m.key}
-            onClick={() => setMode(m.key)}
-            className="flex flex-col rounded-2xl border border-border bg-card p-5 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40"
+            asChild
+            className="cursor-pointer gap-0 p-5 transition-all hover:-translate-y-0.5 hover:border-accent/40"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
-                <m.Icon className="h-5 w-5 text-accent" />
+            <button onClick={() => setMode(m.key)} className="text-left">
+              <div className="flex items-center justify-between">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
+                  <m.Icon className="h-5 w-5 text-accent" />
+                </div>
+                <span className="font-mono text-xs text-muted-foreground">{m.meta(set)}</span>
               </div>
-              <span className="font-mono text-xs text-muted-foreground">{m.meta(set)}</span>
-            </div>
-            <div className="mt-3.5 text-[15px] font-bold text-foreground">{m.title}</div>
-            <div className="mt-1 text-[13px] leading-snug text-muted-foreground">{m.desc}</div>
-          </button>
+              <div className="mt-3.5 text-[15px] font-bold text-foreground">{m.title}</div>
+              <div className="mt-1 text-[13px] leading-snug text-muted-foreground">{m.desc}</div>
+            </button>
+          </Card>
         ))}
       </div>
     </div>
@@ -295,9 +296,9 @@ function SetError({ message, onRetry }: { message: string; onRetry: () => void }
     <div className="flex h-56 flex-col items-center justify-center rounded-2xl border border-border bg-card p-6 text-center">
       <AlertCircle className="mb-2 h-8 w-8 text-amber-500" />
       <p className="text-sm text-muted-foreground">{message}</p>
-      <button onClick={onRetry} className="mt-3 text-sm text-accent underline hover:text-accent/80">
+      <Button variant="link" onClick={onRetry} className="mt-3 text-accent">
         Reintentar
-      </button>
+      </Button>
     </div>
   )
 }
@@ -321,12 +322,9 @@ function Gate({ onSignup }: { onSignup: () => void }) {
         <p className="mb-6 text-sm text-muted-foreground">
           Inicia sesión para generar quizzes, tarjetas y resúmenes desde tus cursos.
         </p>
-        <button
-          onClick={onSignup}
-          className="rounded-full bg-accent px-6 py-2.5 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent/90"
-        >
+        <Button variant="accent" size="pill" onClick={onSignup}>
           Crear cuenta
-        </button>
+        </Button>
       </div>
     </main>
   )

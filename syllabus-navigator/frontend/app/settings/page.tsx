@@ -5,6 +5,17 @@ import { useUser } from "@/context/UserContext"
 import { getPreferences, getUsage, updatePreferences, UserPreferencesAPI, UsageSummaryAPI } from "@/lib/api"
 import { toast } from "sonner"
 import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 export default function SettingsPage() {
   const { displayName, ready } = useUser()
@@ -60,9 +71,9 @@ export default function SettingsPage() {
       <header className="sticky top-0 z-10 border-b border-border bg-background/80 px-6 py-4 backdrop-blur-md">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link href="/" className="text-sm font-medium text-muted-foreground hover:text-foreground">
-              ← Back to Chat
-            </Link>
+            <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
+              <Link href="/">← Back to Chat</Link>
+            </Button>
             <h1 className="text-xl font-semibold">Settings</h1>
           </div>
         </div>
@@ -84,49 +95,54 @@ export default function SettingsPage() {
           {preferences ? (
             <form onSubmit={handleSave} className="flex flex-col gap-6">
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Default Provider</label>
-                <select
+                <Label htmlFor="provider">Default Provider</Label>
+                <Select
                   value={preferences.defaultProvider}
-                  onChange={(e) => setPreferences({ ...preferences, defaultProvider: e.target.value })}
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  onValueChange={(v) => setPreferences({ ...preferences, defaultProvider: v })}
                 >
-                  <option value="openai">OpenAI</option>
-                  <option value="openrouter">OpenRouter</option>
-                </select>
+                  <SelectTrigger id="provider">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="openrouter">OpenRouter</SelectItem>
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground">Select the AI provider to use by default.</p>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Default Model</label>
-                <input
+                <Label htmlFor="model">Default Model</Label>
+                <Input
+                  id="model"
                   type="text"
                   value={preferences.defaultModel}
                   onChange={(e) => setPreferences({ ...preferences, defaultModel: e.target.value })}
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="bg-card"
                   placeholder="e.g. gpt-4o-mini"
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium">Language</label>
-                <select
+                <Label htmlFor="language">Language</Label>
+                <Select
                   value={preferences.language}
-                  onChange={(e) => setPreferences({ ...preferences, language: e.target.value })}
-                  className="h-10 rounded-lg border border-border bg-card px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  onValueChange={(v) => setPreferences({ ...preferences, language: v })}
                 >
-                  <option value="en">English</option>
-                  <option value="es">Español</option>
-                </select>
+                  <SelectTrigger id="language">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">English</SelectItem>
+                    <SelectItem value="es">Español</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:bg-accent/90 disabled:opacity-50"
-                >
+                <Button type="submit" variant="accent" disabled={saving}>
                   {saving ? "Saving..." : "Save Preferences"}
-                </button>
+                </Button>
               </div>
             </form>
           ) : (
@@ -139,18 +155,18 @@ export default function SettingsPage() {
           <h2 className="text-lg font-medium border-b border-border pb-2">Usage (Last 30 Days)</h2>
           {usage ? (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-              <div className="flex flex-col gap-1 rounded-lg border border-border bg-card p-4">
+              <Card className="gap-1 p-4">
                 <span className="text-xs text-muted-foreground">Requests</span>
                 <span className="text-xl font-semibold">{usage.totalRequests}</span>
-              </div>
-              <div className="flex flex-col gap-1 rounded-lg border border-border bg-card p-4">
+              </Card>
+              <Card className="gap-1 p-4">
                 <span className="text-xs text-muted-foreground">Tokens</span>
                 <span className="text-xl font-semibold">{(usage.totalTokens / 1000).toFixed(1)}k</span>
-              </div>
-              <div className="flex flex-col gap-1 rounded-lg border border-border bg-card p-4">
+              </Card>
+              <Card className="gap-1 p-4">
                 <span className="text-xs text-muted-foreground">Est. Cost</span>
                 <span className="text-xl font-semibold">${usage.totalCostUsd.toFixed(4)}</span>
-              </div>
+              </Card>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Usage data not available.</p>

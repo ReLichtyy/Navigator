@@ -16,7 +16,7 @@ export default function ClientProviders({
 }) {
   return (
     <SessionProvider session={session}>
-      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+      <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" enableSystem={false} disableTransitionOnChange>
         <UserProvider>
           <SyllabusProvider>
             <AuthModalProvider>

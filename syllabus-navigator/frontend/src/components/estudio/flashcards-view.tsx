@@ -2,16 +2,18 @@
 
 import { useEffect, useState } from "react"
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react"
-import type { FlashcardAPI } from "@/lib/api"
+import { recordFlashcardReview, type FlashcardAPI } from "@/lib/api"
 
 interface Props {
   title: string
   courseLabel: string
   cards: FlashcardAPI[]
   onBack: () => void
+  /** When set, "Ya la sé" / "Repasar luego" record a review (feeds the streak). */
+  syllabusId?: string
 }
 
-export function FlashcardsView({ title, courseLabel, cards, onBack }: Props) {
+export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }: Props) {
   const [i, setI] = useState(0)
   const [flipped, setFlipped] = useState(false)
 
@@ -21,6 +23,14 @@ export function FlashcardsView({ title, courseLabel, cards, onBack }: Props) {
   const next = () => {
     setFlipped(false)
     setI((v) => (v + 1) % total)
+  }
+
+  /** Mark the current card and advance. Recording is best-effort. */
+  const grade = (known: boolean) => {
+    if (syllabusId && card) {
+      void recordFlashcardReview(syllabusId, card.front, known).catch(() => {})
+    }
+    next()
   }
   const prev = () => {
     setFlipped(false)
@@ -112,13 +122,13 @@ export function FlashcardsView({ title, courseLabel, cards, onBack }: Props) {
 
       <div className="mt-4 flex justify-center gap-2.5">
         <button
-          onClick={next}
+          onClick={() => grade(false)}
           className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-xs font-semibold text-red-500 transition-colors hover:bg-red-500/10"
         >
           ↻ Repasar luego
         </button>
         <button
-          onClick={next}
+          onClick={() => grade(true)}
           className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
         >
           ✓ Ya la sé
