@@ -40,6 +40,7 @@ import { FlashcardsView } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
 import { MindView, ResumenView } from "@/components/estudio/mind-resumen-view"
 import type { MindCourse } from "@/components/estudio/mind-map-canvas"
+import { MasteryPanel } from "@/components/estudio/mastery-panel"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -397,9 +398,9 @@ function ModeRouter({
     case "repaso":
       return <FlashcardsView title="Modo repaso" courseLabel={courseName} cards={set.flashcards} onBack={backToMenu} syllabusId={courseId} />
     case "quiz":
-      return <QuizView title="Quiz dinámico" courseLabel={courseName} questions={set.quiz} onBack={backToMenu} />
+      return <QuizView title="Quiz dinámico" courseLabel={courseName} questions={set.quiz} syllabusId={courseId} onBack={backToMenu} />
     case "simulacro":
-      return <QuizView title="Simulacro · Prueba corta" courseLabel={courseName} questions={set.quiz} onBack={backToMenu} />
+      return <QuizView title="Simulacro · Prueba corta" courseLabel={courseName} questions={set.quiz} syllabusId={courseId} onBack={backToMenu} />
     case "mind":
       return (
         <MindView
@@ -419,6 +420,7 @@ function ModeRouter({
         <ResumenView
           courseName={courseName}
           summary={set.summary}
+          studyGuide={set.studyGuide}
           regenerating={regenerating}
           onRegenerate={onRegenerate}
           onFlash={() => setMode("flash")}
@@ -430,6 +432,7 @@ function ModeRouter({
       return (
         <Menu
           set={set}
+          courseId={courseId}
           courseName={courseName}
           onLaunch={onLaunch}
           difficulty={difficulty}
@@ -459,6 +462,7 @@ const DIFFICULTIES: { key: StudyDifficulty; label: string; hint: string }[] = [
 
 function Menu({
   set,
+  courseId,
   courseName,
   onLaunch,
   difficulty,
@@ -468,6 +472,7 @@ function Menu({
   onTopic,
 }: {
   set: StudySetAPI
+  courseId: string
   courseName: string
   onLaunch: (m: Mode) => void
   difficulty: StudyDifficulty
@@ -545,6 +550,8 @@ function Menu({
           </div>
         </div>
       </div>
+
+      <MasteryPanel syllabusId={courseId} />
 
       <div className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         {MODES.map((m) => (

@@ -276,6 +276,33 @@ export async function fetchGraph(syllabusId: string) {
   return request<GraphResponseAPI>(`/graph/${syllabusId}`, { method: "GET", json: false })
 }
 
+// ----- Cross-course prerequisite graph (Sprint 4) -----
+
+export interface CrossGraphNodeAPI {
+  id: string
+  label: string
+  syllabus_id: string
+  course: string
+  weight_percent: number
+}
+
+export interface CrossGraphEdgeAPI {
+  source: string
+  target: string
+  kind: "prerequisite" | "shared"
+}
+
+export interface CrossGraphAPI {
+  nodes: CrossGraphNodeAPI[]
+  edges: CrossGraphEdgeAPI[]
+  courses: { syllabus_id: string; course: string }[]
+}
+
+/** Combined knowledge graph across all the user's courses, with cross-course bridges. */
+export async function fetchCrossGraph() {
+  return request<CrossGraphAPI>(`/graph/cross`, { method: "GET", json: false })
+}
+
 export async function reprocessGraph(syllabusId: string) {
   return request<GraphResponseAPI>(`/graph/${syllabusId}/reprocess`, {
     method: "POST",
@@ -364,6 +391,14 @@ export interface QuizQuestionAPI {
   options: string[]
   answer: number
   explanation: string
+  /** Topic this question assesses — feeds the mastery ledger. Absent on old cached sets. */
+  topic?: string
+}
+
+export interface StudyGuideSectionAPI {
+  topic: string
+  weight: number
+  points: string[]
 }
 
 export interface StudySetAPI {
@@ -372,6 +407,8 @@ export interface StudySetAPI {
   quiz: QuizQuestionAPI[]
   summary: { intro: string; points: { title: string; body: string }[] }
   mindmap: { center: string; branches: { label: string; items: string[] }[] }
+  /** Weight-ordered study guide (Sprint 4). Absent on old cached sets. */
+  studyGuide?: StudyGuideSectionAPI[]
 }
 
 export type StudyDifficulty = "facil" | "medio" | "dificil"
@@ -427,6 +464,46 @@ export async function recordFlashcardReview(syllabusId: string, cardFront: strin
     method: "POST",
     body: JSON.stringify({ syllabus_id: syllabusId, card_key: flashcardKey(cardFront), known }),
   })
+}
+
+// ============================================================================
+// Mastery ledger (Sprint 4) — per-topic confidence over time
+// ============================================================================
+
+export interface MasteryTopicAPI {
+  topic_key: string
+  label: string
+  confidence: number // 0..1
+  attempts: number
+  correct: number
+}
+
+export interface CourseMasteryAPI {
+  syllabus_id: string
+  topics: number
+  avg_confidence: number // 0..1
+  attempts: number
+}
+
+/** Record a batch of quiz outcomes against a course's topics (fire-and-forget). */
+export async function recordMastery(syllabusId: string, outcomes: { label: string; correct: boolean }[]) {
+  return request<{ success: true }>(`/mastery`, {
+    method: "POST",
+    body: JSON.stringify({ syllabus_id: syllabusId, outcomes }),
+  })
+}
+
+/** Per-topic mastery for one course. */
+export async function fetchMastery(syllabusId: string) {
+  return request<{ syllabus_id: string; topics: MasteryTopicAPI[] }>(
+    `/mastery/${encodeURIComponent(syllabusId)}`,
+    { method: "GET", json: false },
+  )
+}
+
+/** Course-level mastery overview across all the user's courses. */
+export async function fetchMasteryOverview() {
+  return request<{ courses: CourseMasteryAPI[] }>(`/mastery`, { method: "GET", json: false })
 }
 
 // ============================================================================

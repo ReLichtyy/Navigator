@@ -5,7 +5,7 @@
 
 ## 0. Pre-deploy (local, ya verificado)
 - [x] `tsc --noEmit` limpio
-- [x] `npm test` → 46 tests verdes (8 archivos)
+- [x] `npm test` → 189 tests verdes (24 archivos)
 - [x] CI `.github/workflows/ci.yml` correrá `tsc` + tests en push/PR
 - [x] `npm run build` (production build) pasa — 21 rutas + 4 páginas (limpia `.next` si ves
       `PageNotFoundError /_document`: es cache vieja, no un bug)

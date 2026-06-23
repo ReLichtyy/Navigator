@@ -9,6 +9,8 @@
     "start": "next start -p 3000",
     "db:migrate": "node scripts/migrate.mjs",
     "db:users": "node scripts/list-users.mjs",
+    "db:seed-user": "node scripts/seed-user.mjs",
+    "db:seed-demo": "node scripts/seed-demo.mjs",
     "db:wipe": "node scripts/wipe-users.mjs",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -58,6 +58,7 @@ export function MindView({
 export function ResumenView({
   courseName,
   summary,
+  studyGuide,
   regenerating,
   onRegenerate,
   onFlash,
@@ -66,6 +67,7 @@ export function ResumenView({
 }: {
   courseName: string
   summary: StudySetAPI["summary"]
+  studyGuide?: StudySetAPI["studyGuide"]
   regenerating: boolean
   onRegenerate: () => void
   onFlash: () => void
@@ -117,6 +119,36 @@ export function ResumenView({
               </div>
             ))}
           </div>
+          {studyGuide && studyGuide.length > 0 && (
+            <div className="mt-7">
+              <div className="mb-1 flex items-center gap-2">
+                <h3 className="text-sm font-extrabold tracking-tight text-foreground">Guía de estudio</h3>
+                <span className="text-[11px] text-muted-foreground">ordenada por peso en el examen</span>
+              </div>
+              <div className="flex flex-col gap-3">
+                {studyGuide.map((s, i) => (
+                  <div key={i} className="rounded-xl border border-border bg-secondary/30 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-bold text-foreground">{s.topic}</span>
+                      {s.weight > 0 && (
+                        <span className="flex-none rounded-md bg-accent/10 px-2 py-0.5 font-mono text-[11px] font-semibold text-accent">
+                          {Math.round(s.weight)}%
+                        </span>
+                      )}
+                    </div>
+                    <ul className="mt-2 flex list-disc flex-col gap-1 pl-5">
+                      {s.points.map((p, j) => (
+                        <li key={j} className="text-[13px] leading-relaxed text-muted-foreground">
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               onClick={onFlash}

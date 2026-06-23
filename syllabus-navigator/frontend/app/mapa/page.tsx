@@ -6,10 +6,11 @@ import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useSyllabus } from "@/context/SyllabusContext"
 import { listSyllabi, fetchGraph, reprocessGraph, type SyllabusUploadAPI, type GraphResponseAPI } from "@/lib/api"
-import { Network, Loader2, AlertCircle } from "lucide-react"
+import { Network, Loader2, AlertCircle, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import GraphCanvas from "@/components/GraphCanvas"
 import { SelectionAsk } from "@/components/SelectionAsk"
+import { CrossCourseView } from "@/components/estudio/cross-course-view"
 
 function isReady(d: SyllabusUploadAPI): boolean {
   return d.status === "processed"
@@ -28,6 +29,7 @@ function MapaContent() {
     router.push("/")
   }
 
+  const [view, setView] = useState<"single" | "cross">("single")
   const [courses, setCourses] = useState<SyllabusUploadAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
   const [courseId, setCourseId] = useState<string | null>(null)
@@ -123,59 +125,85 @@ function MapaContent() {
             <Empty />
           ) : (
             <>
-              <div className="flex flex-wrap gap-2.5">
-                {readyCourses.map((c) => {
-                  const active = c.id === courseId
-                  return (
-                    <Button
-                      key={c.id}
-                      variant={active ? "secondary" : "outline"}
-                      size="sm"
-                      onClick={() => setCourseId(c.id)}
-                      className={active ? "border-accent/40 bg-accent/10 text-foreground" : ""}
-                    >
-                      {c.original_filename.replace(/\.pdf$/i, "")}
-                    </Button>
-                  )
-                })}
+              {/* view toggle: single course vs cross-course (Sprint 4) */}
+              <div className="mb-4 inline-flex gap-1 rounded-xl border border-border bg-card/50 p-1">
+                <ViewTab active={view === "single"} onClick={() => setView("single")} icon={<Network className="h-3.5 w-3.5" />} label="Este curso" />
+                <ViewTab active={view === "cross"} onClick={() => setView("cross")} icon={<Layers className="h-3.5 w-3.5" />} label="Entre cursos" />
               </div>
 
-              {courseName && (
-                <p className="mt-4 text-sm text-muted-foreground">
-                  {courseName} · arrastra y conecta los temas. Selecciona cualquier texto para
-                  preguntarle al chat, o doble-click en un tema para estudiarlo.
-                </p>
+              {view === "cross" ? (
+                <CrossCourseView />
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2.5">
+                    {readyCourses.map((c) => {
+                      const active = c.id === courseId
+                      return (
+                        <Button
+                          key={c.id}
+                          variant={active ? "secondary" : "outline"}
+                          size="sm"
+                          onClick={() => setCourseId(c.id)}
+                          className={active ? "border-accent/40 bg-accent/10 text-foreground" : ""}
+                        >
+                          {c.original_filename.replace(/\.pdf$/i, "")}
+                        </Button>
+                      )
+                    })}
+                  </div>
+
+                  {courseName && (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      {courseName} · arrastra y conecta los temas. Selecciona cualquier texto para
+                      preguntarle al chat, o doble-click en un tema para estudiarlo.
+                    </p>
+                  )}
+
+                  <div className="mt-4">
+                    {setLoading ? (
+                      <CenterSpinner label="Cargando mapa mental…" />
+                    ) : error ? (
+                      <ErrorBox message={error} onRetry={() => courseId && loadGraph(courseId)} />
+                    ) : graph && courseId ? (
+                      <SelectionAsk onAsk={askInChat}>
+                        <GraphCanvas
+                          nodes={graph.nodes}
+                          edges={graph.edges}
+                          graphStatus={graph.graph_status}
+                          graphError={graph.graph_error}
+                          editable
+                          syllabusId={courseId}
+                          onReprocess={() => handleReprocess(courseId)}
+                          onSaved={(g) =>
+                            setGraph((prev) =>
+                              prev ? { ...prev, nodes: g.nodes.map((n) => ({ ...n, weight_percent: n.weight_percent ?? 0 })), edges: g.edges } : prev,
+                            )
+                          }
+                        />
+                      </SelectionAsk>
+                    ) : null}
+                  </div>
+                </>
               )}
-
-              <div className="mt-4">
-                {setLoading ? (
-                  <CenterSpinner label="Cargando mapa mental…" />
-                ) : error ? (
-                  <ErrorBox message={error} onRetry={() => courseId && loadGraph(courseId)} />
-                ) : graph && courseId ? (
-                  <SelectionAsk onAsk={askInChat}>
-                    <GraphCanvas
-                      nodes={graph.nodes}
-                      edges={graph.edges}
-                      graphStatus={graph.graph_status}
-                      graphError={graph.graph_error}
-                      editable
-                      syllabusId={courseId}
-                      onReprocess={() => handleReprocess(courseId)}
-                      onSaved={(g) =>
-                        setGraph((prev) =>
-                          prev ? { ...prev, nodes: g.nodes.map((n) => ({ ...n, weight_percent: n.weight_percent ?? 0 })), edges: g.edges } : prev,
-                        )
-                      }
-                    />
-                  </SelectionAsk>
-                ) : null}
-              </div>
             </>
           )}
         </div>
       </div>
     </main>
+  )
+}
+
+function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors ${
+        active ? "bg-accent/15 text-accent" : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
   )
 }
 

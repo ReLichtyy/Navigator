@@ -23,6 +23,8 @@ export interface QuizQuestion {
   options: string[] // 2–5 options
   answer: number // index into options
   explanation: string
+  /** Topic this question assesses (a mind-map branch / weighted topic label). Feeds the mastery ledger. */
+  topic?: string
 }
 
 export interface SummaryPoint {
@@ -35,11 +37,20 @@ export interface MindBranch {
   items: string[]
 }
 
+/** A weighted study-guide section, ordered by exam importance. */
+export interface StudyGuideSection {
+  topic: string
+  weight: number // 0–100 (exam weight, 0 when unknown)
+  points: string[]
+}
+
 export interface StudySet {
   flashcards: Flashcard[]
   quiz: QuizQuestion[]
   summary: { intro: string; points: SummaryPoint[] }
   mindmap: { center: string; branches: MindBranch[] }
+  /** Ordered, weight-prioritized study guide (Sprint 4). Optional for old cached sets. */
+  studyGuide?: StudyGuideSection[]
 }
 
 // ---------- LLM contract ----------
@@ -52,6 +63,8 @@ const StudySchema = z.object({
       options: z.array(z.string()),
       answer: z.number(),
       explanation: z.string(),
+      // Optional so old cached sets (no topic) still validate.
+      topic: z.string().optional(),
     }),
   ),
   summary: z.object({
@@ -62,6 +75,9 @@ const StudySchema = z.object({
     center: z.string(),
     branches: z.array(z.object({ label: z.string(), items: z.array(z.string()) })),
   }),
+  studyGuide: z
+    .array(z.object({ topic: z.string(), weight: z.number(), points: z.array(z.string()) }))
+    .optional(),
 })
 
 type RawStudy = z.infer<typeof StudySchema>
@@ -94,8 +110,13 @@ const STUDY_JSON_SCHEMA = {
           options: { type: "array", items: { type: "string" }, description: "3–4 options" },
           answer: { type: "number", description: "0-based index of the correct option" },
           explanation: { type: "string", description: "Why the answer is correct" },
+          topic: {
+            type: "string",
+            description:
+              "The single topic this question assesses. MUST be one of the mind-map branch labels (or a weighted topic when provided).",
+          },
         },
-        required: ["question", "options", "answer", "explanation"],
+        required: ["question", "options", "answer", "explanation", "topic"],
       },
     },
     summary: {
@@ -140,8 +161,23 @@ const STUDY_JSON_SCHEMA = {
       },
       required: ["center", "branches"],
     },
+    studyGuide: {
+      type: "array",
+      description:
+        "Ordered study guide. ONE section per main topic, sorted MOST-IMPORTANT first (highest exam weight first when weights are provided). 3–6 sections.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          topic: { type: "string", description: "Topic title (match a mind-map branch / weighted topic when possible)" },
+          weight: { type: "number", description: "Exam weight 0–100 for this topic; 0 when unknown" },
+          points: { type: "array", items: { type: "string" }, description: "2–5 concise things to study for this topic" },
+        },
+        required: ["topic", "weight", "points"],
+      },
+    },
   },
-  required: ["flashcards", "quiz", "summary", "mindmap"],
+  required: ["flashcards", "quiz", "summary", "mindmap", "studyGuide"],
 } as const
 
 const SYSTEM_PROMPT =
@@ -172,7 +208,8 @@ export function normalizeStudySet(raw: unknown): StudySet | null {
     .map((q) => {
       const options = q.options.map((o) => o.trim()).filter((o) => o.length > 0)
       const answer = Math.min(Math.max(Math.trunc(q.answer), 0), Math.max(options.length - 1, 0))
-      return { question: q.question.trim(), options, answer, explanation: q.explanation.trim() }
+      const topic = q.topic?.trim()
+      return { question: q.question.trim(), options, answer, explanation: q.explanation.trim(), ...(topic ? { topic } : {}) }
     })
     .filter((q) => q.question.length > 0 && q.options.length >= 2)
 
@@ -184,11 +221,21 @@ export function normalizeStudySet(raw: unknown): StudySet | null {
     .map((b) => ({ label: b.label.trim(), items: b.items.map((i) => i.trim()).filter(Boolean) }))
     .filter((b) => b.label.length > 0)
 
+  const studyGuide: StudyGuideSection[] = (r.studyGuide ?? [])
+    .map((s) => ({
+      topic: s.topic.trim(),
+      weight: Math.min(Math.max(s.weight, 0), 100),
+      points: s.points.map((p) => p.trim()).filter(Boolean),
+    }))
+    .filter((s) => s.topic.length > 0 && s.points.length > 0)
+    .sort((a, b) => b.weight - a.weight)
+
   const set: StudySet = {
     flashcards,
     quiz,
     summary: { intro: r.summary.intro.trim(), points },
     mindmap: { center: r.mindmap.center.trim(), branches },
+    ...(studyGuide.length > 0 ? { studyGuide } : {}),
   }
 
   // Nothing usable at all → signal "not enough material".
@@ -218,6 +265,8 @@ export interface StudyGenOptions {
   difficulty?: Difficulty
   /** When set, focus the material on this specific topic (from the cronograma). */
   topic?: string
+  /** Course graph topics + exam weights — bias generation & order the study guide by importance. */
+  weightedTopics?: { label: string; weight: number }[]
 }
 
 const DIFFICULTY_HINT: Record<Difficulty, string> = {
@@ -236,6 +285,17 @@ export function buildDirectives(opts: StudyGenOptions): string {
   if (topic) {
     lines.push(
       `FOCUS: Generate the material ONLY about the topic "${topic}". Prioritize content from the material related to it; ignore unrelated sections. If the material barely covers it, do your best with what is present (still never invent facts).`,
+    )
+  }
+  const weighted = (opts.weightedTopics ?? [])
+    .filter((t) => t.label.trim().length > 0)
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 12)
+  if (weighted.length > 0) {
+    const list = weighted.map((t) => `- ${t.label} (${Math.round(t.weight)}%)`).join("\n")
+    lines.push(
+      "WEIGHTED TOPICS (exam importance, highest first). Prioritize the heavier topics: allocate more flashcards/quiz questions to them, set each quiz question's `topic` to the matching label, and order `studyGuide` from heaviest to lightest weight:\n" +
+        list,
     )
   }
   return lines.join("\n")

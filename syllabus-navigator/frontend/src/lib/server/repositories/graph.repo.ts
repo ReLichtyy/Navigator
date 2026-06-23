@@ -72,6 +72,32 @@ export const GraphRepository = {
     return rows as { syllabus_id: string; label: string; prereqs: string[] }[]
   },
 
+  /**
+   * Every topic the user owns across all courses, with its course label and id.
+   * Powers the cross-course prerequisite graph (Sprint 4).
+   */
+  async listUserTopics(
+    userId: string,
+  ): Promise<{ id: string; syllabus_id: string; course: string; label: string; weight_percent: number | null }[]> {
+    const rows = await sql`
+      SELECT t.id, t.syllabus_id, su.original_filename AS course, t.label, t.weight_percent
+      FROM topics t
+      JOIN syllabus_uploads su ON su.id = t.syllabus_id AND su.user_id = ${userId}
+      ORDER BY su.original_filename ASC, t.created_at ASC
+    `
+    return rows as { id: string; syllabus_id: string; course: string; label: string; weight_percent: number | null }[]
+  },
+
+  /** All prerequisite edges for the user's topics (intra-course), as topic-id pairs. */
+  async listUserEdges(userId: string): Promise<{ source: string; target: string }[]> {
+    const rows = await sql`
+      SELECT td.prerequisite_topic_id AS source, td.target_topic_id AS target
+      FROM topic_dependencies td
+      JOIN syllabus_uploads su ON su.id = td.syllabus_id AND su.user_id = ${userId}
+    `
+    return rows as { source: string; target: string }[]
+  },
+
   async getGraph(syllabusId: string): Promise<{ topics: GraphTopic[]; edges: GraphEdge[] }> {
     const topics = (await sql`
       SELECT id, external_id, label, weight_percent

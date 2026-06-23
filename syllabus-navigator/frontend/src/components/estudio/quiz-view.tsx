@@ -1,25 +1,28 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { ArrowRight } from "lucide-react"
-import type { QuizQuestionAPI } from "@/lib/api"
+import { recordMastery, type QuizQuestionAPI } from "@/lib/api"
 import { BackButton, EmptyMode } from "./flashcards-view"
 
 interface Props {
   title: string
   courseLabel: string
   questions: QuizQuestionAPI[]
+  syllabusId: string
   onBack: () => void
 }
 
 const GLYPHS = ["A", "B", "C", "D", "E"]
 
-export function QuizView({ title, courseLabel, questions, onBack }: Props) {
+export function QuizView({ title, courseLabel, questions, syllabusId, onBack }: Props) {
   const [qi, setQi] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
   const [answered, setAnswered] = useState(false)
   const [score, setScore] = useState(0)
   const [finished, setFinished] = useState(false)
+  // Per-topic outcomes collected this run; flushed to the mastery ledger on finish.
+  const outcomes = useRef<{ label: string; correct: boolean }[]>([])
 
   if (questions.length === 0) {
     return <EmptyMode onBack={onBack} label="No hay preguntas para este curso." />
@@ -28,15 +31,25 @@ export function QuizView({ title, courseLabel, questions, onBack }: Props) {
   const total = questions.length
   const q = questions[qi]
 
+  // Persist topic confidence from this run (only questions tagged with a topic).
+  const flushMastery = () => {
+    const batch = outcomes.current
+    outcomes.current = []
+    if (batch.length > 0) recordMastery(syllabusId, batch).catch(() => {})
+  }
+
   const answer = (i: number) => {
     if (answered) return
     setSelected(i)
     setAnswered(true)
-    if (i === q.answer) setScore((s) => s + 1)
+    const correct = i === q.answer
+    if (correct) setScore((s) => s + 1)
+    if (q.topic) outcomes.current.push({ label: q.topic, correct })
   }
 
   const next = () => {
     if (qi + 1 >= total) {
+      flushMastery()
       setFinished(true)
       return
     }
@@ -46,6 +59,7 @@ export function QuizView({ title, courseLabel, questions, onBack }: Props) {
   }
 
   const restart = () => {
+    outcomes.current = []
     setQi(0)
     setSelected(null)
     setAnswered(false)

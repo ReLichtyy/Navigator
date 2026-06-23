@@ -9,6 +9,7 @@
 import { DocumentRepository } from "../repositories/document.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { StudyRepository } from "../repositories/study.repo"
+import { GraphRepository } from "../repositories/graph.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { generateStudySet, type StudySet, type Difficulty } from "../rag/study-gen"
 
@@ -48,7 +49,13 @@ export const StudyService = {
       )
     }
 
-    const set = await generateStudySet(text, { difficulty, topic })
+    // Bias generation toward the course's heaviest (most exam-weighted) topics.
+    const { topics } = await GraphRepository.getGraph(syllabusId)
+    const weightedTopics = topics
+      .filter((t) => (t.weight_percent ?? 0) > 0)
+      .map((t) => ({ label: t.label, weight: Number(t.weight_percent) }))
+
+    const set = await generateStudySet(text, { difficulty, topic, weightedTopics })
     if (!set) {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
     }

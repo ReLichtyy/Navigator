@@ -9,6 +9,9 @@
 import { embedText } from "@/lib/llm/embeddings"
 import { ChunkRepository, type RetrievedChunk } from "../repositories/chunk.repo"
 import type { CitationAPI } from "@/types/api"
+import { flags } from "@/lib/config/flags"
+
+const EMPTY_RESULT: RetrievalResult = { hasContext: false, contextBlock: "", citations: [] }
 
 const TOP_K = 8
 const MAX_CITATIONS = 5
@@ -80,6 +83,7 @@ function buildResult(all: RetrievedChunk[], withSource: boolean): RetrievalResul
 
 export const RetrievalService = {
   async retrieve(syllabusId: string, question: string): Promise<RetrievalResult> {
+    if (!flags.ragEnabled) return EMPTY_RESULT
     const queryEmbedding = await embedText(question)
     const all = await ChunkRepository.search(syllabusId, queryEmbedding, TOP_K)
     return buildResult(all, false)
@@ -87,6 +91,7 @@ export const RetrievalService = {
 
   /** Retrieve relevant context across ALL the user's courses (unbound chat). */
   async retrieveForUser(userId: string, question: string): Promise<RetrievalResult> {
+    if (!flags.ragEnabled) return EMPTY_RESULT
     const queryEmbedding = await embedText(question)
     const all = await ChunkRepository.searchByUser(userId, queryEmbedding, TOP_K)
     return buildResult(all, true)

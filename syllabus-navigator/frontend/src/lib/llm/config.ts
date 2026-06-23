@@ -5,6 +5,7 @@
  */
 
 import type { LLMProvider } from "./types"
+import { flags } from "@/lib/config/flags"
 
 export interface ModelDefinition {
   id: string
@@ -16,8 +17,10 @@ export interface ModelDefinition {
   tier: "free" | "pro"       // minimum tier to use this model
 }
 
-export const DEFAULT_PROVIDER: LLMProvider = "openai"
-export const DEFAULT_MODEL = "gpt-4o-mini"
+// Driven by feature flags (DEFAULT_LLM_PROVIDER / DEFAULT_LLM_MODEL env vars) so
+// the provider/model can be swapped per-deploy without a code change.
+export const DEFAULT_PROVIDER: LLMProvider = flags.llmProvider
+export const DEFAULT_MODEL = flags.llmModel
 
 export const MODELS: ModelDefinition[] = [
   {

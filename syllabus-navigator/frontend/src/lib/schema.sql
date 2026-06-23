@@ -278,3 +278,22 @@ CREATE TABLE IF NOT EXISTS flashcard_reviews (
 );
 CREATE INDEX IF NOT EXISTS flashcard_reviews_due_idx ON flashcard_reviews (user_id, syllabus_id, due_at);
 CREATE INDEX IF NOT EXISTS flashcard_reviews_user_time_idx ON flashcard_reviews (user_id, reviewed_at);
+
+-- Mastery ledger (Sprint 4) — per-topic confidence that evolves as the student
+-- practises. confidence is an exponential moving average of quiz outcomes in
+-- [0,1]. topic_key is a normalized (lowercased) topic label so it survives
+-- study-set / graph regeneration. One row per (user, syllabus, topic_key).
+CREATE TABLE IF NOT EXISTS topic_mastery (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  syllabus_id UUID NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  topic_key   TEXT NOT NULL,
+  label       TEXT NOT NULL,
+  confidence  NUMERIC(4,3) NOT NULL DEFAULT 0 CHECK (confidence >= 0 AND confidence <= 1),
+  attempts    INT  NOT NULL DEFAULT 0,
+  correct     INT  NOT NULL DEFAULT 0,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, syllabus_id, topic_key)
+);
+CREATE INDEX IF NOT EXISTS topic_mastery_user_idx ON topic_mastery (user_id, syllabus_id);

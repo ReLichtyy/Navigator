@@ -68,4 +68,49 @@ describe("buildDirectives (difficulty + topic)", () => {
   it("omits FOCUS when topic is blank", () => {
     expect(buildDirectives({ topic: "   " })).not.toContain("FOCUS")
   })
+
+  it("lists weighted topics heaviest-first and emits the WEIGHTED TOPICS block", () => {
+    const out = buildDirectives({
+      weightedTopics: [
+        { label: "Intro", weight: 10 },
+        { label: "Vistas 4+1", weight: 40 },
+      ],
+    })
+    expect(out).toContain("WEIGHTED TOPICS")
+    // 40% topic must appear before the 10% one
+    expect(out.indexOf("Vistas 4+1")).toBeLessThan(out.indexOf("Intro"))
+    expect(out).toContain("Vistas 4+1 (40%)")
+  })
+
+  it("omits the WEIGHTED TOPICS block when none provided", () => {
+    expect(buildDirectives({})).not.toContain("WEIGHTED TOPICS")
+  })
+})
+
+describe("normalizeStudySet (Sprint 4: topic + studyGuide)", () => {
+  it("carries a quiz topic when present and omits it when absent", () => {
+    const withTopic = normalizeStudySet({
+      ...base,
+      quiz: [{ question: "Q?", options: ["a", "b"], answer: 0, explanation: "e", topic: " Vistas " }],
+    })!
+    expect(withTopic.quiz[0].topic).toBe("Vistas")
+    expect(normalizeStudySet(base)!.quiz[0].topic).toBeUndefined()
+  })
+
+  it("normalizes + weight-sorts the study guide and drops empty sections", () => {
+    const set = normalizeStudySet({
+      ...base,
+      studyGuide: [
+        { topic: "Light", weight: 5, points: ["p1"] },
+        { topic: "Heavy", weight: 60, points: [" a ", ""] },
+        { topic: "Empty", weight: 99, points: [] },
+      ],
+    })!
+    expect(set.studyGuide!.map((s) => s.topic)).toEqual(["Heavy", "Light"]) // sorted, empty dropped
+    expect(set.studyGuide![0].points).toEqual(["a"])
+  })
+
+  it("leaves studyGuide undefined when not provided", () => {
+    expect(normalizeStudySet(base)!.studyGuide).toBeUndefined()
+  })
 })

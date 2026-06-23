@@ -40,6 +40,16 @@ export const FlashcardReviewSchema = z.object({
 
 export type FlashcardReviewInput = z.infer<typeof FlashcardReviewSchema>
 
+export const MasteryRecordSchema = z.object({
+  syllabus_id: z.string().uuid("Invalid syllabus ID"),
+  outcomes: z
+    .array(z.object({ label: z.string().trim().min(1).max(200), correct: z.boolean() }))
+    .min(1, "At least one outcome required")
+    .max(100, "Too many outcomes"),
+})
+
+export type MasteryRecordInput = z.infer<typeof MasteryRecordSchema>
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export const CreateNoteSchema = z.object({
