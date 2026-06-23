@@ -459,6 +459,30 @@ Tests nuevos: `study.route` (difficulty+topic passthrough, difficulty inválida)
 (buildDirectives: default/hard/focus/blank). **Total: 171 tests, 21 archivos, verde.** Typecheck
 OK. `npm run build` OK.
 
+## 4.octies Estudio: dificultad dinámica + tema semanal + rename de cursos (2026-06-23)
+
+Feedback del usuario sobre 4.septies: la dificultad "no es dinámica" (no cambiaba); el tema
+opcional debe dar **3 opciones de la semana actual** del curso elegido + opción **General**,
+elegante e inline; y poder **renombrar cursos** sin cambiar la referencia (id).
+
+1. ✅ **Dificultad dinámica — causa raíz.** Cada click de dificultad llamaba `loadSet` →
+   `setSet(null)` → el panel de config (con las pills) se desmontaba a un spinner de pantalla
+   completa, y `medio` volvía instantáneo desde cache → parecía "no cambia". *Fix:* dificultad y
+   tema son ahora **selecciones instantáneas** (solo estado, sin regenerar). El set se regenera
+   **al lanzar un modo** (`launchMode`) solo si `loadedKey !== paramKey(difficulty, topic)`. Así la
+   selección es inmediata/visible y la generación con la dificultad elegida ocurre al entrar al modo.
+2. ✅ **Tema = General + 3 de la semana** (`src/lib/ui/week-topics.ts`, puro+testeado).
+   `pickWeekTopics(events, {today,weekStart,weekEnd}, 3)` prioriza eventos del curso dentro de la
+   semana actual → próximos más cercanos → resto, dedup por título. La UI muestra chips inline
+   `General` + 3 temas (componente `TopicChip` elegante; General = todo el curso). Datos:
+   `fetchSchedule(courseId)` + `fetchRecommendations()` (rango de semana). 5 tests nuevos.
+3. ✅ **Rename de cursos** en el course-picker de `/estudio`: doble-click o lápiz → input inline
+   con guardar/cancelar. Usa `renameDocument(id, name)` (PATCH `/upload/[id]`) que cambia
+   `original_filename` pero **no el id** → la referencia no cambia. Estado local de `courses` se
+   actualiza in-place.
+
+**Total: 176 tests, 22 archivos, verde.** Typecheck OK. `npm run build` OK.
+
 ## 5. Preguntas abiertas
 - ¿Confirmamos "todo en Next.js" o conservamos FastAPI?
 - ¿El FastAPI sigue desplegado en Railway con datos que haya que migrar, o ya está apagado?

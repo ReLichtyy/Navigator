@@ -3,55 +3,53 @@
 import { RefreshCw } from "lucide-react"
 import type { StudySetAPI } from "@/lib/api"
 import { BackButton, EmptyMode } from "./flashcards-view"
-
-const DOTS = ["bg-accent", "bg-blue-400", "bg-purple-400", "bg-amber-400"]
+import { MindMapCanvas, type MindCourse } from "./mind-map-canvas"
 
 export function MindView({
+  courseCode,
   courseLabel,
   mindmap,
+  courses,
+  activeCourseId,
+  onPickCourse,
+  regenerating = false,
+  onRegenerate,
   onBack,
 }: {
+  courseCode: string
   courseLabel: string
   mindmap: StudySetAPI["mindmap"]
+  courses: MindCourse[]
+  activeCourseId: string
+  onPickCourse: (id: string) => void
+  regenerating?: boolean
+  onRegenerate?: () => void
   onBack: () => void
 }) {
   if (!mindmap.center && mindmap.branches.length === 0) {
     return <EmptyMode onBack={onBack} label="No hay mapa mental para este curso." />
   }
   return (
-    <div>
+    <div className="animate-fade-up">
       <BackButton onBack={onBack} />
-      <h2 className="text-xl font-bold tracking-tight">Mapa mental</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{courseLabel}</p>
+      <div className="flex flex-wrap items-baseline gap-3">
+        <h2 className="text-[21px] font-extrabold tracking-tight text-foreground">Mapa mental</h2>
+        <span className="text-[13px] text-muted-foreground">
+          {courseCode} · {courseLabel}
+        </span>
+      </div>
 
-      <div className="mt-7 flex flex-col items-stretch gap-0 md:flex-row md:items-center">
-        <div className="flex h-32 w-full flex-none flex-col items-center justify-center rounded-2xl border-[1.5px] border-accent/45 bg-accent/10 p-4 text-center md:w-52">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-accent/80">Tema central</span>
-          <span className="mt-1.5 text-base font-extrabold leading-tight text-foreground">{mindmap.center}</span>
-        </div>
-        <div className="relative flex flex-1 flex-col gap-3.5 pt-4 md:pl-9 md:pt-0">
-          {mindmap.branches.map((b, i) => (
-            <div key={i} className="flex items-center gap-3.5">
-              <div className="hidden h-0.5 w-8 flex-none bg-gradient-to-r from-accent/50 to-accent/10 md:block" />
-              <div className="flex-1 rounded-2xl border border-border bg-card p-4">
-                <div className="flex items-center gap-2.5">
-                  <span className={`h-2.5 w-2.5 rounded-sm ${DOTS[i % DOTS.length]}`} />
-                  <span className="text-sm font-bold text-foreground">{b.label}</span>
-                </div>
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  {b.items.map((it, j) => (
-                    <span
-                      key={j}
-                      className="rounded-lg border border-border bg-secondary/50 px-2.5 py-1 text-xs font-medium text-muted-foreground"
-                    >
-                      {it}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="mt-3.5">
+        <MindMapCanvas
+          mindmap={mindmap}
+          courses={courses}
+          activeCourseId={activeCourseId}
+          onPickCourse={onPickCourse}
+          courseCode={courseCode}
+          courseName={courseLabel}
+          loading={regenerating}
+          onRegenerate={() => onRegenerate?.()}
+        />
       </div>
     </div>
   )

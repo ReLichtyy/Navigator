@@ -8,10 +8,17 @@ import {
   listSyllabi,
   fetchStudySet,
   fetchSchedule,
+  fetchRecommendations,
+  renameDocument,
   type SyllabusUploadAPI,
   type StudySetAPI,
   type StudyDifficulty,
+  type ScheduleEventAPI,
+  type WeeklyPlanAPI,
 } from "@/lib/api"
+import { toast } from "sonner"
+import { Input } from "@/components/ui/input"
+import { pickWeekTopics } from "@/lib/ui/week-topics"
 import {
   GraduationCap,
   Loader2,
@@ -26,10 +33,13 @@ import {
   SlidersHorizontal,
   Sparkles,
   X,
+  Pencil,
+  Check,
 } from "lucide-react"
 import { FlashcardsView } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
 import { MindView, ResumenView } from "@/components/estudio/mind-resumen-view"
+import type { MindCourse } from "@/components/estudio/mind-map-canvas"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -39,6 +49,10 @@ type Mode = "menu" | "flash" | "repaso" | "quiz" | "simulacro" | "mind" | "resum
 function isReady(d: SyllabusUploadAPI): boolean {
   return d.status === "processed"
 }
+
+const cleanName = (f: string) => f.replace(/\.pdf$/i, "")
+// Short mono code for a course pill (no real code in the data → derive a stable one).
+const courseCode = (i: number) => `C-${String(i + 1).padStart(2, "0")}`
 
 function EstudioContent() {
   const { status, ready } = useUser()
@@ -55,17 +69,36 @@ function EstudioContent() {
   const [setError, setSetError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
 
-  // Difficulty + optional topic focus (drives generation).
+  // Difficulty + optional topic focus. Instant UI selections; applied when a mode launches.
   const [difficulty, setDifficulty] = useState<StudyDifficulty>("medio")
   const [topic, setTopic] = useState<string | null>(null)
-  // Topic recommendations pulled from the course's cronograma (schedule events).
-  const [topicRecs, setTopicRecs] = useState<string[]>([])
+  // The (difficulty|topic) signature the currently-loaded `set` was generated with.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null)
+  // The selected course's cronograma events + the user's weekly plan (for week-topic chips).
+  const [courseEvents, setCourseEvents] = useState<ScheduleEventAPI[]>([])
+  const [plan, setPlan] = useState<WeeklyPlanAPI | null>(null)
+
+  // Inline course rename (id/reference never changes — only original_filename).
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const [savingRename, setSavingRename] = useState(false)
+
+  const paramKey = (d: StudyDifficulty, t: string | null) => `${d}::${t ?? ""}`
 
   const readyCourses = useMemo(() => courses.filter(isReady), [courses])
   const current = useMemo(
     () => readyCourses.find((c) => c.id === courseId) ?? null,
     [readyCourses, courseId],
   )
+  // Course pills for the mind-map view (code + short label).
+  const mindCourses = useMemo<MindCourse[]>(
+    () => readyCourses.map((c, i) => ({ id: c.id, code: courseCode(i), label: cleanName(c.original_filename) })),
+    [readyCourses],
+  )
+  const currentCode = useMemo(() => {
+    const i = readyCourses.findIndex((c) => c.id === courseId)
+    return i >= 0 ? courseCode(i) : ""
+  }, [readyCourses, courseId])
 
   // Load the user's courses.
   useEffect(() => {
@@ -95,6 +128,8 @@ function EstudioContent() {
   // Load (or regenerate) the study set for the current course, honoring difficulty/topic.
   const loadSet = useCallback(
     async (id: string, opts: { refresh?: boolean; difficulty?: StudyDifficulty; topic?: string | null } = {}) => {
+      const d = opts.difficulty ?? "medio"
+      const t = opts.topic ?? null
       if (opts.refresh) setRegenerating(true)
       else {
         setSetLoading(true)
@@ -102,12 +137,9 @@ function EstudioContent() {
       }
       setSetError(null)
       try {
-        const data = await fetchStudySet(id, {
-          refresh: opts.refresh,
-          difficulty: opts.difficulty ?? "medio",
-          topic: opts.topic ?? undefined,
-        })
+        const data = await fetchStudySet(id, { refresh: opts.refresh, difficulty: d, topic: t ?? undefined })
         setSet(data)
+        setLoadedKey(paramKey(d, t))
       } catch (e) {
         setSetError(e instanceof Error ? e.message : "No se pudo generar el material de estudio.")
       } finally {
@@ -118,47 +150,55 @@ function EstudioContent() {
     [],
   )
 
+  // Base set for the menu (medium, whole course). Reloads only when the course changes.
   useEffect(() => {
-    if (courseId) loadSet(courseId, { difficulty, topic })
-    // Reload only when the course changes; difficulty/topic changes go through explicit handlers.
+    if (courseId) loadSet(courseId, { difficulty: "medio", topic: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, loadSet])
 
-  // Topic recommendations from the course cronograma (schedule events).
+  // The selected course's cronograma events (for week-topic suggestions).
   useEffect(() => {
     if (!courseId) {
-      setTopicRecs([])
+      setCourseEvents([])
       return
     }
     let alive = true
     fetchSchedule(courseId)
-      .then((d) => {
-        if (!alive) return
-        const titles = d.events.map((e) => e.title.trim()).filter(Boolean)
-        setTopicRecs(Array.from(new Set(titles)).slice(0, 12))
-      })
-      .catch(() => alive && setTopicRecs([]))
+      .then((d) => alive && setCourseEvents(d.events))
+      .catch(() => alive && setCourseEvents([]))
     return () => {
       alive = false
     }
   }, [courseId])
 
-  // Apply a difficulty change → regenerate with it.
-  const applyDifficulty = (d: StudyDifficulty) => {
-    setDifficulty(d)
-    if (courseId) loadSet(courseId, { difficulty: d, topic })
-  }
-  // Apply a topic focus (or clear it) → regenerate.
-  const applyTopic = (t: string | null) => {
-    setTopic(t)
-    if (courseId) loadSet(courseId, { difficulty, topic: t })
-  }
+  // Weekly plan (today + week range), once — used to rank week-relevant topics.
+  useEffect(() => {
+    let alive = true
+    fetchRecommendations()
+      .then((p) => alive && setPlan(p))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
 
-  // Recommendations = cronograma topics + mind-map branch labels (deduped).
-  const recommendations = useMemo(() => {
-    const fromMap = set?.mindmap.branches.map((b) => b.label.trim()).filter(Boolean) ?? []
-    return Array.from(new Set([...topicRecs, ...fromMap])).slice(0, 14)
-  }, [topicRecs, set])
+  // 3 topic suggestions for the current week of the selected course.
+  const weekTopics = useMemo(
+    () => pickWeekTopics(courseEvents, { today: plan?.today, weekStart: plan?.week_start, weekEnd: plan?.week_end }, 3),
+    [courseEvents, plan],
+  )
+
+  // Difficulty / topic are instant selections; they apply when a mode launches.
+  const applyDifficulty = (d: StudyDifficulty) => setDifficulty(d)
+  const applyTopic = (t: string | null) => setTopic(t)
+
+  // Launch a mode, regenerating the set for the chosen difficulty/topic if needed.
+  const launchMode = async (m: Mode) => {
+    if (courseId && loadedKey !== paramKey(difficulty, topic)) {
+      await loadSet(courseId, { difficulty, topic })
+    }
+    setMode(m)
+  }
 
   // Honor ?mode= deep links once a set is available.
   useEffect(() => {
@@ -176,6 +216,26 @@ function EstudioContent() {
     setTopic(null)
   }
   const backToMenu = () => setMode("menu")
+
+  // ----- course rename (reference/id unchanged) -----
+  const startRename = (c: SyllabusUploadAPI) => {
+    setRenamingId(c.id)
+    setRenameValue(c.original_filename.replace(/\.pdf$/i, ""))
+  }
+  const commitRename = async (id: string) => {
+    const name = renameValue.trim()
+    if (!name) return
+    setSavingRename(true)
+    try {
+      const { upload } = await renameDocument(id, name)
+      setCourses((prev) => prev.map((c) => (c.id === id ? { ...c, original_filename: upload.original_filename } : c)))
+      setRenamingId(null)
+    } catch {
+      toast.error("No se pudo renombrar el curso.")
+    } finally {
+      setSavingRename(false)
+    }
+  }
 
   // ---------- gates ----------
   if (ready && (status === "anonymous" || status === "guest")) {
@@ -200,19 +260,56 @@ function EstudioContent() {
             <EmptyCourses />
           ) : (
             <>
-              {/* Course picker — always visible */}
+              {/* Course picker — always visible; double-click (or pencil) to rename */}
               <div className="flex flex-wrap gap-2.5">
                 {readyCourses.map((c) => {
                   const active = c.id === courseId
+                  if (renamingId === c.id) {
+                    return (
+                      <div
+                        key={c.id}
+                        className="flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/5 px-1.5 py-1"
+                      >
+                        <Input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitRename(c.id)
+                            else if (e.key === "Escape") setRenamingId(null)
+                          }}
+                          className="h-7 w-44 text-sm"
+                        />
+                        <Button size="icon-sm" variant="accent" disabled={savingRename || !renameValue.trim()} onClick={() => commitRename(c.id)} aria-label="Guardar nombre">
+                          {savingRename ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                        </Button>
+                        <Button size="icon-sm" variant="ghost" onClick={() => setRenamingId(null)} aria-label="Cancelar">
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )
+                  }
                   return (
-                    <Button
-                      key={c.id}
-                      variant={active ? "secondary" : "outline"}
-                      onClick={() => pickCourse(c.id)}
-                      className={active ? "border-accent/40 bg-accent/10 text-foreground" : "text-muted-foreground"}
-                    >
-                      {c.original_filename.replace(/\.pdf$/i, "")}
-                    </Button>
+                    <div key={c.id} className="group relative">
+                      <Button
+                        variant={active ? "secondary" : "outline"}
+                        onClick={() => pickCourse(c.id)}
+                        onDoubleClick={() => startRename(c)}
+                        className={active ? "border-accent/40 bg-accent/10 pr-8 text-foreground" : "text-muted-foreground"}
+                        title="Doble-click para renombrar"
+                      >
+                        {c.original_filename.replace(/\.pdf$/i, "")}
+                      </Button>
+                      {active && (
+                        <button
+                          onClick={() => startRename(c)}
+                          aria-label="Renombrar curso"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
               </div>
@@ -227,14 +324,23 @@ function EstudioContent() {
                     mode={mode}
                     set={set}
                     courseId={current.id}
-                    courseName={current.original_filename.replace(/\.pdf$/i, "")}
+                    courseCode={currentCode}
+                    courseName={cleanName(current.original_filename)}
+                    mindCourses={mindCourses}
+                    onPickCourse={(id) => {
+                      // Switch course but stay in the mind-map view (unlike the top picker).
+                      setCourseId(id)
+                      setDifficulty("medio")
+                      setTopic(null)
+                    }}
                     regenerating={regenerating}
                     onRegenerate={() => courseId && loadSet(courseId, { refresh: true, difficulty, topic })}
                     setMode={setMode}
+                    onLaunch={launchMode}
                     backToMenu={backToMenu}
                     difficulty={difficulty}
                     topic={topic}
-                    recommendations={recommendations}
+                    weekTopics={weekTopics}
                     onDifficulty={applyDifficulty}
                     onTopic={applyTopic}
                   />
@@ -252,28 +358,36 @@ function ModeRouter({
   mode,
   set,
   courseId,
+  courseCode,
   courseName,
+  mindCourses,
+  onPickCourse,
   regenerating,
   onRegenerate,
   setMode,
+  onLaunch,
   backToMenu,
   difficulty,
   topic,
-  recommendations,
+  weekTopics,
   onDifficulty,
   onTopic,
 }: {
   mode: Mode
   set: StudySetAPI
   courseId: string
+  courseCode: string
   courseName: string
+  mindCourses: MindCourse[]
+  onPickCourse: (id: string) => void
   regenerating: boolean
   onRegenerate: () => void
   setMode: (m: Mode) => void
+  onLaunch: (m: Mode) => void
   backToMenu: () => void
   difficulty: StudyDifficulty
   topic: string | null
-  recommendations: string[]
+  weekTopics: string[]
   onDifficulty: (d: StudyDifficulty) => void
   onTopic: (t: string | null) => void
 }) {
@@ -287,7 +401,19 @@ function ModeRouter({
     case "simulacro":
       return <QuizView title="Simulacro · Prueba corta" courseLabel={courseName} questions={set.quiz} onBack={backToMenu} />
     case "mind":
-      return <MindView courseLabel={courseName} mindmap={set.mindmap} onBack={backToMenu} />
+      return (
+        <MindView
+          courseCode={courseCode}
+          courseLabel={courseName}
+          mindmap={set.mindmap}
+          courses={mindCourses}
+          activeCourseId={courseId}
+          onPickCourse={onPickCourse}
+          regenerating={regenerating}
+          onRegenerate={onRegenerate}
+          onBack={backToMenu}
+        />
+      )
     case "resumen":
       return (
         <ResumenView
@@ -305,10 +431,10 @@ function ModeRouter({
         <Menu
           set={set}
           courseName={courseName}
-          setMode={setMode}
+          onLaunch={onLaunch}
           difficulty={difficulty}
           topic={topic}
-          recommendations={recommendations}
+          weekTopics={weekTopics}
           onDifficulty={onDifficulty}
           onTopic={onTopic}
         />
@@ -334,23 +460,22 @@ const DIFFICULTIES: { key: StudyDifficulty; label: string; hint: string }[] = [
 function Menu({
   set,
   courseName,
-  setMode,
+  onLaunch,
   difficulty,
   topic,
-  recommendations,
+  weekTopics,
   onDifficulty,
   onTopic,
 }: {
   set: StudySetAPI
   courseName: string
-  setMode: (m: Mode) => void
+  onLaunch: (m: Mode) => void
   difficulty: StudyDifficulty
   topic: string | null
-  recommendations: string[]
+  weekTopics: string[]
   onDifficulty: (d: StudyDifficulty) => void
   onTopic: (t: string | null) => void
 }) {
-  const [topicOpen, setTopicOpen] = useState(false)
   return (
     <div>
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
@@ -399,48 +524,25 @@ function Menu({
           </div>
         </div>
 
-        {/* Topic focus */}
+        {/* Topic focus — General + 3 topics relevant to the current week */}
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Tema (opcional)
           </div>
-          {topic ? (
-            <div className="flex items-center gap-2">
-              <span className="inline-flex min-w-0 items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-sm font-medium text-accent">
-                <span className="truncate">{topic}</span>
-                <button onClick={() => onTopic(null)} aria-label="Quitar tema" className="shrink-0 hover:opacity-70">
-                  <X className="h-3.5 w-3.5" />
-                </button>
+          <p className="mb-2 text-[11px] text-muted-foreground/80">
+            Enfoca el material en un tema de esta semana, o usa General para todo el curso.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
+            {weekTopics.map((t) => (
+              <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
+            ))}
+            {weekTopics.length === 0 && (
+              <span className="text-[11px] text-muted-foreground">
+                No hay temas con fecha esta semana — se usará General.
               </span>
-            </div>
-          ) : (
-            <>
-              <button
-                onClick={() => setTopicOpen((v) => !v)}
-                className="w-full rounded-xl border border-border px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary"
-              >
-                {recommendations.length > 0
-                  ? "Elige un tema del cronograma…"
-                  : "Todo el curso (sin tema específico)"}
-              </button>
-              {topicOpen && recommendations.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {recommendations.map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => {
-                        onTopic(r)
-                        setTopicOpen(false)
-                      }}
-                      className="rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-xs text-foreground transition-colors hover:border-accent/40 hover:bg-accent/10"
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -451,7 +553,7 @@ function Menu({
             asChild
             className="cursor-pointer gap-0 p-5 transition-all hover:-translate-y-0.5 hover:border-accent/40"
           >
-            <button onClick={() => setMode(m.key)} className="text-left">
+            <button onClick={() => onLaunch(m.key)} className="text-left">
               <div className="flex items-center justify-between">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
                   <m.Icon className="h-5 w-5 text-accent" />
@@ -469,6 +571,22 @@ function Menu({
 }
 
 // ---------- small presentational helpers ----------
+
+function TopicChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      className={`max-w-[15rem] truncate rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+        active
+          ? "border-accent bg-accent/15 text-accent shadow-[0_0_0_1px_rgba(63,191,132,0.25)]"
+          : "border-border bg-secondary/40 text-muted-foreground hover:border-accent/40 hover:bg-accent/10 hover:text-foreground"
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
 
 function CenterSpinner({ label }: { label?: string }) {
   return (
