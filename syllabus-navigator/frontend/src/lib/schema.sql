@@ -241,3 +241,12 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS max_attempts INT NOT NULL DEFAULT 3;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ NOT NULL DEFAULT now();
 -- Claim ordering / due-time lookups.
 CREATE INDEX IF NOT EXISTS jobs_claim_idx ON jobs (type, status, scheduled_at);
+
+-- Cached study material (flashcards/quiz/summary/mindmap) generated per syllabus.
+-- One row per syllabus; regenerated on demand (?refresh=1). Cascades on upload delete.
+CREATE TABLE IF NOT EXISTS study_sets (
+  syllabus_id  UUID PRIMARY KEY REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  data         JSONB NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);

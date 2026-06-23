@@ -368,6 +368,34 @@ Hecho este turno:
 - Falta tests UI (agenda/GraphCanvas edit) y de `searchByUser`/recommendation.service (cubiertos por
   typecheck + verificación SQL en vivo).
 
+## 4.quinquies Build de ventanas desde el diseño "Navigator" (2026-06-22)
+
+Tickets completos en **`TICKETS.md`** (raíz). Estándar: shadcn/ui + tokens semánticos de Tailwind
+(nada de hex hardcodeado del mockup → funciona en light/dark). Implementado este turno:
+
+1. ✅ **Study OS — backend.** `study_sets` (schema.sql, cascada por upload) + `rag/study-gen.ts`
+   (structured output → flashcards/quiz/summary/mindmap, con `normalizeStudySet` pura y testeable) +
+   `study.repo.ts` (get/upsert cache) + `StudyService.getStudySet` (ownership vía `findByIdAndUser`,
+   genera desde `ChunkRepository.getConcatenatedText`, 409 si no hay material) +
+   `GET /api/study/[syllabusId]` (`?refresh=1` regenera) + adapters `fetchStudySet`/tipos en `api.ts`.
+2. ✅ **Ventana "Área de Estudio"** (`app/estudio/page.tsx` + `src/components/estudio/*`): course
+   picker (cursos `processed`), grid de 6 modos, y sub-vistas **Flashcards/Repaso** (flip, teclado
+   ←/→/espacio), **Quiz/Simulacro** (MCQ con score/explicación/resultados), **Mapa mental** y
+   **Resumen** (Regenerar = refresh). Deep-link `?course=&mode=`. Gating anon/guest.
+3. ✅ **Sidebar**: nuevo item `Área de Estudio` (`/estudio`, `GraduationCap`).
+4. 🟧 **Agenda**: añadido `MonthCalendar` (grid mensual lunes-inicio, dots por curso, navegación de
+   mes, lista "Fechas detectadas") sobre los `schedule_events` con fecha ISO. Helpers puros
+   `bucketEventsByDate`/`courseColorIndex`.
+
+**Tests: 74 (16 nuevos: study route 6, study-gen 6, calendar 4), 13 archivos, verdes.** Typecheck OK.
+`npm run build` OK (`/estudio` + `/api/study/[syllabusId]` presentes).
+
+> **Pendiente operativo:** correr `npm run db:migrate` para crear `study_sets` en Neon (idempotente,
+> `CREATE TABLE IF NOT EXISTS`) antes de usar el Área de Estudio en vivo. Sin la tabla, el route da 500.
+> **Diferido a propósito (ver TICKETS.md B2):** widget de racha/XP (no hay modelo de progreso real;
+> mostrar un número falso es peor que omitirlo). Falta tests de render UI de `/estudio` (sub-vistas
+> cubiertas por typecheck + build; lógica pura por unit tests).
+
 ## 5. Preguntas abiertas
 - ¿Confirmamos "todo en Next.js" o conservamos FastAPI?
 - ¿El FastAPI sigue desplegado en Railway con datos que haya que migrar, o ya está apagado?

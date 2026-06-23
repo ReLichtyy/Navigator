@@ -18,6 +18,7 @@ import {
   GraduationCap,
   ClipboardList,
 } from "lucide-react"
+import { MonthCalendar } from "@/components/agenda/month-calendar"
 
 const TYPE_META: Record<string, { label: string; cls: string; Icon: typeof FileText }> = {
   quiz: { label: "Quiz", cls: "bg-amber-500/10 text-amber-500", Icon: ClipboardList },
@@ -191,6 +192,9 @@ export default function AgendaPage() {
                   </div>
                 </section>
               )}
+
+              {/* ─── Month calendar (dated events) ─── */}
+              <MonthCalendar events={events} today={plan?.today ?? "2026-06-22"} />
 
               {/* ─── Full agenda by course ─── */}
               {Object.entries(byCourse).map(([course, evs]) => (

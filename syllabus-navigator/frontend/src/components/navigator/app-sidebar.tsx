@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { MessageSquare, Library, CalendarDays, Settings, User as UserIcon } from "lucide-react"
+import { MessageSquare, Library, CalendarDays, GraduationCap, Settings, User as UserIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -22,6 +22,7 @@ export function AppSidebar() {
   const navItems = [
     { icon: MessageSquare, label: "Chat", href: "/" },
     { icon: Library, label: "Knowledge Base", href: "/knowledge" },
+    { icon: GraduationCap, label: "Área de Estudio", href: "/estudio" },
     { icon: CalendarDays, label: "Agenda", href: "/agenda" },
   ]
 

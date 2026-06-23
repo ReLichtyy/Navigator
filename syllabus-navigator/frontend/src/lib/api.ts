@@ -349,3 +349,39 @@ export interface WeeklyPlanAPI {
 export async function fetchRecommendations() {
   return request<WeeklyPlanAPI>(`/recommendations`, { method: "GET", json: false })
 }
+
+// ============================================================================
+// Study OS — Área de Estudio (flashcards / quiz / summary / mind map)
+// ============================================================================
+
+export interface FlashcardAPI {
+  front: string
+  back: string
+}
+
+export interface QuizQuestionAPI {
+  question: string
+  options: string[]
+  answer: number
+  explanation: string
+}
+
+export interface StudySetAPI {
+  syllabus_id: string
+  flashcards: FlashcardAPI[]
+  quiz: QuizQuestionAPI[]
+  summary: { intro: string; points: { title: string; body: string }[] }
+  mindmap: { center: string; branches: { label: string; items: string[] }[] }
+}
+
+/**
+ * Study material for a course. Cached server-side; pass `refresh` to regenerate.
+ * Throws ApiError (409) when the course has no usable indexed material yet.
+ */
+export async function fetchStudySet(syllabusId: string, refresh = false) {
+  const qs = refresh ? "?refresh=1" : ""
+  return request<StudySetAPI>(`/study/${encodeURIComponent(syllabusId)}${qs}`, {
+    method: "GET",
+    json: false,
+  })
+}
