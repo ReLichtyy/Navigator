@@ -130,9 +130,10 @@ describe("UI-7 Chat window", () => {
 
 describe("Mapa mental window", () => {
   const f = src("app/mapa/page.tsx")
-  it("exists, imports Button + reuses MindView", () => {
+  it("exists, imports Button + uses the editable GraphCanvas", () => {
     expect(f).toContain('@/components/ui/button')
-    expect(f).toContain("MindView")
+    expect(f).toContain("GraphCanvas")
+    expect(f).toContain("editable")
   })
 })
 

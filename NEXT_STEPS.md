@@ -396,6 +396,69 @@ Tickets completos en **`TICKETS.md`** (raíz). Estándar: shadcn/ui + tokens sem
 > mostrar un número falso es peor que omitirlo). Falta tests de render UI de `/estudio` (sub-vistas
 > cubiertas por typecheck + build; lógica pura por unit tests).
 
+## 4.sexies Diseño "Navigator" — gaps cerrados + DB live (2026-06-23)
+
+Hallazgo: el diseño nuevo (6 pantallas) ya estaba **implementado y commiteado** (commits
+`design`), typecheck OK + 162 tests verde. El bloqueo real era **operativo**: la DB Neon viva
+no tenía 3 tablas (`date_notes`, `study_sets`, `flashcard_reviews`) → Agenda-notas, Área de
+Estudio y Modo repaso daban 500 en prod. Corrido `npm run db:migrate` (idempotente, 42 OK);
+round-trip de `date_notes` (insert/read/delete) verificado contra Neon real.
+
+Tres deltas vs los mockups, decididos con el usuario e implementados este turno:
+1. ✅ **Notas en Agenda — marcador + expansión inline.** `date_notes.repo#listDates` +
+   `GET /api/notes?dates=1` + adapter `listNoteDates`. El grid marca con ícono los días con
+   notas (`MonthCalendar` props `noteDates`/`selectedDate` + slot `dayPanel`). El editor de
+   notas dejó de ser un `Sheet` lateral: ahora es **`DayNotesPanel` inline** que se expande
+   dentro de la tarjeta del calendario (sin layout nuevo). Marcadores se sincronizan al
+   crear/borrar (`onCountChange`). `day-notes-sheet.tsx` eliminado.
+2. ✅ **Chat — tarjeta contextual "Crear simulacro".** `ChatThread` carga la evaluación más
+   próxima (`fetchRecommendations` + `fetchAgenda`, fail-silent) y, si la última respuesta del
+   asistente menciona una evaluación (`ASSESSMENT_RE`), muestra una tarjeta con link a
+   `/estudio?course=<id>&mode=simulacro` del curso correcto.
+3. ✅ **`/mapa` editable.** Pasó de `MindView` (read-only, study-set) al **`GraphCanvas`
+   editable** (xyflow) sobre el grafo de topics: add/rename/delete/conectar/guardar
+   (`PATCH /api/graph/[id]`) + reprocesar. Decisión del usuario: editable > matchear el mockup
+   estático.
+
+Tests nuevos: `notes.route` (?dates=1: 200/401), `date-notes.repo` (listDates scoped),
+`ui-compliance` (mapa usa GraphCanvas editable). **Total: 165 tests, 21 archivos, verde.**
+Typecheck OK. `npm run build` OK (21 rutas + 5 páginas).
+
+## 4.septies Chat tools + Estudio (dificultad/tema) + flashcards + mapa fluido (2026-06-23)
+
+Objetivo del usuario: herramientas en el chat; en Área de Estudio escoger **dificultad** y
+opcionalmente un **tema** (con recomendaciones del cronograma); rehacer las **tarjetas
+dinámicas** (poco intuitivas); **mapa mental más fluido** + **seleccionar texto → preguntar al
+chat**. Implementado:
+
+1. ✅ **Estudio — dificultad + tema.** `study-gen.ts` ahora acepta `StudyGenOptions
+   {difficulty: facil|medio|dificil, topic?}` → `buildDirectives()` (pura, testeada) inyecta el
+   nivel y un bloque FOCUS al prompt. `StudyService.getStudySet` pasa los opts y **solo cachea el
+   set canónico** (medio, curso completo); todo set custom (dificultad≠medio o con tema) se genera
+   fresco y NO clobbea el cache. Route `GET /api/study/[id]` parsea `?difficulty=&topic=`
+   (difficulty inválida se ignora). `fetchStudySet(id, {refresh,difficulty,topic})` (firma cambió
+   de boolean a objeto; único caller actualizado: `/estudio`).
+2. ✅ **Estudio UI.** Panel de config en el menú: pills Fácil/Medio/Difícil + selector "Tema
+   (opcional)" que despliega chips de **temas del cronograma** (`fetchSchedule(courseId)` event
+   titles + labels del mind map, deduped). Cambiar dificultad/tema regenera el set. Reset a
+   medio/sin-tema al cambiar de curso.
+3. ✅ **Flashcards rediseñadas** (`flashcards-view.tsx`). Flujo claro: ver concepto → "Mostrar
+   respuesta" (flip 3D real con `[transform-style:preserve-3d]`/`backface`) → auto-evaluar
+   "No la sé / La sé" (graba review). Botones de grade solo tras voltear. Barra de progreso,
+   pantalla de **resumen de sesión** (sabidas / para repasar + reiniciar). Teclado: espacio
+   voltear, ←/→ navegar, 1/2 calificar.
+4. ✅ **Mapa mental — selección→chat + fluidez.** Nuevo `SelectionAsk` (wrapper) muestra botón
+   flotante "Preguntar al chat" sobre cualquier texto seleccionado dentro del mapa → setea
+   `pendingQuery` y navega a `/` (ChatContext lo envía al montar). Labels de nodo marcados
+   `nodrag select-text` para poder seleccionarlos sin arrastrar. ReactFlow read-only: `panOnScroll`,
+   `fitViewOptions` con duración, `zoomOnDoubleClick=false` (doble-click sigue = estudiar tema).
+5. ✅ **Chat tools** (`chat-composer.tsx`). Botón ✨ con menú de acciones rápidas que mandan
+   prompts listos: "¿Qué tengo esta semana?", "Resume el curso", "Quiz rápido", "Temas y su peso".
+
+Tests nuevos: `study.route` (difficulty+topic passthrough, difficulty inválida), `study-gen`
+(buildDirectives: default/hard/focus/blank). **Total: 171 tests, 21 archivos, verde.** Typecheck
+OK. `npm run build` OK.
+
 ## 5. Preguntas abiertas
 - ¿Confirmamos "todo en Next.js" o conservamos FastAPI?
 - ¿El FastAPI sigue desplegado en Railway con datos que haya que migrar, o ya está apagado?

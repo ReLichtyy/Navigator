@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { ArrowUp, ChevronDown, FileText, Paperclip, X } from "lucide-react"
+import { ArrowUp, ChevronDown, FileText, Paperclip, X, Sparkles, CalendarDays, AlignLeft, HelpCircle, ListChecks } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import type { AttachedFile } from "@/components/navigator/types"
@@ -11,6 +11,14 @@ import { fetchChatModels, type ChatModelAPI } from "@/lib/api"
 const DEFAULT_MODELS: ChatModelAPI[] = [
   { id: "gpt-4o-mini", displayName: "GPT-4o Mini" },
   { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini" },
+]
+
+// Quick-action tools: each sends a ready-made prompt to the assistant.
+const TOOLS: { id: string; label: string; prompt: string; Icon: typeof CalendarDays }[] = [
+  { id: "week", label: "¿Qué tengo esta semana?", prompt: "¿Qué quizes, exámenes y temas tengo esta semana según mis cronogramas?", Icon: CalendarDays },
+  { id: "summary", label: "Resume el curso", prompt: "Hazme un resumen ejecutivo de los temas principales del curso.", Icon: AlignLeft },
+  { id: "quiz", label: "Quiz rápido", prompt: "Hazme un quiz corto de 5 preguntas de opción múltiple sobre este curso, una por una.", Icon: HelpCircle },
+  { id: "topics", label: "Temas y su peso", prompt: "Lista los temas del curso y el peso de cada evaluación.", Icon: ListChecks },
 ]
 
 export function ChatComposer({
@@ -36,8 +44,10 @@ export function ChatComposer({
   const [isDragging, setIsDragging] = useState(false)
   const [models, setModels] = useState<ChatModelAPI[]>(DEFAULT_MODELS)
   const [modelOpen, setModelOpen] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const modelRef = useRef<HTMLDivElement>(null)
+  const toolsRef = useRef<HTMLDivElement>(null)
 
   const hasText = value.trim().length > 0
   const currentModelId = activeModel ?? models[0]?.id ?? "gpt-4o-mini"
@@ -56,10 +66,19 @@ export function ChatComposer({
       if (modelRef.current && !modelRef.current.contains(e.target as Node)) {
         setModelOpen(false)
       }
+      if (toolsRef.current && !toolsRef.current.contains(e.target as Node)) {
+        setToolsOpen(false)
+      }
     }
     document.addEventListener("mousedown", onDocClick)
     return () => document.removeEventListener("mousedown", onDocClick)
   }, [])
+
+  const runTool = (prompt: string) => {
+    setToolsOpen(false)
+    if (disabled) return
+    void onSend(prompt)
+  }
 
   const onDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -194,6 +213,36 @@ export function ChatComposer({
                     )}
                   >
                     {m.displayName}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="relative" ref={toolsRef}>
+            <button
+              type="button"
+              onClick={() => setToolsOpen((v) => !v)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Herramientas"
+              disabled={disabled}
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
+            {toolsOpen && (
+              <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[230px] rounded-lg border border-border bg-card py-1 shadow-lg">
+                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Herramientas
+                </div>
+                {TOOLS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => runTool(t.prompt)}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+                  >
+                    <t.Icon className="h-4 w-4 shrink-0 text-accent" />
+                    {t.label}
                   </button>
                 ))}
               </div>

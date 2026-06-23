@@ -374,13 +374,29 @@ export interface StudySetAPI {
   mindmap: { center: string; branches: { label: string; items: string[] }[] }
 }
 
+export type StudyDifficulty = "facil" | "medio" | "dificil"
+
+export interface StudySetOptions {
+  /** Regenerate the canonical (medium, whole-course) set. */
+  refresh?: boolean
+  /** Tune how demanding the generated material is. */
+  difficulty?: StudyDifficulty
+  /** Focus the set on a single cronograma topic. */
+  topic?: string
+}
+
 /**
- * Study material for a course. Cached server-side; pass `refresh` to regenerate.
- * Throws ApiError (409) when the course has no usable indexed material yet.
+ * Study material for a course. The default (medium, whole-course) set is cached
+ * server-side; passing a `difficulty`≠medio or a `topic` returns a fresh tailored
+ * set (not cached). Throws ApiError (409) when there's no usable material yet.
  */
-export async function fetchStudySet(syllabusId: string, refresh = false) {
-  const qs = refresh ? "?refresh=1" : ""
-  return request<StudySetAPI>(`/study/${encodeURIComponent(syllabusId)}${qs}`, {
+export async function fetchStudySet(syllabusId: string, opts: StudySetOptions = {}) {
+  const qs = new URLSearchParams()
+  if (opts.refresh) qs.set("refresh", "1")
+  if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
+  if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  return request<StudySetAPI>(`/study/${encodeURIComponent(syllabusId)}${suffix}`, {
     method: "GET",
     json: false,
   })
@@ -423,6 +439,11 @@ export interface DateNoteAPI {
   body: string
   created_at: string
   updated_at: string
+}
+
+/** Distinct days the user has notes on (for calendar markers). */
+export async function listNoteDates() {
+  return request<{ dates: string[] }>(`/notes?dates=1`, { method: "GET", json: false })
 }
 
 /** List the user's notes for one day. */

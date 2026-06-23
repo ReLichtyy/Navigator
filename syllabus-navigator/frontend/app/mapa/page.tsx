@@ -4,10 +4,12 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
-import { listSyllabi, fetchStudySet, type SyllabusUploadAPI, type StudySetAPI } from "@/lib/api"
+import { useSyllabus } from "@/context/SyllabusContext"
+import { listSyllabi, fetchGraph, reprocessGraph, type SyllabusUploadAPI, type GraphResponseAPI } from "@/lib/api"
 import { Network, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { MindView } from "@/components/estudio/mind-resumen-view"
+import GraphCanvas from "@/components/GraphCanvas"
+import { SelectionAsk } from "@/components/SelectionAsk"
 
 function isReady(d: SyllabusUploadAPI): boolean {
   return d.status === "processed"
@@ -16,13 +18,20 @@ function isReady(d: SyllabusUploadAPI): boolean {
 function MapaContent() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
+  const { setPendingQuery } = useSyllabus()
   const params = useSearchParams()
   const router = useRouter()
+
+  // Send selected mind-map text to the chat: stash the question, then open the chat.
+  const askInChat = (text: string) => {
+    setPendingQuery(`Sobre el mapa mental del curso, explícame: "${text}"`)
+    router.push("/")
+  }
 
   const [courses, setCourses] = useState<SyllabusUploadAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
   const [courseId, setCourseId] = useState<string | null>(null)
-  const [set, setSet] = useState<StudySetAPI | null>(null)
+  const [graph, setGraph] = useState<GraphResponseAPI | null>(null)
   const [setLoading, setSetLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,22 +64,30 @@ function MapaContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, status])
 
-  const loadSet = useCallback(async (id: string) => {
+  const loadGraph = useCallback(async (id: string) => {
     setSetLoading(true)
-    setSet(null)
+    setGraph(null)
     setError(null)
     try {
-      setSet(await fetchStudySet(id))
+      setGraph(await fetchGraph(id))
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo generar el mapa mental.")
+      setError(e instanceof Error ? e.message : "No se pudo cargar el mapa mental.")
     } finally {
       setSetLoading(false)
     }
   }, [])
 
+  const handleReprocess = useCallback(async (id: string) => {
+    try {
+      setGraph(await reprocessGraph(id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo regenerar el mapa.")
+    }
+  }, [])
+
   useEffect(() => {
-    if (courseId) loadSet(courseId)
-  }, [courseId, loadSet])
+    if (courseId) loadGraph(courseId)
+  }, [courseId, loadGraph])
 
   if (ready && (status === "anonymous" || status === "guest")) {
     return (
@@ -99,7 +116,7 @@ function MapaContent() {
       </header>
 
       <div className="flex-1 overflow-auto p-6 sm:px-10 sm:py-9">
-        <div className="mx-auto max-w-4xl">
+        <div className="mx-auto max-w-6xl">
           {coursesLoading ? (
             <CenterSpinner />
           ) : readyCourses.length === 0 ? (
@@ -123,13 +140,35 @@ function MapaContent() {
                 })}
               </div>
 
-              <div className="mt-6">
+              {courseName && (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  {courseName} · arrastra y conecta los temas. Selecciona cualquier texto para
+                  preguntarle al chat, o doble-click en un tema para estudiarlo.
+                </p>
+              )}
+
+              <div className="mt-4">
                 {setLoading ? (
-                  <CenterSpinner label="Generando mapa mental…" />
+                  <CenterSpinner label="Cargando mapa mental…" />
                 ) : error ? (
-                  <ErrorBox message={error} onRetry={() => courseId && loadSet(courseId)} />
-                ) : set ? (
-                  <MindView courseLabel={courseName} mindmap={set.mindmap} onBack={() => router.push("/estudio")} />
+                  <ErrorBox message={error} onRetry={() => courseId && loadGraph(courseId)} />
+                ) : graph && courseId ? (
+                  <SelectionAsk onAsk={askInChat}>
+                    <GraphCanvas
+                      nodes={graph.nodes}
+                      edges={graph.edges}
+                      graphStatus={graph.graph_status}
+                      graphError={graph.graph_error}
+                      editable
+                      syllabusId={courseId}
+                      onReprocess={() => handleReprocess(courseId)}
+                      onSaved={(g) =>
+                        setGraph((prev) =>
+                          prev ? { ...prev, nodes: g.nodes.map((n) => ({ ...n, weight_percent: n.weight_percent ?? 0 })), edges: g.edges } : prev,
+                        )
+                      }
+                    />
+                  </SelectionAsk>
                 ) : null}
               </div>
             </>

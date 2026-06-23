@@ -1,11 +1,41 @@
 "use client"
 
-import { ArrowUpRight, Compass, FileText, ThumbsUp, ThumbsDown } from "lucide-react"
-import { useEffect, useRef } from "react"
+import { ArrowUpRight, Compass, FileText, ThumbsUp, ThumbsDown, Timer } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 import type { Message } from "@/components/navigator/types"
-import { submitFeedback } from "@/lib/api"
+import {
+  submitFeedback,
+  fetchRecommendations,
+  fetchAgenda,
+  type UpcomingAssessmentAPI,
+} from "@/lib/api"
 import { Markdown } from "@/components/ui/markdown"
+
+/** Assistant answers mentioning an evaluation → offer a simulacro for the next one. */
+const ASSESSMENT_RE = /\b(prueba|examen|qu[ií]z|simulacro|evaluaci[oó]n|parcial|test|corta)\b/i
+
+/** Contextual suggestion: when the latest answer talks about an assessment, link to its simulacro. */
+function SimulacroSuggestion({ assessment, syllabusId }: { assessment: UpcomingAssessmentAPI; syllabusId: string }) {
+  return (
+    <div className="ml-9 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground">
+          ¿Quieres preparar {assessment.title}
+          {assessment.course_name ? ` de ${assessment.course_name}` : ""}?
+        </div>
+        <div className="text-[11px] text-muted-foreground">Genera un simulacro con el material del curso.</div>
+      </div>
+      <Link
+        href={`/estudio?course=${encodeURIComponent(syllabusId)}&mode=simulacro`}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-bold text-accent-foreground transition-opacity hover:opacity-90"
+      >
+        <Timer className="h-3.5 w-3.5" /> Crear simulacro
+      </Link>
+    </div>
+  )
+}
 
 const prompts = [
   {
@@ -34,9 +64,34 @@ export function ChatThread({ messages, onPrompt }: { messages: Message[]; onProm
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Next upcoming assessment + its course (for the contextual simulacro suggestion).
+  const [nextAssessment, setNextAssessment] = useState<{ a: UpcomingAssessmentAPI; syllabusId: string } | null>(null)
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
   }, [messages])
+
+  // Load the nearest assessment once. Fail-silent (anonymous → 401, no schedule → empty).
+  useEffect(() => {
+    let alive = true
+    Promise.all([fetchRecommendations(), fetchAgenda()])
+      .then(([plan, agenda]) => {
+        if (!alive) return
+        const a = plan.upcoming_assessments[0]
+        if (!a) return
+        const syllabusId = agenda.events.find((e) => e.course_name === a.course_name)?.syllabus_id
+        if (syllabusId) setNextAssessment({ a, syllabusId })
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // Show the suggestion under the most recent assistant answer that mentions an assessment.
+  const lastAssistant = [...messages].reverse().find((m) => m.role !== "user" && !m.pending)
+  const showSuggestion =
+    !!nextAssessment && !!lastAssistant && ASSESSMENT_RE.test(lastAssistant.content)
 
   if (messages.length === 0) {
     return (
@@ -76,6 +131,9 @@ export function ChatThread({ messages, onPrompt }: { messages: Message[]; onProm
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
+        {showSuggestion && nextAssessment && (
+          <SimulacroSuggestion assessment={nextAssessment.a} syllabusId={nextAssessment.syllabusId} />
+        )}
         <div ref={bottomRef} aria-hidden="true" />
       </div>
     </div>

@@ -59,6 +59,25 @@ describe("GET /api/study/[syllabusId]", () => {
     expect(StudyService.getStudySet).toHaveBeenCalledWith("u1", "s1", { refresh: true })
   })
 
+  it("passes difficulty + topic through to the service", async () => {
+    asUser()
+    vi.mocked(StudyService.getStudySet).mockResolvedValue(SET as any)
+    await GET(req("http://t/api/study/s1?difficulty=dificil&topic=JSON%20Web"), params("s1"))
+    expect(StudyService.getStudySet).toHaveBeenCalledWith("u1", "s1", {
+      refresh: false,
+      difficulty: "dificil",
+      topic: "JSON Web",
+    })
+  })
+
+  it("ignores an invalid difficulty value", async () => {
+    asUser()
+    vi.mocked(StudyService.getStudySet).mockResolvedValue(SET as any)
+    await GET(req("http://t/api/study/s1?difficulty=imposible"), params("s1"))
+    const call = vi.mocked(StudyService.getStudySet).mock.calls[0][2] as { difficulty?: string }
+    expect(call.difficulty).toBeUndefined()
+  })
+
   it("409 when there is not enough material (typed error, no leak)", async () => {
     asUser()
     vi.mocked(StudyService.getStudySet).mockRejectedValue(

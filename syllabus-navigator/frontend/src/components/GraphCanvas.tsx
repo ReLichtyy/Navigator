@@ -80,7 +80,7 @@ function CustomTopicNode({ data }: { data: any }) {
             {labelPrefix}
           </span>
         )}
-        <div className="text-[13px] font-semibold text-slate-100 line-clamp-2 leading-snug">
+        <div className="nodrag select-text cursor-text text-[13px] font-semibold text-slate-100 line-clamp-2 leading-snug">
           {label}
         </div>
         {weight !== undefined && weight > 0 && (
@@ -732,6 +732,10 @@ export default function GraphCanvas({
           }
         }}
         fitView
+        fitViewOptions={{ padding: 0.25, duration: 600 }}
+        panOnScroll
+        minZoom={0.2}
+        zoomOnDoubleClick={false}
         attributionPosition="bottom-right"
       >
         <Controls className="bg-slate-900 border border-slate-800 text-slate-300 fill-slate-300 [&_button]:border-slate-800 [&_button]:bg-slate-950 hover:[&_button]:bg-slate-900 transition-colors rounded-lg shadow-xl" />

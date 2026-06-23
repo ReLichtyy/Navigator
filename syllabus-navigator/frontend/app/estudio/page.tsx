@@ -4,7 +4,14 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
-import { listSyllabi, fetchStudySet, type SyllabusUploadAPI, type StudySetAPI } from "@/lib/api"
+import {
+  listSyllabi,
+  fetchStudySet,
+  fetchSchedule,
+  type SyllabusUploadAPI,
+  type StudySetAPI,
+  type StudyDifficulty,
+} from "@/lib/api"
 import {
   GraduationCap,
   Loader2,
@@ -16,6 +23,9 @@ import {
   Network,
   AlignLeft,
   Zap,
+  SlidersHorizontal,
+  Sparkles,
+  X,
 } from "lucide-react"
 import { FlashcardsView } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
@@ -44,6 +54,12 @@ function EstudioContent() {
   const [setLoading, setSetLoading] = useState(false)
   const [setError, setSetError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
+
+  // Difficulty + optional topic focus (drives generation).
+  const [difficulty, setDifficulty] = useState<StudyDifficulty>("medio")
+  const [topic, setTopic] = useState<string | null>(null)
+  // Topic recommendations pulled from the course's cronograma (schedule events).
+  const [topicRecs, setTopicRecs] = useState<string[]>([])
 
   const readyCourses = useMemo(() => courses.filter(isReady), [courses])
   const current = useMemo(
@@ -76,28 +92,73 @@ function EstudioContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, status])
 
-  // Load (or regenerate) the study set for the current course.
-  const loadSet = useCallback(async (id: string, refresh = false) => {
-    if (refresh) setRegenerating(true)
-    else {
-      setSetLoading(true)
-      setSet(null)
-    }
-    setSetError(null)
-    try {
-      const data = await fetchStudySet(id, refresh)
-      setSet(data)
-    } catch (e) {
-      setSetError(e instanceof Error ? e.message : "No se pudo generar el material de estudio.")
-    } finally {
-      setSetLoading(false)
-      setRegenerating(false)
-    }
-  }, [])
+  // Load (or regenerate) the study set for the current course, honoring difficulty/topic.
+  const loadSet = useCallback(
+    async (id: string, opts: { refresh?: boolean; difficulty?: StudyDifficulty; topic?: string | null } = {}) => {
+      if (opts.refresh) setRegenerating(true)
+      else {
+        setSetLoading(true)
+        setSet(null)
+      }
+      setSetError(null)
+      try {
+        const data = await fetchStudySet(id, {
+          refresh: opts.refresh,
+          difficulty: opts.difficulty ?? "medio",
+          topic: opts.topic ?? undefined,
+        })
+        setSet(data)
+      } catch (e) {
+        setSetError(e instanceof Error ? e.message : "No se pudo generar el material de estudio.")
+      } finally {
+        setSetLoading(false)
+        setRegenerating(false)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
-    if (courseId) loadSet(courseId)
+    if (courseId) loadSet(courseId, { difficulty, topic })
+    // Reload only when the course changes; difficulty/topic changes go through explicit handlers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, loadSet])
+
+  // Topic recommendations from the course cronograma (schedule events).
+  useEffect(() => {
+    if (!courseId) {
+      setTopicRecs([])
+      return
+    }
+    let alive = true
+    fetchSchedule(courseId)
+      .then((d) => {
+        if (!alive) return
+        const titles = d.events.map((e) => e.title.trim()).filter(Boolean)
+        setTopicRecs(Array.from(new Set(titles)).slice(0, 12))
+      })
+      .catch(() => alive && setTopicRecs([]))
+    return () => {
+      alive = false
+    }
+  }, [courseId])
+
+  // Apply a difficulty change → regenerate with it.
+  const applyDifficulty = (d: StudyDifficulty) => {
+    setDifficulty(d)
+    if (courseId) loadSet(courseId, { difficulty: d, topic })
+  }
+  // Apply a topic focus (or clear it) → regenerate.
+  const applyTopic = (t: string | null) => {
+    setTopic(t)
+    if (courseId) loadSet(courseId, { difficulty, topic: t })
+  }
+
+  // Recommendations = cronograma topics + mind-map branch labels (deduped).
+  const recommendations = useMemo(() => {
+    const fromMap = set?.mindmap.branches.map((b) => b.label.trim()).filter(Boolean) ?? []
+    return Array.from(new Set([...topicRecs, ...fromMap])).slice(0, 14)
+  }, [topicRecs, set])
 
   // Honor ?mode= deep links once a set is available.
   useEffect(() => {
@@ -111,6 +172,8 @@ function EstudioContent() {
   const pickCourse = (id: string) => {
     setCourseId(id)
     setMode("menu")
+    setDifficulty("medio")
+    setTopic(null)
   }
   const backToMenu = () => setMode("menu")
 
@@ -166,9 +229,14 @@ function EstudioContent() {
                     courseId={current.id}
                     courseName={current.original_filename.replace(/\.pdf$/i, "")}
                     regenerating={regenerating}
-                    onRegenerate={() => courseId && loadSet(courseId, true)}
+                    onRegenerate={() => courseId && loadSet(courseId, { refresh: true, difficulty, topic })}
                     setMode={setMode}
                     backToMenu={backToMenu}
+                    difficulty={difficulty}
+                    topic={topic}
+                    recommendations={recommendations}
+                    onDifficulty={applyDifficulty}
+                    onTopic={applyTopic}
                   />
                 ) : null}
               </div>
@@ -189,6 +257,11 @@ function ModeRouter({
   onRegenerate,
   setMode,
   backToMenu,
+  difficulty,
+  topic,
+  recommendations,
+  onDifficulty,
+  onTopic,
 }: {
   mode: Mode
   set: StudySetAPI
@@ -198,6 +271,11 @@ function ModeRouter({
   onRegenerate: () => void
   setMode: (m: Mode) => void
   backToMenu: () => void
+  difficulty: StudyDifficulty
+  topic: string | null
+  recommendations: string[]
+  onDifficulty: (d: StudyDifficulty) => void
+  onTopic: (t: string | null) => void
 }) {
   switch (mode) {
     case "flash":
@@ -223,7 +301,18 @@ function ModeRouter({
         />
       )
     default:
-      return <Menu set={set} courseName={courseName} setMode={setMode} />
+      return (
+        <Menu
+          set={set}
+          courseName={courseName}
+          setMode={setMode}
+          difficulty={difficulty}
+          topic={topic}
+          recommendations={recommendations}
+          onDifficulty={onDifficulty}
+          onTopic={onTopic}
+        />
+      )
   }
 }
 
@@ -236,12 +325,37 @@ const MODES: { key: Mode; title: string; desc: string; Icon: typeof HelpCircle; 
   { key: "resumen", title: "Resumen automático", desc: "Síntesis de los temas clave, lista para repasar.", Icon: AlignLeft, meta: () => "auto" },
 ]
 
-function Menu({ set, courseName, setMode }: { set: StudySetAPI; courseName: string; setMode: (m: Mode) => void }) {
+const DIFFICULTIES: { key: StudyDifficulty; label: string; hint: string }[] = [
+  { key: "facil", label: "Fácil", hint: "Conceptos base, recordar" },
+  { key: "medio", label: "Medio", hint: "Equilibrado" },
+  { key: "dificil", label: "Difícil", hint: "Razonar, aplicar, casos límite" },
+]
+
+function Menu({
+  set,
+  courseName,
+  setMode,
+  difficulty,
+  topic,
+  recommendations,
+  onDifficulty,
+  onTopic,
+}: {
+  set: StudySetAPI
+  courseName: string
+  setMode: (m: Mode) => void
+  difficulty: StudyDifficulty
+  topic: string | null
+  recommendations: string[]
+  onDifficulty: (d: StudyDifficulty) => void
+  onTopic: (t: string | null) => void
+}) {
+  const [topicOpen, setTopicOpen] = useState(false)
   return (
     <div>
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-        Material de estudio generado dinámicamente desde el knowledge base del curso. Elige un modo
-        para empezar.
+        Material de estudio generado dinámicamente desde el knowledge base del curso. Ajusta la
+        dificultad y, si quieres, enfócalo en un tema; luego elige un modo.
       </p>
 
       <Card className="mt-5 flex-row items-center gap-3 p-3.5">
@@ -255,6 +369,80 @@ function Menu({ set, courseName, setMode }: { set: StudySetAPI; courseName: stri
         </div>
         <Badge variant="accent" className="flex-none">● Indexado</Badge>
       </Card>
+
+      {/* ─── Difficulty + topic focus ─── */}
+      <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-border/70 bg-card/40 p-4 sm:flex-row sm:items-start sm:gap-6">
+        {/* Difficulty */}
+        <div className="flex-1">
+          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+            <SlidersHorizontal className="h-3.5 w-3.5" /> Dificultad
+          </div>
+          <div className="flex gap-2">
+            {DIFFICULTIES.map((d) => {
+              const active = d.key === difficulty
+              return (
+                <button
+                  key={d.key}
+                  onClick={() => !active && onDifficulty(d.key)}
+                  title={d.hint}
+                  className={`flex-1 rounded-xl border px-3 py-2 text-center transition-colors ${
+                    active
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  <div className="text-sm font-bold">{d.label}</div>
+                  <div className="mt-0.5 text-[10px] leading-tight opacity-80">{d.hint}</div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Topic focus */}
+        <div className="flex-1">
+          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5" /> Tema (opcional)
+          </div>
+          {topic ? (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex min-w-0 items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-3 py-2 text-sm font-medium text-accent">
+                <span className="truncate">{topic}</span>
+                <button onClick={() => onTopic(null)} aria-label="Quitar tema" className="shrink-0 hover:opacity-70">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => setTopicOpen((v) => !v)}
+                className="w-full rounded-xl border border-border px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary"
+              >
+                {recommendations.length > 0
+                  ? "Elige un tema del cronograma…"
+                  : "Todo el curso (sin tema específico)"}
+              </button>
+              {topicOpen && recommendations.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {recommendations.map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => {
+                        onTopic(r)
+                        setTopicOpen(false)
+                      }}
+                      className="rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-xs text-foreground transition-colors hover:border-accent/40 hover:bg-accent/10"
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
 
       <div className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         {MODES.map((m) => (

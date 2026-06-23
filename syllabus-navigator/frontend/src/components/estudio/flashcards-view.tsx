@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { ArrowLeft, ChevronLeft, ChevronRight, RotateCcw, Check, X, Eye } from "lucide-react"
 import { recordFlashcardReview, type FlashcardAPI } from "@/lib/api"
 
 interface Props {
@@ -9,56 +9,106 @@ interface Props {
   courseLabel: string
   cards: FlashcardAPI[]
   onBack: () => void
-  /** When set, "Ya la sé" / "Repasar luego" record a review (feeds the streak). */
+  /** When set, "La sé" / "No la sé" record a review (feeds the streak). */
   syllabusId?: string
 }
 
 export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }: Props) {
   const [i, setI] = useState(0)
   const [flipped, setFlipped] = useState(false)
+  const [graded, setGraded] = useState<Record<number, boolean>>({}) // index → known
+  const [done, setDone] = useState(false)
 
   const total = cards.length
   const card = cards[i]
 
-  const next = () => {
-    setFlipped(false)
-    setI((v) => (v + 1) % total)
-  }
+  const go = useCallback(
+    (delta: number) => {
+      setFlipped(false)
+      setI((v) => {
+        const n = v + delta
+        if (n >= total) {
+          setDone(true)
+          return v
+        }
+        return Math.max(0, n)
+      })
+    },
+    [total],
+  )
 
-  /** Mark the current card and advance. Recording is best-effort. */
-  const grade = (known: boolean) => {
-    if (syllabusId && card) {
-      void recordFlashcardReview(syllabusId, card.front, known).catch(() => {})
-    }
-    next()
-  }
-  const prev = () => {
+  const flip = useCallback(() => setFlipped((v) => !v), [])
+
+  /** Self-grade the current card, record it, then advance. */
+  const grade = useCallback(
+    (known: boolean) => {
+      if (card && syllabusId) void recordFlashcardReview(syllabusId, card.front, known).catch(() => {})
+      setGraded((g) => ({ ...g, [i]: known }))
+      go(1)
+    },
+    [card, syllabusId, i, go],
+  )
+
+  const restart = () => {
+    setI(0)
     setFlipped(false)
-    setI((v) => (v - 1 + total) % total)
+    setGraded({})
+    setDone(false)
   }
-  const flip = () => setFlipped((v) => !v)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight") next()
-      else if (e.key === "ArrowLeft") prev()
+      if (done) return
+      if (e.key === "ArrowRight") go(1)
+      else if (e.key === "ArrowLeft") go(-1)
       else if (e.key === " ") {
         e.preventDefault()
         flip()
-      }
+      } else if (flipped && (e.key === "1" || e.key.toLowerCase() === "n")) grade(false)
+      else if (flipped && (e.key === "2" || e.key.toLowerCase() === "y")) grade(true)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [total])
+  }, [done, flipped, go, flip, grade])
 
   if (total === 0) {
+    return <EmptyMode onBack={onBack} label="No hay tarjetas para este curso." />
+  }
+
+  const knownCount = Object.values(graded).filter(Boolean).length
+  const reviewCount = Object.values(graded).filter((v) => !v).length
+
+  // ── Session summary ──
+  if (done) {
     return (
-      <EmptyMode onBack={onBack} label="No hay tarjetas para este curso." />
+      <div>
+        <BackButton onBack={onBack} />
+        <div className="mx-auto mt-6 max-w-md rounded-2xl border border-border bg-card p-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10">
+            <Check className="h-7 w-7 text-accent" />
+          </div>
+          <h2 className="text-xl font-bold tracking-tight">¡Sesión completa!</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Repasaste {Object.keys(graded).length} de {total} tarjetas.</p>
+          <div className="mt-5 flex justify-center gap-3">
+            <span className="rounded-xl border border-accent/30 bg-accent/5 px-4 py-2 text-sm font-semibold text-accent">
+              {knownCount} sabidas
+            </span>
+            <span className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-2 text-sm font-semibold text-amber-500">
+              {reviewCount} para repasar
+            </span>
+          </div>
+          <button
+            onClick={restart}
+            className="mt-6 inline-flex items-center gap-1.5 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90"
+          >
+            <RotateCcw className="h-4 w-4" /> Repasar de nuevo
+          </button>
+        </div>
+      </div>
     )
   }
 
-  const pct = Math.round(((i + 1) / total) * 100)
+  const pct = Math.round(((i + (flipped ? 1 : 0)) / total) * 100)
 
   return (
     <div>
@@ -77,63 +127,85 @@ export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }
         <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${pct}%` }} />
       </div>
 
-      <button
-        onClick={flip}
-        className={`relative mt-6 flex min-h-[320px] w-full flex-col items-center justify-center rounded-2xl border p-11 text-center transition-colors ${
-          flipped ? "border-accent/40 bg-accent/5" : "border-border bg-card hover:border-accent/30"
-        }`}
-      >
-        <span className="absolute left-5 top-5 text-[10.5px] font-bold uppercase tracking-widest text-muted-foreground">
-          {flipped ? "Respuesta" : "Concepto"}
-        </span>
-        <span className="absolute right-5 top-5 text-[11px] text-muted-foreground">
-          {flipped ? "clic para ver el concepto" : "clic para revelar"}
-        </span>
+      {/* Flip card (3D) */}
+      <div className="mt-6 [perspective:1400px]">
         <div
-          key={`${i}-${flipped ? "b" : "f"}`}
-          className={`max-w-2xl leading-relaxed text-foreground ${
-            flipped ? "text-lg font-medium" : "text-2xl font-bold"
-          }`}
-        >
-          {flipped ? card.back : card.front}
-        </div>
-      </button>
-
-      <div className="mt-5 flex items-center justify-center gap-3">
-        <button
-          onClick={prev}
-          className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
-        >
-          <ChevronLeft className="h-4 w-4" /> Anterior
-        </button>
-        <button
+          role="button"
+          tabIndex={0}
           onClick={flip}
-          className="rounded-xl border border-accent/30 bg-accent/10 px-6 py-2.5 text-sm font-bold text-accent transition-colors hover:bg-accent/20"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") flip()
+          }}
+          aria-label={flipped ? "Ver el concepto" : "Revelar la respuesta"}
+          className="relative h-[340px] w-full cursor-pointer transition-transform duration-500 [transform-style:preserve-3d]"
+          style={{ transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)" }}
         >
-          Voltear tarjeta
-        </button>
-        <button
-          onClick={next}
-          className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
-        >
-          Siguiente <ChevronRight className="h-4 w-4" />
-        </button>
+          {/* Front */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-border bg-card p-11 text-center [backface-visibility:hidden]">
+            <span className="absolute left-5 top-5 text-[10.5px] font-bold uppercase tracking-widest text-muted-foreground">
+              Concepto
+            </span>
+            <span className="absolute right-5 top-5 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Eye className="h-3 w-3" /> clic para revelar
+            </span>
+            <div className="max-w-2xl text-2xl font-bold leading-relaxed text-foreground">{card.front}</div>
+          </div>
+          {/* Back */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-accent/40 bg-accent/5 p-11 text-center [backface-visibility:hidden] [transform:rotateY(180deg)]">
+            <span className="absolute left-5 top-5 text-[10.5px] font-bold uppercase tracking-widest text-accent/80">
+              Respuesta
+            </span>
+            <div className="max-w-2xl text-lg font-medium leading-relaxed text-foreground">{card.back}</div>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-4 flex justify-center gap-2.5">
-        <button
-          onClick={() => grade(false)}
-          className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-xs font-semibold text-red-500 transition-colors hover:bg-red-500/10"
-        >
-          ↻ Repasar luego
-        </button>
-        <button
-          onClick={() => grade(true)}
-          className="rounded-lg border border-accent/30 bg-accent/5 px-4 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent/10"
-        >
-          ✓ Ya la sé
-        </button>
-      </div>
+      {/* Primary action: reveal, then self-grade */}
+      {!flipped ? (
+        <div className="mt-5 flex items-center justify-center gap-3">
+          <button
+            onClick={() => go(-1)}
+            disabled={i === 0}
+            className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" /> Anterior
+          </button>
+          <button
+            onClick={flip}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-6 py-2.5 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90"
+          >
+            <Eye className="h-4 w-4" /> Mostrar respuesta
+          </button>
+          <button
+            onClick={() => go(1)}
+            className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+          >
+            Saltar <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <div className="mt-5 flex flex-col items-center gap-2">
+          <p className="text-xs text-muted-foreground">¿Sabías la respuesta?</p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={() => grade(false)}
+              className="flex items-center gap-1.5 rounded-xl border border-red-500/40 bg-red-500/5 px-6 py-2.5 text-sm font-bold text-red-500 transition-colors hover:bg-red-500/10"
+            >
+              <X className="h-4 w-4" /> No la sé
+            </button>
+            <button
+              onClick={() => grade(true)}
+              className="flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-6 py-2.5 text-sm font-bold text-accent transition-colors hover:bg-accent/20"
+            >
+              <Check className="h-4 w-4" /> La sé
+            </button>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-4 text-center text-[11px] text-muted-foreground">
+        Espacio: voltear · ← →: navegar{flipped ? " · 1: no la sé · 2: la sé" : ""}
+      </p>
     </div>
   )
 }

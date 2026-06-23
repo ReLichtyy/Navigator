@@ -17,7 +17,13 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 export async function GET(req: Request) {
   try {
     const { userId } = await requireAuth()
-    const date = new URL(req.url).searchParams.get("date")
+    const params = new URL(req.url).searchParams
+    // ?dates=1 → just the distinct days that have notes (for calendar markers).
+    if (params.get("dates")) {
+      const dates = await DateNoteRepository.listDates(userId)
+      return NextResponse.json({ dates })
+    }
+    const date = params.get("date")
     if (!date || !ISO_DATE.test(date)) {
       return NextResponse.json({ error: "A valid ?date=YYYY-MM-DD is required." }, { status: 400 })
     }

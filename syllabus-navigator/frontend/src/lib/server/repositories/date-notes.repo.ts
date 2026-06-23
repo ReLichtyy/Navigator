@@ -25,6 +25,17 @@ export const DateNoteRepository = {
     `) as DateNote[]
   },
 
+  /** Distinct dates (yyyy-mm-dd) the user has at least one note on. Powers calendar markers. */
+  async listDates(userId: string): Promise<string[]> {
+    const rows = await sql`
+      SELECT DISTINCT to_char(note_date, 'YYYY-MM-DD') AS note_date
+      FROM date_notes
+      WHERE user_id = ${userId}::uuid
+      ORDER BY note_date ASC
+    `
+    return rows.map((r) => (r as { note_date: string }).note_date)
+  },
+
   /** Create a note for the user on the given day. */
   async create(userId: string, date: string, body: string): Promise<DateNote> {
     const rows = await sql`

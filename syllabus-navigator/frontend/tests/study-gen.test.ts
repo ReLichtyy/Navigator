@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { normalizeStudySet } from "@/lib/server/rag/study-gen"
+import { normalizeStudySet, buildDirectives } from "@/lib/server/rag/study-gen"
 
 const base = {
   flashcards: [{ front: "  Concept  ", back: "  Def  " }],
@@ -46,5 +46,26 @@ describe("normalizeStudySet", () => {
       mindmap: { center: "", branches: [] },
     }
     expect(normalizeStudySet(empty)).toBeNull()
+  })
+})
+
+describe("buildDirectives (difficulty + topic)", () => {
+  it("defaults to medium when no difficulty given", () => {
+    expect(buildDirectives({})).toContain("DIFFICULTY: MEDIUM")
+  })
+
+  it("emits the hard hint for difícil", () => {
+    expect(buildDirectives({ difficulty: "dificil" })).toContain("DIFFICULTY: HARD")
+  })
+
+  it("adds a FOCUS line with the topic when provided", () => {
+    const out = buildDirectives({ difficulty: "facil", topic: "JSON en la Web" })
+    expect(out).toContain("DIFFICULTY: EASY")
+    expect(out).toContain('FOCUS')
+    expect(out).toContain("JSON en la Web")
+  })
+
+  it("omits FOCUS when topic is blank", () => {
+    expect(buildDirectives({ topic: "   " })).not.toContain("FOCUS")
   })
 })

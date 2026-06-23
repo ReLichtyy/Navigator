@@ -5,6 +5,7 @@ vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn
 vi.mock("@/lib/server/repositories/date-notes.repo", () => ({
   DateNoteRepository: {
     listByDate: vi.fn(),
+    listDates: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     remove: vi.fn(),
@@ -47,6 +48,18 @@ describe("GET /api/notes (read)", () => {
     expect(await res.json()).toEqual({ notes: [note()] })
     // Scoped to the session user — never an id from the request.
     expect(DateNoteRepository.listByDate).toHaveBeenCalledWith("u1", "2026-06-23")
+  })
+  it("?dates=1 returns the caller's note days (calendar markers), no date required", async () => {
+    asUser("u1")
+    vi.mocked(DateNoteRepository.listDates).mockResolvedValue(["2026-06-23", "2026-06-25"])
+    const res = await GET(new Request("http://t/api/notes?dates=1"))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ dates: ["2026-06-23", "2026-06-25"] })
+    expect(DateNoteRepository.listDates).toHaveBeenCalledWith("u1")
+  })
+  it("?dates=1 requires auth", async () => {
+    anon()
+    expect((await GET(new Request("http://t/api/notes?dates=1"))).status).toBe(401)
   })
 })
 

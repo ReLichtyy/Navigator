@@ -6,13 +6,14 @@ import { useAuthModal } from "@/context/AuthModalContext"
 import {
   fetchAgenda,
   fetchRecommendations,
+  listNoteDates,
   type ScheduleEventAPI,
   type WeeklyPlanAPI,
 } from "@/lib/api"
 import { CalendarDays, Loader2, FileText, AlertCircle, CheckCircle2 } from "lucide-react"
 import Link from "next/link"
 import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
-import { DayNotesSheet } from "@/components/agenda/day-notes-sheet"
+import { DayNotesPanel } from "@/components/agenda/day-notes-panel"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -27,6 +28,7 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [noteDates, setNoteDates] = useState<Set<string>>(new Set())
 
   // Only registered users may keep notes (date_notes FKs users.id).
   const canEditNotes = status !== "anonymous" && status !== "guest"
@@ -46,10 +48,25 @@ export default function AgendaPage() {
       })
       .catch(() => alive && setError("No se pudo cargar la agenda."))
       .finally(() => alive && setLoading(false))
+    // Note markers (registered users only). Fail-silent.
+    if (canEditNotes) {
+      listNoteDates()
+        .then((d) => alive && setNoteDates(new Set(d.dates)))
+        .catch(() => {})
+    }
     return () => {
       alive = false
     }
-  }, [ready, status])
+  }, [ready, status, canEditNotes])
+
+  // Keep the calendar markers in sync when notes are added/removed for a day.
+  const handleNoteCountChange = (date: string, hasNotes: boolean) =>
+    setNoteDates((prev) => {
+      const next = new Set(prev)
+      if (hasNotes) next.add(date)
+      else next.delete(date)
+      return next
+    })
 
   if (ready && status === "anonymous") {
     return (
@@ -182,8 +199,25 @@ export default function AgendaPage() {
                 </section>
               )}
 
-              {/* ─── Month calendar (dated events) ─── */}
-              <MonthCalendar events={events} today={plan?.today ?? "2026-06-22"} onSelectDay={setSelectedDate} />
+              {/* ─── Month calendar (dated events) + inline day expansion ─── */}
+              <MonthCalendar
+                events={events}
+                today={plan?.today ?? "2026-06-22"}
+                onSelectDay={(iso) => setSelectedDate((cur) => (cur === iso ? null : iso))}
+                selectedDate={selectedDate}
+                noteDates={noteDates}
+                dayPanel={
+                  selectedDate ? (
+                    <DayNotesPanel
+                      date={selectedDate}
+                      dayEvents={bucketEventsByDate(events)[selectedDate] ?? []}
+                      canEdit={canEditNotes}
+                      onClose={() => setSelectedDate(null)}
+                      onCountChange={handleNoteCountChange}
+                    />
+                  ) : null
+                }
+              />
 
               {/* ─── Full agenda by course ─── */}
               {Object.entries(byCourse).map(([course, evs]) => (
@@ -242,13 +276,6 @@ export default function AgendaPage() {
           )}
         </div>
       </div>
-
-      <DayNotesSheet
-        date={selectedDate}
-        dayEvents={selectedDate ? bucketEventsByDate(events)[selectedDate] ?? [] : []}
-        canEdit={canEditNotes}
-        onClose={() => setSelectedDate(null)}
-      />
     </main>
   )
 }

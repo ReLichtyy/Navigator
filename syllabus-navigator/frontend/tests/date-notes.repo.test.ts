@@ -51,4 +51,10 @@ describe("DateNoteRepository — every query is scoped to the user", () => {
     const res = await DateNoteRepository.remove("user-1", "note-x")
     expect(res).toBe(false)
   })
+
+  it("listDates scopes by user_id (calendar markers)", async () => {
+    await DateNoteRepository.listDates("user-1")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toContain("user-1")
+  })
 })

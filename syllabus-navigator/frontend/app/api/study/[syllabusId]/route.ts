@@ -17,9 +17,13 @@ export async function GET(
   try {
     const { userId } = await requireAuth()
     const { syllabusId } = await params
-    const refresh = new URL(req.url).searchParams.get("refresh") === "1"
+    const sp = new URL(req.url).searchParams
+    const refresh = sp.get("refresh") === "1"
+    const d = sp.get("difficulty")
+    const difficulty = d === "facil" || d === "medio" || d === "dificil" ? d : undefined
+    const topic = sp.get("topic")?.slice(0, 160) || undefined
 
-    const data = await StudyService.getStudySet(userId, syllabusId, { refresh })
+    const data = await StudyService.getStudySet(userId, syllabusId, { refresh, difficulty, topic })
     return NextResponse.json({ syllabus_id: syllabusId, ...data })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {

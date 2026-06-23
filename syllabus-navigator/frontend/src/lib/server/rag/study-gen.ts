@@ -211,11 +211,45 @@ function getClient(): OpenAI {
 // Keep token cost bounded — the head of the material is the most relevant for study aids.
 const MAX_CHARS = 24_000
 
+export type Difficulty = "facil" | "medio" | "dificil"
+
+export interface StudyGenOptions {
+  /** Tunes how demanding the generated quiz/flashcards are. Default "medio". */
+  difficulty?: Difficulty
+  /** When set, focus the material on this specific topic (from the cronograma). */
+  topic?: string
+}
+
+const DIFFICULTY_HINT: Record<Difficulty, string> = {
+  facil:
+    "DIFFICULTY: EASY. Stick to foundational concepts and definitions, straightforward recall, simple wording. Quiz distractors should be clearly wrong.",
+  medio:
+    "DIFFICULTY: MEDIUM. Balance recall with light application. Quiz distractors should be plausible but distinguishable.",
+  dificil:
+    "DIFFICULTY: HARD. Emphasize reasoning, edge cases, application and analysis over recall. Quiz distractors must be subtle and tempting; explanations must justify why each is wrong.",
+}
+
+/** Build the extra instruction block from difficulty + optional topic focus. Pure → testable. */
+export function buildDirectives(opts: StudyGenOptions): string {
+  const lines = [DIFFICULTY_HINT[opts.difficulty ?? "medio"]]
+  const topic = opts.topic?.trim()
+  if (topic) {
+    lines.push(
+      `FOCUS: Generate the material ONLY about the topic "${topic}". Prioritize content from the material related to it; ignore unrelated sections. If the material barely covers it, do your best with what is present (still never invent facts).`,
+    )
+  }
+  return lines.join("\n")
+}
+
 /**
  * Generate a study set from course text. Returns null when the model could not
- * derive usable material (e.g. empty/garbled text).
+ * derive usable material (e.g. empty/garbled text). `opts` tunes difficulty and
+ * optionally narrows the set to a single cronograma topic.
  */
-export async function generateStudySet(courseText: string): Promise<StudySet | null> {
+export async function generateStudySet(
+  courseText: string,
+  opts: StudyGenOptions = {},
+): Promise<StudySet | null> {
   const text = courseText.trim()
   if (text.length < 80) return null // not enough to study from
 
@@ -228,7 +262,7 @@ export async function generateStudySet(courseText: string): Promise<StudySet | n
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Generate study material from this course content:\n\n${text.slice(0, MAX_CHARS)}`,
+          content: `${buildDirectives(opts)}\n\nGenerate study material from this course content:\n\n${text.slice(0, MAX_CHARS)}`,
         },
       ],
       response_format: {

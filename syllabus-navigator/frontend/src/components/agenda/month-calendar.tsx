@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { ChevronLeft, ChevronRight, FileText } from "lucide-react"
+import { useMemo, useState, type ReactNode } from "react"
+import { ChevronLeft, ChevronRight, FileText, StickyNote } from "lucide-react"
 import type { ScheduleEventAPI } from "@/lib/api"
 
 const PALETTE = ["bg-accent", "bg-blue-400", "bg-purple-400", "bg-amber-400", "bg-pink-400"]
@@ -44,9 +44,15 @@ interface Props {
   today: string // ISO yyyy-mm-dd
   /** Open the day panel (notes + events) for an ISO yyyy-mm-dd. */
   onSelectDay?: (iso: string) => void
+  /** ISO yyyy-mm-dd currently expanded (for highlight). */
+  selectedDate?: string | null
+  /** Days (yyyy-mm-dd) that have at least one note → show a marker. */
+  noteDates?: Set<string>
+  /** Inline expansion rendered inside the calendar card, right under the grid. */
+  dayPanel?: ReactNode
 }
 
-export function MonthCalendar({ events, today, onSelectDay }: Props) {
+export function MonthCalendar({ events, today, onSelectDay, selectedDate, noteDates, dayPanel }: Props) {
   // Parse "today" as the anchor; default to the first dated event's month if today unparseable.
   const anchor = useMemo(() => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today)
@@ -124,23 +130,38 @@ export function MonthCalendar({ events, today, onSelectDay }: Props) {
                 if (!cell) return <div key={ci} />
                 const evs = buckets[cell.iso] ?? []
                 const isToday = cell.iso === todayIso
+                const isSelected = cell.iso === selectedDate
+                const hasNote = noteDates?.has(cell.iso) ?? false
                 return (
                   <button
                     key={ci}
                     type="button"
                     onClick={() => onSelectDay?.(cell.iso)}
                     aria-label={`Abrir ${cell.iso}`}
+                    aria-pressed={isSelected}
                     className={`flex min-h-[78px] flex-col gap-1 rounded-xl border p-1.5 text-left transition-colors hover:border-accent/40 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
-                      isToday ? "border-accent/45 bg-accent/5" : "border-border/50 bg-secondary/20"
+                      isSelected
+                        ? "border-accent bg-accent/10 ring-1 ring-accent/40"
+                        : isToday
+                          ? "border-accent/45 bg-accent/5"
+                          : "border-border/50 bg-secondary/20"
                     }`}
                   >
-                    <span
-                      className={`flex h-5 w-5 items-center justify-center self-start rounded-md font-mono text-[11px] font-semibold ${
-                        isToday ? "bg-accent text-accent-foreground" : "text-muted-foreground"
-                      }`}
-                    >
-                      {cell.day}
-                    </span>
+                    <div className="flex w-full items-center justify-between">
+                      <span
+                        className={`flex h-5 w-5 items-center justify-center rounded-md font-mono text-[11px] font-semibold ${
+                          isToday ? "bg-accent text-accent-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        {cell.day}
+                      </span>
+                      {hasNote && (
+                        <StickyNote
+                          className="h-3 w-3 text-accent"
+                          aria-label="Tiene notas"
+                        />
+                      )}
+                    </div>
                     {evs.slice(0, 3).map((e) => (
                       <div key={e.id} className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5">
                         <span className={`h-1.5 w-1.5 flex-none rounded-full ${PALETTE[colorFor(e.course_name)]}`} />
@@ -153,6 +174,9 @@ export function MonthCalendar({ events, today, onSelectDay }: Props) {
             </div>
           ))}
         </div>
+
+        {/* Inline day expansion (notes + events), in-card under the grid. */}
+        {dayPanel}
       </div>
 
       {detected.length > 0 && (
