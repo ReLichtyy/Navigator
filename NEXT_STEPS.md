@@ -514,23 +514,34 @@ Alcance: poner la app viva. Todo el código ya está listo (`DEPLOY_CHECKLIST.md
       → chat con citations reales → grafo 10/12 (no 404).
 - **Aceptación:** los 4 ítems del smoke test pasan en la URL pública.
 
-### Sprint LIMPIEZA — Higiene: formato + código muerto  *(autónomo, sin tu acceso)*
-Hoy **no hay tooling de formato ni lint** (sin prettier, eslint, knip en `package.json`) → estilo
-inconsistente y no se detecta código no usado. Alcance cerrado:
-- [ ] Añadir **Prettier** (`.prettierrc` + `npm run format` / `format:check`) y correr `--write` una
-      vez sobre `src/`+`app/` (commit de formato **separado** del resto para diffs limpios).
-- [ ] Añadir **ESLint** con `eslint-config-next` (`npm run lint`); arreglar errores reales, no warnings de estilo (eso lo cubre Prettier).
-- [ ] Añadir **`knip`** (o `ts-prune`) como dev-dep → listar exports/archivos no usados. Borrar los
-      confirmados muertos. Ya detectado a mano: `CLAUDE.md` citaba `ChatPanel`/`FileUpload`
-      (ya no existen — doc corregido); verificar que no queden más huérfanos.
-- [ ] **FastAPI `backend/` (354K, 0 llamadas desde el front): BORRAR** *(decidido 2026-06-23)*.
-      `git rm -r syllabus-navigator/backend` + `docs/*.md` del plan de 2 servicios + `scripts/bulk_ingest.py`
-      (tooling del backend) + el servicio `backend` de `docker/docker-compose.yml`. Antes de borrar:
-      verificar que el FastAPI de Railway no tenga datos vivos que migrar (pregunta abierta §5).
-      Después: purgar referencias muertas en `CLAUDE.md`/`README.md` (la sección "dos backends").
-- [ ] (Opc) Wire los nuevos scripts en CI (`.github/workflows/ci.yml`): `lint` + `format:check`.
-- **Aceptación:** `format:check` limpio, `lint` sin errores, `knip` con 0 huérfanos (o documentados),
-      **typecheck + 184 tests siguen verdes**, `npm run build` OK. Sin cambios de comportamiento.
+### Sprint LIMPIEZA — Higiene: formato + código muerto  *(✅ HECHO — 2026-06-23, branch `chore/hygiene-cleanup`)*
+Antes: **sin tooling de formato/lint**. Hecho (4 commits sobre la branch):
+- [x] **Prettier** (`.prettierrc.json`: no-semi, comillas dobles, width 100) + scripts `format`/
+      `format:check`. Corrido `--write` sobre `src/`+`app/` (**104 archivos**) en commit aislado.
+- [x] **ESLint** (`eslint-config-next`, `npm run lint`). Encontró y **arreglé un bug real pre-existente**:
+      `GraphCanvas.tsx` llamaba 4 `useMemo` tras 2 early-returns (rules-of-hooks) → ahora las pantallas
+      de estado/error se calculan en `statusScreen` y se retornan **después** de los hooks. Queda 1
+      *warning* `exhaustive-deps` en `useChatOrchestrator.ts:213` (omisión deliberada; tocarlo arriesga
+      loops de render → diferido, no bloquea).
+- [x] **knip** añadido + script. **Hallazgos NO accionados a propósito** (revisados, no muertos):
+      las ~30 "deps sin usar" son **falsos positivos** (las usa `components/ui/**`; knip falla con
+      build-tools como `tailwindcss`/`postcss`). Los ~89 "exports sin usar" son API de librería
+      intencional (logger, trace, rbac, prompts, `sqlDirect` usado por `migrate.mjs`). Borrar a ciegas
+      rompería cosas → **pendiente revisión manual** (correr `npm run knip` y podar caso por caso).
+- [x] **FastAPI `backend/` BORRADO** (37 archivos: backend/ + docker/ + `bulk_ingest.py` +
+      `vercel-deployment-plan.md`). `CLAUDE.md` purgado de refs a backend/docker. Recuperable de git.
+      ⚠️ **No verifiqué** si el FastAPI de Railway tiene datos vivos (no tengo acceso) — el borrado es
+      solo de **código fuente**, no toca ninguna DB remota.
+- [x] Extra: `bugreport.md` (log curado de 5 bugs abiertos, estaba untracked) ahora trackeado;
+      `tsconfig.tsbuildinfo` desrastreado + gitignored.
+- [ ] (Opc, **pendiente**) Wire `lint` + `format:check` en CI (`.github/workflows/ci.yml`).
+- **Resultado:** `format:check` limpio, `lint` 0 errores (1 warning), **typecheck OK, 197 tests verde**,
+      `npm run build` OK. Sin cambios de comportamiento. **Falta tu review + merge de la branch.**
+
+> **Sub-pendiente nuevo (BUG-001..005, ver `bugreport.md`):** 5 bugs reales catalogados (generadores
+> RAG ignoran `buildParams` de GPT-5; `embedTexts` asume orden; metering cae a 0 con modelo fuera de
+> catálogo; fallo de stream deja turno huérfano; `getAllHistory` carga todo por turno). Candidatos a un
+> sprint de correctitud aparte.
 
 ### Sprint COBERTURA — Cerrar gaps de tests  *(autónomo)*
 Notas del §4.quater/quinquies marcan paths sin cobertura. Alcance:
