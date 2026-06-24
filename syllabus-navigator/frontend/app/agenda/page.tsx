@@ -12,6 +12,7 @@ import {
 } from "@/lib/api"
 import { CalendarDays, Loader2, FileText, AlertCircle } from "lucide-react"
 import Link from "next/link"
+import { MobileNav } from "@/components/navigator/mobile-nav"
 import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
 import { DayNotesPanel } from "@/components/agenda/day-notes-panel"
 import { Button } from "@/components/ui/button"
@@ -137,13 +138,16 @@ export default function AgendaPage() {
 
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground overflow-hidden">
-      <header className="flex h-14 items-center gap-2 border-b border-border/60 px-6 shrink-0">
-        <CalendarDays className="h-5 w-5 text-accent" />
+      <header className="flex h-14 items-center gap-2 border-b border-border/60 px-3 shrink-0 sm:px-6">
+        <MobileNav />
+        <CalendarDays className="hidden h-5 w-5 text-accent sm:inline" />
         <h1 className="text-lg font-semibold">Agenda</h1>
-        {plan && <span className="text-xs text-muted-foreground ml-2">Hoy: {plan.today}</span>}
+        {plan && (
+          <span className="ml-2 truncate text-xs text-muted-foreground">Hoy: {plan.today}</span>
+        )}
       </header>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="mx-auto max-w-5xl space-y-6">
           {loading ? (
             <div className="flex h-64 items-center justify-center">
@@ -305,7 +309,7 @@ export default function AgendaPage() {
                 )?.syllabus_id
                 if (!syllabusId) return null
                 return (
-                  <Card className="flex-row items-center justify-between gap-4 border-accent/30 bg-accent/5 p-5">
+                  <Card className="flex-col items-start justify-between gap-4 border-accent/30 bg-accent/5 p-5 sm:flex-row sm:items-center">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold text-foreground">
                         ¿Listo para {next.title}?

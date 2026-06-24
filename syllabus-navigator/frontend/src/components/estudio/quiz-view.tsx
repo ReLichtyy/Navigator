@@ -9,7 +9,8 @@ interface Props {
   title: string
   courseLabel: string
   questions: QuizQuestionAPI[]
-  syllabusId: string
+  /** When set, per-topic outcomes feed the mastery ledger. Absent for whole-course scope. */
+  syllabusId?: string
   onBack: () => void
 }
 
@@ -35,7 +36,7 @@ export function QuizView({ title, courseLabel, questions, syllabusId, onBack }: 
   const flushMastery = () => {
     const batch = outcomes.current
     outcomes.current = []
-    if (batch.length > 0) recordMastery(syllabusId, batch).catch(() => {})
+    if (syllabusId && batch.length > 0) recordMastery(syllabusId, batch).catch(() => {})
   }
 
   const answer = (i: number) => {

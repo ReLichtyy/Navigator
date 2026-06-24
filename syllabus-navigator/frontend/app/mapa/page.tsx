@@ -8,6 +8,7 @@ import { useSyllabus } from "@/context/SyllabusContext"
 import { listSyllabi, fetchStudySet, type SyllabusUploadAPI, type StudySetAPI } from "@/lib/api"
 import { Network, Loader2, AlertCircle, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { MobileNav } from "@/components/navigator/mobile-nav"
 import { MindMapCanvas } from "@/components/estudio/mind-map-canvas"
 import { CrossCourseView } from "@/components/estudio/cross-course-view"
 
@@ -118,12 +119,13 @@ function MapaContent() {
 
   return (
     <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-6">
-        <Network className="h-5 w-5 text-accent" />
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:px-6">
+        <MobileNav />
+        <Network className="hidden h-5 w-5 text-accent sm:inline" />
         <h1 className="text-lg font-semibold">Mapa mental</h1>
       </header>
 
-      <div className="flex-1 overflow-auto p-6 sm:px-10 sm:py-9">
+      <div className="flex-1 overflow-auto p-4 sm:px-10 sm:py-9">
         <div className="mx-auto max-w-6xl">
           {coursesLoading ? (
             <CenterSpinner />

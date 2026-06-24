@@ -10,6 +10,7 @@ import { DocumentRepository } from "../repositories/document.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { StudyRepository } from "../repositories/study.repo"
 import { GraphRepository } from "../repositories/graph.repo"
+import { CourseRepository } from "../repositories/course.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { generateStudySet, type StudySet, type Difficulty } from "../rag/study-gen"
 
@@ -62,6 +63,47 @@ export const StudyService = {
 
     // Only persist the canonical default set.
     if (!custom) await StudyRepository.upsert(syllabusId, set)
+    return set
+  },
+
+  /**
+   * Whole-course study set: aggregates the chunks of EVERY PDF in a course the
+   * caller owns into a single set (cross-document questions). Same cache rules as
+   * getStudySet, but keyed by course in course_study_sets.
+   * - 404 when the course is not owned,
+   * - 409 ("not ready") when the course has no indexed material yet.
+   */
+  async getCourseStudySet(
+    userId: string,
+    courseId: string,
+    opts: { refresh?: boolean; difficulty?: Difficulty; topic?: string } = {},
+  ): Promise<StudySet> {
+    const course = await CourseRepository.findByIdAndUser(courseId, userId)
+    if (!course) throw new ApiErrorResponse("Course not found", 404)
+
+    const topic = opts.topic?.trim() || undefined
+    const difficulty = opts.difficulty ?? "medio"
+    const custom = !!topic || difficulty !== "medio"
+
+    if (!opts.refresh && !custom) {
+      const cached = await StudyRepository.getByCourse(courseId)
+      if (cached) return cached
+    }
+
+    const text = await ChunkRepository.getConcatenatedTextByCourse(userId, courseId)
+    if (!text || text.trim().length < 80) {
+      throw new ApiErrorResponse(
+        "This course doesn't have enough indexed material yet. Add or finish processing documents first.",
+        409,
+      )
+    }
+
+    const set = await generateStudySet(text, { difficulty, topic, weightedTopics: [] })
+    if (!set) {
+      throw new ApiErrorResponse("Could not generate study material from this course.", 409)
+    }
+
+    if (!custom) await StudyRepository.upsertByCourse(courseId, set)
     return set
   },
 }

@@ -11,9 +11,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Menu, User as UserIcon } from "lucide-react"
+import { History, User as UserIcon } from "lucide-react"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
+import { MobileNav } from "@/components/navigator/mobile-nav"
 
 import type { AttachedFile } from "@/components/navigator/types"
 
@@ -39,10 +40,16 @@ export function TopHeader({
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-sm md:hidden">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={onOpenMobileHistory} className="md:hidden">
-          <Menu className="h-5 w-5" />
-          <span className="sr-only">Toggle menu</span>
+      <div className="flex items-center gap-1">
+        <MobileNav />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onOpenMobileHistory}
+          className="md:hidden"
+          aria-label="Historial de chats"
+        >
+          <History className="h-5 w-5" />
         </Button>
       </div>
 

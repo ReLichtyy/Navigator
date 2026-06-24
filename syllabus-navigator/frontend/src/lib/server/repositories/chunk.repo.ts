@@ -82,6 +82,33 @@ export const ChunkRepository = {
     return (rows as { content: string }[]).map((r) => r.content).join("\n\n")
   },
 
+  /**
+   * Full text of EVERY processed document in a course the user owns, grouped per
+   * document (filename header + ordered chunks). Used to generate the whole-course
+   * study set. Ownership-scoped via syllabus_uploads.user_id.
+   */
+  async getConcatenatedTextByCourse(userId: string, courseId: string): Promise<string> {
+    const rows = await sql`
+      SELECT su.original_filename, c.content
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId}
+      ORDER BY su.original_filename ASC, c.chunk_index ASC
+    `
+    const docs = rows as { original_filename: string; content: string }[]
+    // Prefix each document's text with its name so cross-document questions can
+    // attribute concepts to the right PDF.
+    const byDoc = new Map<string, string[]>()
+    for (const r of docs) {
+      const arr = byDoc.get(r.original_filename) ?? []
+      arr.push(r.content)
+      byDoc.set(r.original_filename, arr)
+    }
+    return [...byDoc.entries()]
+      .map(([name, parts]) => `## ${name.replace(/\.pdf$/i, "")}\n\n${parts.join("\n\n")}`)
+      .join("\n\n")
+  },
+
   /** Retrieval: nearest chunks to a query embedding, scoped to one syllabus. */
   async search(syllabusId: string, queryEmbedding: number[], limit = 8): Promise<RetrievedChunk[]> {
     const qvec = toVectorLiteral(queryEmbedding)

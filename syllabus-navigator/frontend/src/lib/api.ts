@@ -527,6 +527,22 @@ export async function fetchStudySet(syllabusId: string, opts: StudySetOptions = 
   })
 }
 
+/**
+ * Whole-course study material: aggregates every PDF in a course into one set.
+ * Same options/caching as fetchStudySet but keyed by the real course id.
+ */
+export async function fetchCourseStudySet(courseId: string, opts: StudySetOptions = {}) {
+  const qs = new URLSearchParams()
+  if (opts.refresh) qs.set("refresh", "1")
+  if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
+  if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
+  const suffix = qs.toString() ? `?${qs.toString()}` : ""
+  return request<StudySetAPI>(`/study/course/${encodeURIComponent(courseId)}${suffix}`, {
+    method: "GET",
+    json: false,
+  })
+}
+
 export interface StudyStatsAPI {
   streakDays: number
   cardsThisWeek: number

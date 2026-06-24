@@ -16,6 +16,7 @@ import {
   listCourses,
   createCourse,
   deleteCourse,
+  renameCourse,
   setDocumentCourse,
 } from "@/lib/api"
 import type { SyllabusUploadAPI, GraphResponseAPI, CourseAPI } from "@/lib/api"
@@ -42,10 +43,12 @@ import {
   FileText as FileIcon,
   Link2,
   Type,
+  GripVertical,
 } from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
 import CourseSuggestions from "@/components/CourseSuggestions"
+import { MobileNav } from "@/components/navigator/mobile-nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -100,6 +103,15 @@ export default function KnowledgeBasePage() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [isSavingRename, setIsSavingRename] = useState(false)
+
+  // Course (folder) rename state — independent of the document rename above.
+  const [renamingCourseId, setRenamingCourseId] = useState<string | null>(null)
+  const [courseRenameValue, setCourseRenameValue] = useState("")
+  const [savingCourseRename, setSavingCourseRename] = useState(false)
+
+  // Drag & drop: the document being dragged, and the folder currently hovered.
+  const [draggingDoc, setDraggingDoc] = useState<SyllabusUploadAPI | null>(null)
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null)
 
   // Add-source dialog (PDF / link / text)
   const [addOpen, setAddOpen] = useState(false)
@@ -368,6 +380,64 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  // ----- course (folder) rename -----
+  const startCourseRename = (courseId: string, currentName: string) => {
+    setRenamingCourseId(courseId)
+    setCourseRenameValue(currentName)
+  }
+  const commitCourseRename = async (courseId: string) => {
+    const name = courseRenameValue.trim()
+    if (!name) {
+      setRenamingCourseId(null)
+      return
+    }
+    setSavingCourseRename(true)
+    // Optimistic rename of the folder.
+    setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, name } : c)))
+    try {
+      await renameCourse(courseId, name)
+      toast.success("Curso renombrado.")
+    } catch (err: any) {
+      toast.error(err?.message ?? "No se pudo renombrar el curso.")
+      await fetchUploads(true)
+    } finally {
+      setRenamingCourseId(null)
+      setSavingCourseRename(false)
+    }
+  }
+
+  // ----- drag & drop: move a document between folders, or onto the trash zone -----
+  const onDocDragStart = (doc: SyllabusUploadAPI) => (e: React.DragEvent) => {
+    setDraggingDoc(doc)
+    e.dataTransfer.effectAllowed = "move"
+    e.dataTransfer.setData("text/plain", doc.id)
+  }
+  const onDocDragEnd = () => {
+    setDraggingDoc(null)
+    setDragOverKey(null)
+  }
+  // Drop a dragged doc onto a folder (courseId, or null for "Sin curso").
+  const onFolderDrop = (targetCourseId: string | null) => (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOverKey(null)
+    const doc = draggingDoc
+    setDraggingDoc(null)
+    if (doc) handleMove(doc, targetCourseId)
+  }
+  const onFolderDragOver = (key: string) => (e: React.DragEvent) => {
+    if (!draggingDoc) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+    if (dragOverKey !== key) setDragOverKey(key)
+  }
+  const onTrashDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOverKey(null)
+    const doc = draggingDoc
+    setDraggingDoc(null)
+    if (doc) handleDelete(doc.id, doc.original_filename)
+  }
+
   const handleReprocess = async () => {
     if (!previewDoc) return
     try {
@@ -460,12 +530,13 @@ export default function KnowledgeBasePage() {
 
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground overflow-hidden">
-      <header className="flex h-14 items-center justify-between border-b border-border/60 px-6 shrink-0">
-        <h1 className="text-lg font-semibold flex items-center gap-2">
-          <Library className="h-5 w-5 text-accent" />
-          Cursos
+      <header className="flex h-14 items-center justify-between gap-2 border-b border-border/60 px-3 shrink-0 sm:px-6">
+        <h1 className="flex min-w-0 items-center gap-2 text-lg font-semibold">
+          <MobileNav />
+          <Library className="hidden h-5 w-5 shrink-0 text-accent sm:inline" />
+          <span className="truncate">Cursos</span>
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Button
             onClick={() => {
               setNewCourseName("")
@@ -476,7 +547,7 @@ export default function KnowledgeBasePage() {
             size="pill"
           >
             <FolderPlus className="h-4 w-4" />
-            Añadir curso
+            <span className="hidden sm:inline">Añadir curso</span>
           </Button>
           <Button
             onClick={() => {
@@ -492,7 +563,7 @@ export default function KnowledgeBasePage() {
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            {isUploading ? "Subiendo…" : "Añadir fuente"}
+            <span className="hidden sm:inline">{isUploading ? "Subiendo…" : "Añadir fuente"}</span>
           </Button>
         </div>
         <input
@@ -505,7 +576,7 @@ export default function KnowledgeBasePage() {
         />
       </header>
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="mx-auto max-w-5xl">
           <p className="mb-5 max-w-2xl text-sm text-muted-foreground">
             Cada curso tiene su propia carpeta de knowledge. Los modos de estudio se generan desde
@@ -515,7 +586,7 @@ export default function KnowledgeBasePage() {
           <CourseSuggestions uploads={uploads} onChanged={() => fetchUploads(true)} />
 
           <div className="mb-6 flex items-center justify-between">
-            <div className="relative w-72">
+            <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
               <Input
                 type="text"
@@ -560,19 +631,43 @@ export default function KnowledgeBasePage() {
                 const firstReady = course.docs.find(
                   (d) => d.status === "processed" && !(d as any)._optimistic,
                 )
+                const groupKey = course.id ?? "sin-curso"
+                // Highlight a folder as a drop target while dragging a doc from elsewhere.
+                const isDropTarget =
+                  !!draggingDoc &&
+                  dragOverKey === groupKey &&
+                  (draggingDoc.course_id ?? null) !== (course.id ?? null)
                 return (
                   <AccordionItem
-                    key={course.id ?? "sin-curso"}
-                    value={course.id ?? "sin-curso"}
-                    className="relative"
+                    key={groupKey}
+                    value={groupKey}
+                    className={`relative transition-colors ${
+                      isDropTarget
+                        ? "rounded-xl ring-2 ring-accent ring-offset-2 ring-offset-background"
+                        : ""
+                    }`}
+                    onDragOver={onFolderDragOver(groupKey)}
+                    onDragLeave={() => dragOverKey === groupKey && setDragOverKey(null)}
+                    onDrop={onFolderDrop(course.id ?? null)}
                   >
                     <div className="absolute right-3 top-2.5 z-10 flex items-center gap-1.5">
                       {firstReady && (
                         <Button asChild size="sm" variant="secondary" className="h-8 gap-1.5">
                           <Link href={`/estudio?course=${firstReady.id}`}>
                             <GraduationCap className="h-3.5 w-3.5 text-accent" />
-                            Estudiar
+                            <span className="hidden sm:inline">Estudiar</span>
                           </Link>
+                        </Button>
+                      )}
+                      {course.id && (
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => startCourseRename(course.id!, course.name)}
+                          className="h-8 w-8 text-muted-foreground hover:text-accent"
+                          title="Renombrar curso"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
                       {course.id && (
@@ -589,36 +684,89 @@ export default function KnowledgeBasePage() {
                         </Button>
                       )}
                     </div>
-                    <AccordionTrigger className="pr-40">
-                      <div
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
-                        style={course.color ? { backgroundColor: `${course.color}22` } : undefined}
-                      >
-                        <BookText
-                          className="h-[18px] w-[18px] text-accent"
-                          style={course.color ? { color: course.color } : undefined}
+                    {renamingCourseId === course.id && course.id ? (
+                      <div className="flex items-center gap-2 px-4 py-3 pr-24 sm:pr-40">
+                        <div
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
+                          style={
+                            course.color ? { backgroundColor: `${course.color}22` } : undefined
+                          }
+                        >
+                          <BookText className="h-[18px] w-[18px] text-accent" />
+                        </div>
+                        <Input
+                          autoFocus
+                          value={courseRenameValue}
+                          onChange={(e) => setCourseRenameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitCourseRename(course.id!)
+                            if (e.key === "Escape") setRenamingCourseId(null)
+                          }}
+                          className="h-8 flex-1"
                         />
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => commitCourseRename(course.id!)}
+                          disabled={savingCourseRename}
+                          className="text-accent"
+                          title="Guardar"
+                        >
+                          {savingCourseRename ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => setRenamingCourseId(null)}
+                          title="Cancelar"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <span className="truncate font-semibold text-foreground">
-                          {course.name}
-                        </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {course.docs.length}{" "}
-                          {course.docs.length === 1 ? "documento" : "documentos"} · clic para ver
-                        </span>
-                      </div>
-                    </AccordionTrigger>
+                    ) : (
+                      <AccordionTrigger className="pr-24 sm:pr-40">
+                        <div
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
+                          style={
+                            course.color ? { backgroundColor: `${course.color}22` } : undefined
+                          }
+                        >
+                          <BookText
+                            className="h-[18px] w-[18px] text-accent"
+                            style={course.color ? { color: course.color } : undefined}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="truncate font-semibold text-foreground">
+                            {course.name}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {course.docs.length}{" "}
+                            {course.docs.length === 1 ? "documento" : "documentos"} · clic para ver
+                          </span>
+                        </div>
+                      </AccordionTrigger>
+                    )}
 
                     <AccordionContent className="p-0">
                       <ul className="divide-y divide-border/40">
                         {course.docs.map((doc) => {
                           const sv = getDocStatus(doc as any)
                           const optimistic = !!(doc as any)._optimistic
+                          const canDrag = !optimistic && renamingId !== doc.id
                           return (
                             <li
                               key={doc.id}
-                              className="group flex items-center gap-3 px-4 py-2.5 text-sm"
+                              draggable={canDrag}
+                              onDragStart={canDrag ? onDocDragStart(doc) : undefined}
+                              onDragEnd={onDocDragEnd}
+                              className={`group flex items-center gap-1.5 px-3 py-2.5 text-sm transition-opacity sm:gap-3 sm:px-4 ${
+                                draggingDoc?.id === doc.id ? "opacity-40" : ""
+                              }`}
                             >
                               {renamingId === doc.id ? (
                                 <div className="flex flex-1 items-center gap-2">
@@ -657,6 +805,12 @@ export default function KnowledgeBasePage() {
                                 </div>
                               ) : (
                                 <>
+                                  {canDrag && (
+                                    <GripVertical
+                                      className="h-4 w-4 shrink-0 cursor-grab text-muted-foreground/40 active:cursor-grabbing"
+                                      aria-hidden
+                                    />
+                                  )}
                                   <FileText className="h-4 w-4 shrink-0 text-accent/70" />
                                   <span
                                     className="min-w-0 flex-1 truncate"
@@ -673,7 +827,7 @@ export default function KnowledgeBasePage() {
                                   >
                                     <Pencil className="h-3 w-3" />
                                   </Button>
-                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                  <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
                                     {new Date(doc.created_at).toLocaleDateString()}
                                   </span>
                                   <Badge variant={sv.tone} title={sv.tooltip} className="shrink-0">
@@ -744,6 +898,27 @@ export default function KnowledgeBasePage() {
           )}
         </div>
       </div>
+
+      {/* Trash drop zone — only visible while dragging a document. */}
+      {draggingDoc && (
+        <div
+          onDragOver={(e) => {
+            e.preventDefault()
+            e.dataTransfer.dropEffect = "move"
+            if (dragOverKey !== "__trash__") setDragOverKey("__trash__")
+          }}
+          onDragLeave={() => dragOverKey === "__trash__" && setDragOverKey(null)}
+          onDrop={onTrashDrop}
+          className={`fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border-2 border-dashed px-5 py-3 text-sm font-semibold shadow-lg transition-colors ${
+            dragOverKey === "__trash__"
+              ? "border-destructive bg-destructive text-destructive-foreground"
+              : "border-destructive/50 bg-card text-destructive"
+          }`}
+        >
+          <Trash2 className="h-4 w-4" />
+          Soltar aquí para eliminar
+        </div>
+      )}
 
       {/* Create Course Dialog */}
       <Dialog
@@ -907,7 +1082,7 @@ export default function KnowledgeBasePage() {
         }}
       >
         <DialogContent className="flex h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
-          <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 px-4 py-3 text-left">
+          <DialogHeader className="flex-col items-start justify-between gap-2 border-b border-border/60 px-4 py-3 pr-12 text-left sm:flex-row sm:items-center sm:gap-3">
             <div className="min-w-0">
               <DialogTitle className="truncate text-base">{previewDoc?.name}</DialogTitle>
               <DialogDescription className="text-xs">Vista previa del documento</DialogDescription>
@@ -925,7 +1100,8 @@ export default function KnowledgeBasePage() {
                 onClick={() => previewDoc && handleChat(previewDoc.id, previewDoc.name)}
               >
                 <MessageSquare className="h-3.5 w-3.5" />
-                Pregúntame sobre este documento
+                <span className="hidden sm:inline">Pregúntame sobre este documento</span>
+                <span className="sm:hidden">Preguntar</span>
               </Button>
               <div className="inline-flex gap-1 rounded-lg border border-border bg-card/50 p-0.5">
                 <button

@@ -19,4 +19,22 @@ export const StudyRepository = {
         SET data = EXCLUDED.data, updated_at = now()
     `
   },
+
+  /** Cached whole-course study set, or undefined if never generated. */
+  async getByCourse(courseId: string): Promise<StudySet | undefined> {
+    const rows = await sql`
+      SELECT data FROM course_study_sets WHERE course_id = ${courseId}::uuid
+    `
+    return (rows[0] as { data: StudySet } | undefined)?.data
+  },
+
+  /** Insert or replace the cached whole-course study set. */
+  async upsertByCourse(courseId: string, data: StudySet): Promise<void> {
+    await sql`
+      INSERT INTO course_study_sets (course_id, data)
+      VALUES (${courseId}::uuid, ${JSON.stringify(data)}::jsonb)
+      ON CONFLICT (course_id) DO UPDATE
+        SET data = EXCLUDED.data, updated_at = now()
+    `
+  },
 }

@@ -6,18 +6,19 @@ import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import {
   listSyllabi,
+  listCourses,
   fetchStudySet,
+  fetchCourseStudySet,
   fetchSchedule,
   fetchRecommendations,
-  renameDocument,
   type SyllabusUploadAPI,
+  type CourseAPI,
   type StudySetAPI,
   type StudyDifficulty,
   type ScheduleEventAPI,
   type WeeklyPlanAPI,
 } from "@/lib/api"
-import { toast } from "sonner"
-import { Input } from "@/components/ui/input"
+import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
 import { Textarea } from "@/components/ui/textarea"
 import { pickWeekTopics } from "@/lib/ui/week-topics"
 import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
@@ -34,9 +35,9 @@ import {
   Zap,
   SlidersHorizontal,
   Sparkles,
-  X,
-  Pencil,
-  Check,
+  BookText,
+  FileText,
+  FolderOpen,
 } from "lucide-react"
 import { FlashcardsView } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
@@ -49,13 +50,14 @@ import { Card } from "@/components/ui/card"
 
 type Mode = "menu" | "flash" | "repaso" | "quiz" | "simulacro" | "mind" | "resumen"
 
+/** Study scope: the whole course (aggregated) or one specific PDF. */
+type Scope = { kind: "course"; courseId: string } | { kind: "doc"; docId: string }
+
 function isReady(d: SyllabusUploadAPI): boolean {
   return d.status === "processed"
 }
 
 const cleanName = (f: string) => f.replace(/\.pdf$/i, "")
-// Short mono code for a course pill (no real code in the data → derive a stable one).
-const courseCode = (i: number) => `C-${String(i + 1).padStart(2, "0")}`
 
 function EstudioContent() {
   const { status, ready } = useUser()
@@ -63,9 +65,14 @@ function EstudioContent() {
   const params = useSearchParams()
   const router = useRouter()
 
-  const [courses, setCourses] = useState<SyllabusUploadAPI[]>([])
+  const [uploads, setUploads] = useState<SyllabusUploadAPI[]>([])
+  const [courses, setCourses] = useState<CourseAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
-  const [courseId, setCourseId] = useState<string | null>(null)
+
+  // Selected course folder (a user_courses id, or null = "Sin curso" bucket).
+  const [groupId, setGroupId] = useState<string | null>(null)
+  // Selected scope within the folder. null until the folder resolves a default.
+  const [scope, setScope] = useState<Scope | null>(null)
   const [mode, setMode] = useState<Mode>("menu")
 
   const [set, setSet] = useState<StudySetAPI | null>(null)
@@ -76,40 +83,56 @@ function EstudioContent() {
   // Difficulty + optional topic focus. Instant UI selections; applied when a mode launches.
   const [difficulty, setDifficulty] = useState<StudyDifficulty>("medio")
   const [topic, setTopic] = useState<string | null>(null)
-  // The (difficulty|topic) signature the currently-loaded `set` was generated with.
+  // The (scope|difficulty|topic) signature the currently-loaded `set` was generated with.
   const [loadedKey, setLoadedKey] = useState<string | null>(null)
-  // The selected course's cronograma events + the user's weekly plan (for week-topic chips).
+  // The selected scope's cronograma events + the user's weekly plan (for week-topic chips).
   const [courseEvents, setCourseEvents] = useState<ScheduleEventAPI[]>([])
   const [plan, setPlan] = useState<WeeklyPlanAPI | null>(null)
 
-  // Inline course rename (id/reference never changes — only original_filename).
-  const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [renameValue, setRenameValue] = useState("")
-  const [savingRename, setSavingRename] = useState(false)
+  const scopeKey = (s: Scope | null, d: StudyDifficulty, t: string | null) =>
+    `${s ? `${s.kind}:${s.kind === "course" ? s.courseId : s.docId}` : "none"}::${d}::${t ?? ""}`
 
-  const paramKey = (d: StudyDifficulty, t: string | null) => `${d}::${t ?? ""}`
-
-  const readyCourses = useMemo(() => courses.filter(isReady), [courses])
-  const current = useMemo(
-    () => readyCourses.find((c) => c.id === courseId) ?? null,
-    [readyCourses, courseId],
+  // ── Group uploads into real course folders; keep only folders with ≥1 ready doc.
+  const realCourses = useMemo<RealCourse[]>(
+    () => courses.map((c) => ({ id: c.id, name: c.name, color: c.color })),
+    [courses],
   )
-  // Course pills for the mind-map view (code + short label).
+  const groups = useMemo<RealCourseGroup[]>(
+    () => groupByRealCourse(uploads, realCourses).filter((g) => g.docs.some(isReady)),
+    [uploads, realCourses],
+  )
+  const selectedGroup = useMemo(
+    () => groups.find((g) => g.id === groupId) ?? null,
+    [groups, groupId],
+  )
+  const readyDocs = useMemo(
+    () => (selectedGroup ? selectedGroup.docs.filter(isReady) : []),
+    [selectedGroup],
+  )
+  // "Todo el curso" is only meaningful for a real course folder (not "Sin curso").
+  const canWholeCourse = !!selectedGroup?.id && readyDocs.length >= 1
+
+  // Resolve the active scope target → ids used by the views.
+  const activeDocId = scope?.kind === "doc" ? scope.docId : null
+  const activeDoc = activeDocId ? (readyDocs.find((d) => d.id === activeDocId) ?? null) : null
+  const scopeLabel =
+    scope?.kind === "course"
+      ? (selectedGroup?.name ?? "Curso")
+      : activeDoc
+        ? cleanName(activeDoc.original_filename)
+        : ""
+  // Mind-map switcher pills = the ready PDFs of the current folder.
   const mindCourses = useMemo<MindCourse[]>(
     () =>
-      readyCourses.map((c, i) => ({
+      readyDocs.map((c, i) => ({
         id: c.id,
-        code: courseCode(i),
+        code: `C-${String(i + 1).padStart(2, "0")}`,
         label: cleanName(c.original_filename),
       })),
-    [readyCourses],
+    [readyDocs],
   )
-  const currentCode = useMemo(() => {
-    const i = readyCourses.findIndex((c) => c.id === courseId)
-    return i >= 0 ? courseCode(i) : ""
-  }, [readyCourses, courseId])
 
-  // Load the user's courses.
+  // Load the user's uploads + course folders.
   useEffect(() => {
     if (!ready) return
     if (status === "anonymous" || status === "guest") {
@@ -117,14 +140,11 @@ function EstudioContent() {
       return
     }
     let alive = true
-    listSyllabi()
-      .then((d) => {
+    Promise.all([listSyllabi(), listCourses().catch(() => ({ courses: [] as CourseAPI[] }))])
+      .then(([u, c]) => {
         if (!alive) return
-        setCourses(d.uploads)
-        const ready = d.uploads.filter(isReady)
-        const wanted = params.get("course")
-        const pick = ready.find((c) => c.id === wanted)?.id ?? ready[0]?.id ?? null
-        setCourseId(pick)
+        setUploads(u.uploads)
+        setCourses(c.courses)
       })
       .catch(() => alive && setSetError("No se pudieron cargar los cursos."))
       .finally(() => alive && setCoursesLoading(false))
@@ -134,10 +154,41 @@ function EstudioContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, status])
 
-  // Load (or regenerate) the study set for the current course, honoring difficulty/topic.
+  // Pick an initial folder once groups are available (honoring ?course=<docId|courseId>).
+  useEffect(() => {
+    if (groupId !== null || groups.length === 0) return
+    const wanted = params.get("course")
+    // ?course may be a document id (from the "Estudiar" link) or a course id.
+    const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted))
+    const byCourse = groups.find((g) => g.id === wanted)
+    const pick = byDoc ?? byCourse ?? groups[0]
+    if (pick) setGroupId(pick.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups])
+
+  // When the folder changes, default the scope (whole course if possible, else first PDF).
+  useEffect(() => {
+    if (!selectedGroup) {
+      setScope(null)
+      return
+    }
+    if (canWholeCourse && selectedGroup.id) {
+      setScope({ kind: "course", courseId: selectedGroup.id })
+    } else if (readyDocs[0]) {
+      setScope({ kind: "doc", docId: readyDocs[0].id })
+    } else {
+      setScope(null)
+    }
+    setMode("menu")
+    setDifficulty("medio")
+    setTopic(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId])
+
+  // Load (or regenerate) the study set for the active scope, honoring difficulty/topic.
   const loadSet = useCallback(
     async (
-      id: string,
+      s: Scope,
       opts: { refresh?: boolean; difficulty?: StudyDifficulty; topic?: string | null } = {},
     ) => {
       const d = opts.difficulty ?? "medio"
@@ -149,13 +200,20 @@ function EstudioContent() {
       }
       setSetError(null)
       try {
-        const data = await fetchStudySet(id, {
-          refresh: opts.refresh,
-          difficulty: d,
-          topic: t ?? undefined,
-        })
+        const data =
+          s.kind === "course"
+            ? await fetchCourseStudySet(s.courseId, {
+                refresh: opts.refresh,
+                difficulty: d,
+                topic: t ?? undefined,
+              })
+            : await fetchStudySet(s.docId, {
+                refresh: opts.refresh,
+                difficulty: d,
+                topic: t ?? undefined,
+              })
         setSet(data)
-        setLoadedKey(paramKey(d, t))
+        setLoadedKey(scopeKey(s, d, t))
       } catch (e) {
         setSetError(e instanceof Error ? e.message : "No se pudo generar el material de estudio.")
       } finally {
@@ -166,26 +224,29 @@ function EstudioContent() {
     [],
   )
 
-  // Base set for the menu (medium, whole course). Reloads only when the course changes.
+  // Base set for the menu (medium). Reloads whenever the active scope changes.
   useEffect(() => {
-    if (courseId) loadSet(courseId, { difficulty: "medio", topic: null })
+    if (scope) loadSet(scope, { difficulty: "medio", topic: null })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseId, loadSet])
+  }, [scope, loadSet])
 
-  // The selected course's cronograma events (for week-topic suggestions).
+  // Cronograma events for the active scope: per-PDF when a doc is selected, else
+  // the first ready doc of the course (representative week context).
   useEffect(() => {
-    if (!courseId) {
+    const id = activeDocId ?? readyDocs[0]?.id ?? null
+    if (!id) {
       setCourseEvents([])
       return
     }
     let alive = true
-    fetchSchedule(courseId)
+    fetchSchedule(id)
       .then((d) => alive && setCourseEvents(d.events))
       .catch(() => alive && setCourseEvents([]))
     return () => {
       alive = false
     }
-  }, [courseId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDocId, groupId])
 
   // Weekly plan (today + week range), once — used to rank week-relevant topics.
   useEffect(() => {
@@ -198,7 +259,6 @@ function EstudioContent() {
     }
   }, [])
 
-  // 3 topic suggestions for the current week of the selected course.
   const weekTopics = useMemo(
     () =>
       pickWeekTopics(
@@ -209,25 +269,24 @@ function EstudioContent() {
     [courseEvents, plan],
   )
 
-  // The single most relevant mode for the current course (drives the "Sugerido" badge).
   const suggestion = useMemo(
     () => pickStudySuggestion(courseEvents, plan?.today, weekTopics.length > 0),
     [courseEvents, plan, weekTopics],
   )
 
-  // Difficulty / topic are instant selections; they apply when a mode launches.
   const applyDifficulty = (d: StudyDifficulty) => setDifficulty(d)
   const applyTopic = (t: string | null) => setTopic(t)
 
   // Launch a mode, regenerating the set for the chosen difficulty/topic if needed.
   const launchMode = async (m: Mode) => {
-    // The mind map lives on its own page now — redirect there with the course.
-    if (m === "mind") {
-      if (courseId) router.push(`/mapa?course=${courseId}`)
+    // The mind map has its own page, but only single PDFs have a stored graph.
+    // Whole-course renders the aggregated mindmap inline instead.
+    if (m === "mind" && scope?.kind === "doc") {
+      router.push(`/mapa?course=${scope.docId}`)
       return
     }
-    if (courseId && loadedKey !== paramKey(difficulty, topic)) {
-      await loadSet(courseId, { difficulty, topic })
+    if (scope && loadedKey !== scopeKey(scope, difficulty, topic)) {
+      await loadSet(scope, { difficulty, topic })
     }
     setMode(m)
   }
@@ -235,45 +294,17 @@ function EstudioContent() {
   // Honor ?mode= deep links once a set is available.
   useEffect(() => {
     const m = params.get("mode") as Mode | null
-    if (m === "mind") {
-      if (courseId) router.push(`/mapa?course=${courseId}`)
+    if (m === "mind" && scope?.kind === "doc") {
+      router.push(`/mapa?course=${scope.docId}`)
       return
     }
-    if (m && set && ["flash", "repaso", "quiz", "simulacro", "resumen"].includes(m)) {
+    if (m && set && ["flash", "repaso", "quiz", "simulacro", "resumen", "mind"].includes(m)) {
       setMode(m)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [set])
 
-  const pickCourse = (id: string) => {
-    setCourseId(id)
-    setMode("menu")
-    setDifficulty("medio")
-    setTopic(null)
-  }
   const backToMenu = () => setMode("menu")
-
-  // ----- course rename (reference/id unchanged) -----
-  const startRename = (c: SyllabusUploadAPI) => {
-    setRenamingId(c.id)
-    setRenameValue(c.original_filename.replace(/\.pdf$/i, ""))
-  }
-  const commitRename = async (id: string) => {
-    const name = renameValue.trim()
-    if (!name) return
-    setSavingRename(true)
-    try {
-      const { upload } = await renameDocument(id, name)
-      setCourses((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, original_filename: upload.original_filename } : c)),
-      )
-      setRenamingId(null)
-    } catch {
-      toast.error("No se pudo renombrar el curso.")
-    } finally {
-      setSavingRename(false)
-    }
-  }
 
   // ---------- gates ----------
   if (ready && (status === "anonymous" || status === "guest")) {
@@ -294,105 +325,70 @@ function EstudioContent() {
         <div className="mx-auto max-w-4xl">
           {coursesLoading ? (
             <CenterSpinner />
-          ) : readyCourses.length === 0 ? (
+          ) : groups.length === 0 ? (
             <EmptyCourses />
           ) : (
             <>
-              {/* Course picker — always visible; double-click (or pencil) to rename */}
+              {/* ── Course folders (horizontal) ── */}
               <div className="flex flex-wrap gap-2.5">
-                {readyCourses.map((c) => {
-                  const active = c.id === courseId
-                  if (renamingId === c.id) {
-                    return (
-                      <div
-                        key={c.id}
-                        className="flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/5 px-1.5 py-1"
-                      >
-                        <Input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") commitRename(c.id)
-                            else if (e.key === "Escape") setRenamingId(null)
-                          }}
-                          className="h-7 w-44 text-sm"
-                        />
-                        <Button
-                          size="icon-sm"
-                          variant="accent"
-                          disabled={savingRename || !renameValue.trim()}
-                          onClick={() => commitRename(c.id)}
-                          aria-label="Guardar nombre"
-                        >
-                          {savingRename ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Check className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          onClick={() => setRenamingId(null)}
-                          aria-label="Cancelar"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    )
-                  }
+                {groups.map((g) => {
+                  const active = g.id === groupId
+                  const count = g.docs.filter(isReady).length
                   return (
-                    <div key={c.id} className="group relative">
-                      <Button
-                        variant={active ? "secondary" : "outline"}
-                        onClick={() => pickCourse(c.id)}
-                        onDoubleClick={() => startRename(c)}
-                        className={
-                          active
-                            ? "border-accent/40 bg-accent/10 pr-8 text-foreground"
-                            : "text-muted-foreground"
-                        }
-                        title="Doble-click para renombrar"
-                      >
-                        {c.original_filename.replace(/\.pdf$/i, "")}
-                      </Button>
-                      {active && (
-                        <button
-                          onClick={() => startRename(c)}
-                          aria-label="Renombrar curso"
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
+                    <Button
+                      key={g.id ?? "sin-curso"}
+                      variant={active ? "secondary" : "outline"}
+                      onClick={() => setGroupId(g.id)}
+                      className={
+                        active
+                          ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
+                          : "gap-2 text-muted-foreground"
+                      }
+                    >
+                      <BookText
+                        className="h-4 w-4 text-accent"
+                        style={g.color ? { color: g.color } : undefined}
+                      />
+                      {g.name}
+                      <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </Button>
                   )
                 })}
               </div>
+
+              {/* ── Scope: Todo el curso / specific PDF (vertical) ── */}
+              {selectedGroup && (
+                <ScopePicker
+                  group={selectedGroup}
+                  readyDocs={readyDocs}
+                  canWholeCourse={canWholeCourse}
+                  scope={scope}
+                  onPickWhole={() =>
+                    selectedGroup.id && setScope({ kind: "course", courseId: selectedGroup.id })
+                  }
+                  onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
+                />
+              )}
 
               <div className="mt-6">
                 {setLoading ? (
                   <CenterSpinner label="Generando material de estudio…" />
                 ) : setError ? (
-                  <SetError message={setError} onRetry={() => courseId && loadSet(courseId)} />
-                ) : set && current ? (
+                  <SetError message={setError} onRetry={() => scope && loadSet(scope)} />
+                ) : set && scope ? (
                   <ModeRouter
                     mode={mode}
                     set={set}
-                    courseId={current.id}
-                    courseCode={currentCode}
-                    courseName={cleanName(current.original_filename)}
+                    scope={scope}
+                    syllabusId={activeDocId}
+                    scopeLabel={scopeLabel}
                     mindCourses={mindCourses}
-                    onPickCourse={(id) => {
-                      // Switch course but stay in the mind-map view (unlike the top picker).
-                      setCourseId(id)
-                      setDifficulty("medio")
-                      setTopic(null)
-                    }}
+                    onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
                     regenerating={regenerating}
                     onRegenerate={() =>
-                      courseId && loadSet(courseId, { refresh: true, difficulty, topic })
+                      scope && loadSet(scope, { refresh: true, difficulty, topic })
                     }
                     setMode={setMode}
                     onLaunch={launchMode}
@@ -414,14 +410,103 @@ function EstudioContent() {
   )
 }
 
+/** Vertical scope list: "Todo el curso" (when available) + each ready PDF. */
+function ScopePicker({
+  group,
+  readyDocs,
+  canWholeCourse,
+  scope,
+  onPickWhole,
+  onPickDoc,
+}: {
+  group: RealCourseGroup
+  readyDocs: SyllabusUploadAPI[]
+  canWholeCourse: boolean
+  scope: Scope | null
+  onPickWhole: () => void
+  onPickDoc: (id: string) => void
+}) {
+  const wholeActive = scope?.kind === "course"
+  return (
+    <div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-card/40">
+      <div className="flex items-center gap-1.5 border-b border-border/60 px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+        <FolderOpen className="h-3.5 w-3.5" /> Alcance · {group.name}
+      </div>
+      <ul className="divide-y divide-border/40">
+        {canWholeCourse && (
+          <ScopeRow
+            active={wholeActive}
+            onClick={onPickWhole}
+            icon={<Layers className="h-4 w-4 text-accent" />}
+            label="Todo el curso"
+            meta={`${readyDocs.length} ${readyDocs.length === 1 ? "PDF" : "PDFs"} · preguntas que cruzan temas`}
+          />
+        )}
+        {readyDocs.map((d) => (
+          <ScopeRow
+            key={d.id}
+            active={scope?.kind === "doc" && scope.docId === d.id}
+            onClick={() => onPickDoc(d.id)}
+            icon={<FileText className="h-4 w-4 text-accent/70" />}
+            label={cleanName(d.original_filename)}
+            meta="PDF específico"
+          />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function ScopeRow({
+  active,
+  onClick,
+  icon,
+  label,
+  meta,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+  meta: string
+}) {
+  return (
+    <li>
+      <button
+        onClick={onClick}
+        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+          active ? "bg-accent/10" : "hover:bg-secondary/50"
+        }`}
+      >
+        <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+            active ? "border-accent" : "border-border"
+          }`}
+        >
+          {active && <span className="h-2 w-2 rounded-full bg-accent" />}
+        </span>
+        {icon}
+        <span className="min-w-0 flex-1">
+          <span
+            className={`block truncate text-sm ${active ? "font-semibold text-foreground" : ""}`}
+          >
+            {label}
+          </span>
+          <span className="block text-[11px] text-muted-foreground">{meta}</span>
+        </span>
+      </button>
+    </li>
+  )
+}
+
 function ModeRouter({
   mode,
   set,
-  courseId,
-  courseCode,
-  courseName,
+  scope,
+  syllabusId,
+  scopeLabel,
   mindCourses,
-  onPickCourse,
+  onPickDoc,
   regenerating,
   onRegenerate,
   setMode,
@@ -436,11 +521,12 @@ function ModeRouter({
 }: {
   mode: Mode
   set: StudySetAPI
-  courseId: string
-  courseCode: string
-  courseName: string
+  scope: Scope
+  /** The PDF id when scope is a single doc; null for whole-course (no per-doc tracking). */
+  syllabusId: string | null
+  scopeLabel: string
   mindCourses: MindCourse[]
-  onPickCourse: (id: string) => void
+  onPickDoc: (id: string) => void
   regenerating: boolean
   onRegenerate: () => void
   setMode: (m: Mode) => void
@@ -458,29 +544,29 @@ function ModeRouter({
       return (
         <FlashcardsView
           title="Tarjetas dinámicas"
-          courseLabel={courseName}
+          courseLabel={scopeLabel}
           cards={set.flashcards}
           onBack={backToMenu}
-          syllabusId={courseId}
+          syllabusId={syllabusId ?? undefined}
         />
       )
     case "repaso":
       return (
         <FlashcardsView
           title="Modo repaso"
-          courseLabel={courseName}
+          courseLabel={scopeLabel}
           cards={set.flashcards}
           onBack={backToMenu}
-          syllabusId={courseId}
+          syllabusId={syllabusId ?? undefined}
         />
       )
     case "quiz":
       return (
         <QuizView
           title="Quiz dinámico"
-          courseLabel={courseName}
+          courseLabel={scopeLabel}
           questions={set.quiz}
-          syllabusId={courseId}
+          syllabusId={syllabusId ?? undefined}
           onBack={backToMenu}
         />
       )
@@ -488,21 +574,21 @@ function ModeRouter({
       return (
         <QuizView
           title="Simulacro · Prueba corta"
-          courseLabel={courseName}
+          courseLabel={scopeLabel}
           questions={set.quiz}
-          syllabusId={courseId}
+          syllabusId={syllabusId ?? undefined}
           onBack={backToMenu}
         />
       )
     case "mind":
       return (
         <MindView
-          courseCode={courseCode}
-          courseLabel={courseName}
+          courseCode=""
+          courseLabel={scopeLabel}
           mindmap={set.mindmap}
-          courses={mindCourses}
-          activeCourseId={courseId}
-          onPickCourse={onPickCourse}
+          courses={scope.kind === "doc" ? mindCourses : []}
+          activeCourseId={syllabusId ?? ""}
+          onPickCourse={onPickDoc}
           regenerating={regenerating}
           onRegenerate={onRegenerate}
           onBack={backToMenu}
@@ -511,7 +597,7 @@ function ModeRouter({
     case "resumen":
       return (
         <ResumenView
-          courseName={courseName}
+          courseName={scopeLabel}
           summary={set.summary}
           studyGuide={set.studyGuide}
           regenerating={regenerating}
@@ -525,8 +611,9 @@ function ModeRouter({
       return (
         <Menu
           set={set}
-          courseId={courseId}
-          courseName={courseName}
+          syllabusId={syllabusId}
+          scopeLabel={scopeLabel}
+          wholeCourse={scope.kind === "course"}
           onLaunch={onLaunch}
           difficulty={difficulty}
           topic={topic}
@@ -601,8 +688,9 @@ const DIFFICULTIES: { key: StudyDifficulty; label: string; hint: string }[] = [
 
 function Menu({
   set,
-  courseId,
-  courseName,
+  syllabusId,
+  scopeLabel,
+  wholeCourse,
   onLaunch,
   difficulty,
   topic,
@@ -612,8 +700,9 @@ function Menu({
   onTopic,
 }: {
   set: StudySetAPI
-  courseId: string
-  courseName: string
+  syllabusId: string | null
+  scopeLabel: string
+  wholeCourse: boolean
   onLaunch: (m: Mode) => void
   difficulty: StudyDifficulty
   topic: string | null
@@ -625,8 +714,8 @@ function Menu({
   return (
     <div>
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-        Material de estudio generado dinámicamente desde el knowledge base del curso. Ajusta la
-        dificultad y, si quieres, enfócalo en un tema; luego elige un modo.
+        Material de estudio generado dinámicamente desde el knowledge base. Ajusta la dificultad y,
+        si quieres, enfócalo en un tema; luego elige un modo.
       </p>
 
       <Card className="mt-5 flex-row items-center gap-3 p-3.5">
@@ -635,7 +724,7 @@ function Menu({
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm text-foreground">
-            <b>{courseName}</b> · carpeta de knowledge propia
+            <b>{scopeLabel}</b> · {wholeCourse ? "todo el curso" : "PDF específico"}
           </div>
         </div>
         <Badge variant="accent" className="flex-none">
@@ -679,7 +768,7 @@ function Menu({
           </div>
           <p className="mb-2 text-[11px] text-muted-foreground/80">
             Escribe en qué enfocar el material (un tema o una instrucción), o déjalo en blanco para
-            todo el curso.
+            todo el alcance.
           </p>
           <div className="relative">
             <Textarea
@@ -705,7 +794,8 @@ function Menu({
         </div>
       </div>
 
-      <MasteryPanel syllabusId={courseId} />
+      {/* Mastery is tracked per PDF; only show it for a single-document scope. */}
+      {syllabusId && <MasteryPanel syllabusId={syllabusId} />}
 
       <div className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
         {MODES.map((m) => {

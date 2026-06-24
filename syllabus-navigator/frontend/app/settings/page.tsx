@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { MobileNav } from "@/components/navigator/mobile-nav"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card } from "@/components/ui/card"
@@ -71,9 +72,10 @@ export default function SettingsPage() {
 
   return (
     <div className="flex h-dvh w-full flex-col bg-background text-foreground overflow-y-auto">
-      <header className="sticky top-0 z-10 border-b border-border bg-background/80 px-6 py-4 backdrop-blur-md">
+      <header className="sticky top-0 z-10 border-b border-border bg-background/80 px-4 py-4 backdrop-blur-md sm:px-6">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            <MobileNav />
             <Button variant="ghost" size="sm" asChild className="text-muted-foreground">
               <Link href="/">← Back to Chat</Link>
             </Button>
@@ -82,7 +84,7 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 pb-12">
+      <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 p-4 pb-12 sm:p-6">
         {/* Profile Section */}
         <section className="flex flex-col gap-4">
           <h2 className="text-lg font-medium border-b border-border pb-2">Profile</h2>

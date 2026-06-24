@@ -4,17 +4,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import { fetchStudyStats, type StudyStatsAPI } from "@/lib/api"
-import {
-  MessageSquare,
-  Library,
-  CalendarDays,
-  GraduationCap,
-  Network,
-  Compass,
-  PanelLeft,
-  Flame,
-  User as UserIcon,
-} from "lucide-react"
+import { Compass, PanelLeft, Flame, User as UserIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -27,24 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-
-interface NavItem {
-  icon: typeof MessageSquare
-  label: string
-  href: string
-  isNew?: boolean
-}
-
-const MAIN_NAV: NavItem[] = [
-  { icon: MessageSquare, label: "Asistente", href: "/" },
-  { icon: Library, label: "Cursos", href: "/knowledge" },
-  { icon: CalendarDays, label: "Agenda", href: "/agenda" },
-]
-
-const STUDY_NAV: NavItem[] = [
-  { icon: GraduationCap, label: "Área de Estudio", href: "/estudio", isNew: true },
-  { icon: Network, label: "Mapa mental", href: "/mapa", isNew: true },
-]
+import { MAIN_NAV, STUDY_NAV, type NavItem } from "@/components/navigator/nav-items"
 
 export function AppSidebar() {
   const pathname = usePathname()

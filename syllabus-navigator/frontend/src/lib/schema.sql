@@ -363,3 +363,13 @@ CREATE TABLE IF NOT EXISTS course_suggestions (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_course_suggestions_doc ON course_suggestions(document_id);
+
+-- Cached WHOLE-COURSE study set: aggregates the chunks of every PDF in a course
+-- into one set. Keyed by course (vs study_sets, keyed per single syllabus).
+-- Regenerated on demand (?refresh=1). Cascades when the course is deleted.
+CREATE TABLE IF NOT EXISTS course_study_sets (
+  course_id    UUID PRIMARY KEY REFERENCES user_courses(id) ON DELETE CASCADE,
+  data         JSONB NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
