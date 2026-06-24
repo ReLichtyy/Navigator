@@ -96,7 +96,7 @@ export interface RateLimitResult {
  */
 export async function checkRateLimit(
   identifier: string,
-  tier: RateLimitTier
+  tier: RateLimitTier,
 ): Promise<RateLimitResult> {
   const limiter = limiters[tier]
   const key = `rl_${tier}_${identifier}`

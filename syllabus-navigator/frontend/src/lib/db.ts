@@ -9,7 +9,7 @@ const dbUrl = process.env.DATABASE_URL || "postgres://dummy:dummy@dummy/dummy"
 if (!process.env.DATABASE_URL) {
   console.warn(
     "⚠️ DATABASE_URL no está definida. Si estás en build, puedes ignorar esto. " +
-    "Asegúrate de configurarla en runtime."
+      "Asegúrate de configurarla en runtime.",
   )
 }
 

@@ -7,21 +7,25 @@ import { UserProvider } from "@/context/UserContext"
 import { SyllabusProvider } from "@/context/SyllabusContext"
 import { AuthModalProvider } from "@/context/AuthModalContext"
 
-export default function ClientProviders({ 
+export default function ClientProviders({
   children,
-  session 
-}: { 
+  session,
+}: {
   children: React.ReactNode
-  session?: Session | null 
+  session?: Session | null
 }) {
   return (
     <SessionProvider session={session}>
-      <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" enableSystem={false} disableTransitionOnChange>
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        forcedTheme="dark"
+        enableSystem={false}
+        disableTransitionOnChange
+      >
         <UserProvider>
           <SyllabusProvider>
-            <AuthModalProvider>
-              {children}
-            </AuthModalProvider>
+            <AuthModalProvider>{children}</AuthModalProvider>
           </SyllabusProvider>
         </UserProvider>
       </ThemeProvider>

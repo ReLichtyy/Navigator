@@ -4,10 +4,34 @@ import { useEffect, useState, useRef, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
-import { listSyllabi, uploadSyllabus, deleteSyllabus, fetchGraph, reprocessGraph, renameDocument } from "@/lib/api"
+import {
+  listSyllabi,
+  uploadSyllabus,
+  deleteSyllabus,
+  fetchGraph,
+  reprocessGraph,
+  renameDocument,
+} from "@/lib/api"
 import type { SyllabusUploadAPI, GraphResponseAPI } from "@/lib/api"
 import Link from "next/link"
-import { Search, Plus, FolderPlus, FileText, Loader2, Library, BookText, GraduationCap, MessageSquare, Trash2, Eye, Pencil, Check, RefreshCw, AlertTriangle, X } from "lucide-react"
+import {
+  Search,
+  Plus,
+  FolderPlus,
+  FileText,
+  Loader2,
+  Library,
+  BookText,
+  GraduationCap,
+  MessageSquare,
+  Trash2,
+  Eye,
+  Pencil,
+  Check,
+  RefreshCw,
+  AlertTriangle,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
 import { Button } from "@/components/ui/button"
@@ -32,7 +56,7 @@ import { groupByCourse } from "@/lib/ui/course-group"
 export default function KnowledgeBasePage() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
-  
+
   const [uploads, setUploads] = useState<SyllabusUploadAPI[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -45,7 +69,7 @@ export default function KnowledgeBasePage() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [isSavingRename, setIsSavingRename] = useState(false)
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   // BUG FIX #4: Use ref for interval to prevent stale closure race condition
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -64,7 +88,7 @@ export default function KnowledgeBasePage() {
       if (!silent) setLoading(true)
       const data = await listSyllabi()
       if (!isMountedRef.current) return
-      
+
       // Filter out any optimistic "uploading" rows before merging
       setUploads((prev) => {
         const optimistic = prev.filter((u) => (u as any)._optimistic)
@@ -79,7 +103,8 @@ export default function KnowledgeBasePage() {
 
       // BUG FIX #4: Use ref to manage interval, never create more than one
       const needsPolling = data.uploads.some(
-        (u) => u.status === "pending" || u.graph_status === "pending" || u.graph_status === "processing"
+        (u) =>
+          u.status === "pending" || u.graph_status === "pending" || u.graph_status === "processing",
       )
       if (needsPolling && !intervalRef.current) {
         intervalRef.current = setInterval(() => fetchUploads(true), 3000)
@@ -224,13 +249,18 @@ export default function KnowledgeBasePage() {
 
   const commitRename = async (id: string) => {
     const trimmed = renameValue.trim()
-    if (!trimmed) { setRenamingId(null); return }
-    
+    if (!trimmed) {
+      setRenamingId(null)
+      return
+    }
+
     const newName = trimmed.endsWith(".pdf") ? trimmed : `${trimmed}.pdf`
     setIsSavingRename(true)
     try {
       await renameDocument(id, newName)
-      setUploads((prev) => prev.map((u) => u.id === id ? { ...u, original_filename: newName } : u))
+      setUploads((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, original_filename: newName } : u)),
+      )
       toast.success("Document renamed.")
     } catch {
       toast.error("Failed to rename document.")
@@ -247,7 +277,8 @@ export default function KnowledgeBasePage() {
           <Library className="h-12 w-12 text-accent mb-4" />
           <h2 className="text-xl font-semibold mb-2">Knowledge Base</h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Sign in to create and manage your personal knowledge library. Upload documents to power your AI assistant.
+            Sign in to create and manage your personal knowledge library. Upload documents to power
+            your AI assistant.
           </p>
           <button
             onClick={() => openAuthModal("signup")}
@@ -261,7 +292,7 @@ export default function KnowledgeBasePage() {
   }
 
   const filteredUploads = uploads.filter((u) =>
-    u.original_filename.toLowerCase().includes(searchQuery.toLowerCase())
+    u.original_filename.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
   return (
@@ -277,12 +308,16 @@ export default function KnowledgeBasePage() {
             Añadir curso
           </Button>
           <Button onClick={handleUploadClick} disabled={isUploading} variant="accent" size="pill">
-            {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            {isUploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             {isUploading ? "Subiendo…" : "Añadir fuente"}
           </Button>
         </div>
-        <input 
-          type="file" 
+        <input
+          type="file"
           ref={fileInputRef}
           accept="application/pdf"
           className="hidden"
@@ -294,8 +329,8 @@ export default function KnowledgeBasePage() {
       <div className="flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-5xl">
           <p className="mb-5 max-w-2xl text-sm text-muted-foreground">
-            Cada curso tiene su propia carpeta de knowledge. Los modos de estudio se generan desde estos
-            documentos.
+            Cada curso tiene su propia carpeta de knowledge. Los modos de estudio se generan desde
+            estos documentos.
           </p>
 
           <div className="mb-6 flex items-center justify-between">
@@ -318,7 +353,11 @@ export default function KnowledgeBasePage() {
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-border/60 bg-card text-center p-6">
               <p className="text-destructive mb-2">{error}</p>
-              <Button variant="link" onClick={() => fetchUploads()} className="text-muted-foreground">
+              <Button
+                variant="link"
+                onClick={() => fetchUploads()}
+                className="text-muted-foreground"
+              >
                 Reintentar
               </Button>
             </div>
@@ -329,13 +368,17 @@ export default function KnowledgeBasePage() {
                 {searchQuery ? "No se encontraron cursos." : "Tu biblioteca está vacía."}
               </p>
               <p className="text-xs">
-                {searchQuery ? "Prueba otro término de búsqueda." : "Sube un PDF de sílabo para empezar."}
+                {searchQuery
+                  ? "Prueba otro término de búsqueda."
+                  : "Sube un PDF de sílabo para empezar."}
               </p>
             </div>
           ) : (
             <Accordion type="multiple" className="flex flex-col gap-3">
               {groupByCourse(filteredUploads).map((course) => {
-                const firstReady = course.docs.find((d) => d.status === "processed" && !(d as any)._optimistic)
+                const firstReady = course.docs.find(
+                  (d) => d.status === "processed" && !(d as any)._optimistic,
+                )
                 return (
                   <AccordionItem key={course.key} value={course.key} className="relative">
                     {firstReady && (
@@ -358,12 +401,17 @@ export default function KnowledgeBasePage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           {course.code && (
-                            <Badge variant="accent" className="font-mono text-[10px]">{course.code}</Badge>
+                            <Badge variant="accent" className="font-mono text-[10px]">
+                              {course.code}
+                            </Badge>
                           )}
-                          <span className="truncate font-semibold text-foreground">{course.name}</span>
+                          <span className="truncate font-semibold text-foreground">
+                            {course.name}
+                          </span>
                         </div>
                         <span className="text-xs text-muted-foreground">
-                          {course.docs.length} {course.docs.length === 1 ? "documento" : "documentos"} · clic para ver
+                          {course.docs.length}{" "}
+                          {course.docs.length === 1 ? "documento" : "documentos"} · clic para ver
                         </span>
                       </div>
                     </AccordionTrigger>
@@ -374,7 +422,10 @@ export default function KnowledgeBasePage() {
                           const sv = getDocStatus(doc as any)
                           const optimistic = !!(doc as any)._optimistic
                           return (
-                            <li key={doc.id} className="group flex items-center gap-3 px-4 py-2.5 text-sm">
+                            <li
+                              key={doc.id}
+                              className="group flex items-center gap-3 px-4 py-2.5 text-sm"
+                            >
                               {renamingId === doc.id ? (
                                 <div className="flex flex-1 items-center gap-2">
                                   <Input
@@ -387,17 +438,36 @@ export default function KnowledgeBasePage() {
                                     }}
                                     className="h-8 flex-1"
                                   />
-                                  <Button size="icon-sm" variant="ghost" onClick={() => commitRename(doc.id)} disabled={isSavingRename} className="text-accent" title="Guardar">
-                                    {isSavingRename ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                  <Button
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    onClick={() => commitRename(doc.id)}
+                                    disabled={isSavingRename}
+                                    className="text-accent"
+                                    title="Guardar"
+                                  >
+                                    {isSavingRename ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Check className="h-3.5 w-3.5" />
+                                    )}
                                   </Button>
-                                  <Button size="icon-sm" variant="ghost" onClick={() => setRenamingId(null)} title="Cancelar">
+                                  <Button
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    onClick={() => setRenamingId(null)}
+                                    title="Cancelar"
+                                  >
                                     <X className="h-3.5 w-3.5" />
                                   </Button>
                                 </div>
                               ) : (
                                 <>
                                   <FileText className="h-4 w-4 shrink-0 text-accent/70" />
-                                  <span className="min-w-0 flex-1 truncate" title={doc.original_filename}>
+                                  <span
+                                    className="min-w-0 flex-1 truncate"
+                                    title={doc.original_filename}
+                                  >
                                     {doc.original_filename}
                                   </span>
                                   <Button
@@ -413,21 +483,51 @@ export default function KnowledgeBasePage() {
                                     {new Date(doc.created_at).toLocaleDateString()}
                                   </span>
                                   <Badge variant={sv.tone} title={sv.tooltip} className="shrink-0">
-                                    {(sv.tone === "error" || sv.tone === "warn") && <AlertTriangle className="h-3 w-3" />}
+                                    {(sv.tone === "error" || sv.tone === "warn") && (
+                                      <AlertTriangle className="h-3 w-3" />
+                                    )}
                                     {sv.label}
                                   </Badge>
                                   {sv.canReprocess && (
-                                    <Button size="icon-sm" variant="ghost" onClick={() => handleReprocessRow(doc.id)} disabled={reprocessingId === doc.id} className="text-muted-foreground" title="Reprocesar">
-                                      <RefreshCw className={`h-3.5 w-3.5 ${reprocessingId === doc.id ? "animate-spin" : ""}`} />
+                                    <Button
+                                      size="icon-sm"
+                                      variant="ghost"
+                                      onClick={() => handleReprocessRow(doc.id)}
+                                      disabled={reprocessingId === doc.id}
+                                      className="text-muted-foreground"
+                                      title="Reprocesar"
+                                    >
+                                      <RefreshCw
+                                        className={`h-3.5 w-3.5 ${reprocessingId === doc.id ? "animate-spin" : ""}`}
+                                      />
                                     </Button>
                                   )}
-                                  <Button size="icon-sm" variant="ghost" onClick={() => handlePreview(doc.id, doc.original_filename)} disabled={optimistic} title="Vista previa del grafo">
+                                  <Button
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    onClick={() => handlePreview(doc.id, doc.original_filename)}
+                                    disabled={optimistic}
+                                    title="Vista previa del grafo"
+                                  >
                                     <Eye className="h-3.5 w-3.5 text-muted-foreground" />
                                   </Button>
-                                  <Button size="icon-sm" variant="ghost" onClick={() => handleChat(doc.id, doc.original_filename)} disabled={optimistic} title="Chatear">
+                                  <Button
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    onClick={() => handleChat(doc.id, doc.original_filename)}
+                                    disabled={optimistic}
+                                    title="Chatear"
+                                  >
                                     <MessageSquare className="h-3.5 w-3.5 text-accent" />
                                   </Button>
-                                  <Button size="icon-sm" variant="ghost" onClick={() => handleDelete(doc.id, doc.original_filename)} disabled={optimistic} className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Eliminar">
+                                  <Button
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    onClick={() => handleDelete(doc.id, doc.original_filename)}
+                                    disabled={optimistic}
+                                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    title="Eliminar"
+                                  >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
                                 </>
@@ -448,7 +548,12 @@ export default function KnowledgeBasePage() {
       {/* Graph Preview Dialog */}
       <Dialog
         open={!!previewDoc}
-        onOpenChange={(open) => { if (!open) { setPreviewDoc(null); setPreviewGraph(null) } }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewDoc(null)
+            setPreviewGraph(null)
+          }
+        }}
       >
         <DialogContent className="flex h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
@@ -474,7 +579,10 @@ export default function KnowledgeBasePage() {
                     prev
                       ? {
                           ...prev,
-                          nodes: g.nodes.map((n) => ({ ...n, weight_percent: n.weight_percent ?? 0 })),
+                          nodes: g.nodes.map((n) => ({
+                            ...n,
+                            weight_percent: n.weight_percent ?? 0,
+                          })),
                           edges: g.edges,
                         }
                       : prev,

@@ -85,12 +85,8 @@ export default function SignupPage() {
     <div className="flex flex-col gap-6">
       {/* Logo */}
       <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Navigator
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Create your account
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Navigator</h1>
+        <p className="text-sm text-muted-foreground">Create your account</p>
       </div>
 
       {/* Form */}
@@ -143,7 +139,12 @@ export default function SignupPage() {
           />
         </div>
 
-        <Button type="submit" variant="accent" disabled={loading || isGuestLoading} className="w-full">
+        <Button
+          type="submit"
+          variant="accent"
+          disabled={loading || isGuestLoading}
+          className="w-full"
+        >
           {loading ? "Creating account..." : "Create account"}
         </Button>
       </form>
@@ -155,7 +156,11 @@ export default function SignupPage() {
         </div>
       </div>
 
-      <GoogleButton callbackUrl="/" label="Sign up with Google" disabled={loading || isGuestLoading} />
+      <GoogleButton
+        callbackUrl="/"
+        label="Sign up with Google"
+        disabled={loading || isGuestLoading}
+      />
 
       <Button
         type="button"

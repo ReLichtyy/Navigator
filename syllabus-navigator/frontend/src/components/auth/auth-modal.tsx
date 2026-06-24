@@ -154,7 +154,7 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* We use a glassmorphic content style */}
-      <DialogContent 
+      <DialogContent
         className="max-w-md border border-border/40 bg-card/60 p-8 shadow-2xl backdrop-blur-xl sm:p-10"
         showCloseButton={view !== "welcome"} // Welcome hides close if we want it to be more prominent, but actually Radix allows clicking outside anyway.
       >
@@ -162,13 +162,13 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent/10">
             <h1 className="text-2xl font-bold tracking-tighter text-accent">N</h1>
           </div>
-          
+
           <DialogTitle className="mt-2 text-2xl font-semibold tracking-tight text-foreground">
             {view === "welcome" && "Welcome to Navigator"}
             {view === "login" && "Welcome back"}
             {view === "signup" && "Create an account"}
           </DialogTitle>
-          
+
           <DialogDescription className="text-sm text-muted-foreground">
             {view === "welcome" && "Sign in or explore as a guest to get started."}
             {view === "login" && "Sign in to your account."}
@@ -195,7 +195,7 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
               >
                 {isGuestLoading ? "Configurando..." : "Probar Navigator"}
               </button>
-              
+
               <button
                 type="button"
                 onClick={() => setView("login")}
@@ -247,7 +247,11 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
 
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 Don&apos;t have an account?{" "}
-                <button type="button" onClick={() => setView("signup")} className="font-semibold text-accent hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setView("signup")}
+                  className="font-semibold text-accent hover:underline"
+                >
                   Sign up
                 </button>
               </p>
@@ -302,7 +306,11 @@ export function AuthModal({ open, onOpenChange, initialView = "welcome" }: AuthM
 
               <p className="mt-4 text-center text-sm text-muted-foreground">
                 Already have an account?{" "}
-                <button type="button" onClick={() => setView("login")} className="font-semibold text-accent hover:underline">
+                <button
+                  type="button"
+                  onClick={() => setView("login")}
+                  className="font-semibold text-accent hover:underline"
+                >
                   Sign in
                 </button>
               </p>

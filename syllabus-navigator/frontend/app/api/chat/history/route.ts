@@ -20,7 +20,9 @@ export async function GET() {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })
     }
-    logError("api.chat.history.list_error", { error: err instanceof Error ? err.message : String(err) })
+    logError("api.chat.history.list_error", {
+      error: err instanceof Error ? err.message : String(err),
+    })
     return NextResponse.json({ error: "Failed to load chats." }, { status: 500 })
   }
 }
@@ -28,14 +30,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const { userId, role } = await requireAuth()
-    
+
     // Validate request
     const body = await request.json().catch(() => ({}))
     const parsedBody = CreateChatSchema.safeParse(body)
     if (!parsedBody.success) {
       return NextResponse.json({ error: parsedBody.error.issues[0].message }, { status: 400 })
     }
-    
+
     const syllabusId = parsedBody.data.syllabus_id || null
 
     await requireRateLimit(userId, role)
@@ -45,15 +47,18 @@ export async function POST(request: Request) {
       if (totalChats >= 3) {
         logInfo("api.chat.history.guest_limit_reached", { userId })
         return NextResponse.json(
-          { error: "Guest limit reached", details: "Guest sessions are limited to 3 chats. Please create an account to continue." },
-          { status: 403 }
+          {
+            error: "Guest limit reached",
+            details: "Guest sessions are limited to 3 chats. Please create an account to continue.",
+          },
+          { status: 403 },
         )
       }
     }
 
     const chat = await ChatRepository.createChat(userId, syllabusId)
     await invalidatePrefix(`chats:list:${userId}`)
-    
+
     logInfo("api.chat.history.created", { userId, chatId: chat.id })
 
     return NextResponse.json(chat)
@@ -61,7 +66,9 @@ export async function POST(request: Request) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })
     }
-    logError("api.chat.history.create_error", { error: err instanceof Error ? err.message : String(err) })
+    logError("api.chat.history.create_error", {
+      error: err instanceof Error ? err.message : String(err),
+    })
     return NextResponse.json({ error: "Failed to create chat." }, { status: 500 })
   }
 }

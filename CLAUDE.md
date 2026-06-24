@@ -16,26 +16,19 @@ PROYECTO/
   NEXT_STEPS.md        ← diagnostic + fixes + deploy plan (changing state)
   README.md
   syllabus-navigator/
-    frontend/          ← Next.js 14 FULL-STACK app — THIS IS THE LIVE APP
-    backend/           ← FastAPI RAG service — LEGACY / REFERENCE, NOT WIRED (see below)
-    docker/            ← docker-compose for local all-in-one (postgres + chroma + both apps)
-    docs/              ← older Spanish deployment/integration notes
-    scripts/           ← bulk_ingest.py (backend tooling)
+    frontend/          ← Next.js 14 FULL-STACK app — THIS IS THE WHOLE APP
+    docs/              ← cursor-playbook.md (Notion-linked product roadmap)
 ```
 
 ## ⚠️ The single most important fact
 
-There are **two backends**, but only one is live:
+**Everything lives in `frontend/` — one full-stack Next.js app, one deploy (Vercel).**
 
-- **`frontend/`** evolved into a full-stack Next.js app. `src/lib/api.ts` calls `"/api"`
-  (its **own internal** App Router routes). This is what gets deployed (Vercel). The **RAG +
-  graph pipeline now lives here in TypeScript** (chunks+pgvector, async worker, retrieval,
-  graph-gen, schedule extraction, study OS). The architecture decision is closed: **all in
-  Next.js**; FastAPI is not a runtime dependency.
-- **`backend/`** (FastAPI + Chroma) holds the *original* RAG/graph logic in Python. The frontend
-  **no longer calls it** and the TS port superseded it. Treat it as reference/history only.
-
-Do not assume the FastAPI backend is involved in a request unless a route explicitly fetches it.
+`src/lib/api.ts` calls `"/api"` (its **own internal** App Router routes). The **RAG + graph
+pipeline lives here in TypeScript** (chunks+pgvector, async worker via `jobs`, retrieval,
+graph-gen, schedule extraction, study OS). There is no separate backend service: an earlier
+FastAPI + Chroma prototype was ported to TS and **deleted** (2026-06-23 — recoverable from git
+history). Don't look for a Python runtime dependency; there isn't one.
 
 ---
 
@@ -64,7 +57,7 @@ Cross-cutting helpers used by services:
 | Guardrails | `lib/guardrails/` | `validateInput` / `validateOutput` |
 | Usage metering | `lib/metering/` | `recordUsage` → `usage_records` table |
 | Observability | `lib/observability/` | `logger`, `timing` (`timed`), `trace` |
-| Prompts | `lib/prompts/` | `getPrompt("chat:general" | "chat:title-gen", vars)` |
+| Prompts | `lib/prompts/` | `getPrompt("chat:general" | "chat:title-gen", vars)`. Chat persona = **student mentor** (also `GROUNDED_SYSTEM_PROMPT` in `retrieval.service.ts` for the RAG path). |
 | Rate limit | `lib/rate-limit/` | Upstash ratelimit (falls back when unconfigured) |
 | Auth | `lib/auth/` | `auth.ts`, `auth.config.ts` (NextAuth 5), `rbac.ts` (roles/tiers) |
 
@@ -141,28 +134,24 @@ Cross-cutting helpers used by services:
 | Styling | Tailwind CSS 4, shadcn/ui (`@base-ui` / Radix), `lucide-react`, `sonner` |
 | Forms / validation | `react-hook-form` + `zod` |
 | Markdown / math | `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex` |
-
-Backend (legacy): FastAPI, SQLAlchemy, `psycopg`, ChromaDB, `pymupdf`, OpenAI.
+| PDF parse | `unpdf` (text extraction, in-process — no native deps) |
+| Tooling | Prettier + ESLint (`next/core-web-vitals`) + `knip` (dead-code); Vitest |
 
 ---
 
 ## Commands
 
 ```bash
-# Frontend (the live app) — run from syllabus-navigator/frontend
+# All from syllabus-navigator/frontend — there is only one app
 npm run dev            # dev server on :3000
 npm run build          # production build (Vercel uses `vercel-build` = next build)
 npm start              # serve production build
 npm run db:migrate     # apply src/lib/schema.sql to Neon (idempotent; re-run after schema pulls)
 npm run db:users       # list users (debug)
 npm test               # Vitest (tests/*, alias @→src; mocks auth+DB, no live services)
-
-# Backend (legacy/reference) — run from syllabus-navigator/backend
-uvicorn main:app --reload      # FastAPI on :8000, docs at /docs
-pytest                         # backend tests
-
-# Everything local via Docker (postgres + chroma + both apps)
-docker compose -f syllabus-navigator/docker/docker-compose.yml up --build
+npm run lint           # ESLint (next/core-web-vitals)
+npm run format         # Prettier --write (format:check to verify only)
+npm run knip           # report unused files/exports/deps (review, don't blind-delete)
 ```
 
 ## Environment variables (`frontend/.env.local`)
@@ -199,5 +188,5 @@ docker compose -f syllabus-navigator/docker/docker-compose.yml up --build
 
 ## Deployment (summary — full plan in `NEXT_STEPS.md`)
 
-- **Frontend → Vercel.** Root Directory = `syllabus-navigator/frontend`. Needs Neon + (optional) Upstash + OpenAI key.
-- The FastAPI backend is **not** part of the Vercel deploy.
+- **Single Next.js app → Vercel.** Root Directory = `syllabus-navigator/frontend`. Needs Neon +
+  (optional) Upstash + OpenAI key. No other service to deploy.

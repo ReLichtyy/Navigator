@@ -17,7 +17,13 @@ import { Markdown } from "@/components/ui/markdown"
 const ASSESSMENT_RE = /\b(prueba|examen|qu[ií]z|simulacro|evaluaci[oó]n|parcial|test|corta)\b/i
 
 /** Contextual suggestion: when the latest answer talks about an assessment, link to its simulacro. */
-function SimulacroSuggestion({ assessment, syllabusId }: { assessment: UpcomingAssessmentAPI; syllabusId: string }) {
+function SimulacroSuggestion({
+  assessment,
+  syllabusId,
+}: {
+  assessment: UpcomingAssessmentAPI
+  syllabusId: string
+}) {
   return (
     <div className="ml-9 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/[0.06] px-4 py-3">
       <div className="min-w-0">
@@ -25,7 +31,9 @@ function SimulacroSuggestion({ assessment, syllabusId }: { assessment: UpcomingA
           ¿Quieres preparar {assessment.title}
           {assessment.course_name ? ` de ${assessment.course_name}` : ""}?
         </div>
-        <div className="text-[11px] text-muted-foreground">Genera un simulacro con el material del curso.</div>
+        <div className="text-[11px] text-muted-foreground">
+          Genera un simulacro con el material del curso.
+        </div>
       </div>
       <Link
         href={`/estudio?course=${encodeURIComponent(syllabusId)}&mode=simulacro`}
@@ -60,12 +68,21 @@ const prompts = [
   },
 ]
 
-export function ChatThread({ messages, onPrompt }: { messages: Message[]; onPrompt?: (text: string) => void }) {
+export function ChatThread({
+  messages,
+  onPrompt,
+}: {
+  messages: Message[]
+  onPrompt?: (text: string) => void
+}) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Next upcoming assessment + its course (for the contextual simulacro suggestion).
-  const [nextAssessment, setNextAssessment] = useState<{ a: UpcomingAssessmentAPI; syllabusId: string } | null>(null)
+  const [nextAssessment, setNextAssessment] = useState<{
+    a: UpcomingAssessmentAPI
+    syllabusId: string
+  } | null>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
@@ -117,7 +134,9 @@ export function ChatThread({ messages, onPrompt }: { messages: Message[]; onProm
                   strokeWidth={2.25}
                 />
               </div>
-              <span className="text-[12px] leading-relaxed text-muted-foreground">{p.description}</span>
+              <span className="text-[12px] leading-relaxed text-muted-foreground">
+                {p.description}
+              </span>
             </button>
           ))}
         </div>
@@ -132,7 +151,10 @@ export function ChatThread({ messages, onPrompt }: { messages: Message[]; onProm
           <MessageBubble key={m.id} message={m} />
         ))}
         {showSuggestion && nextAssessment && (
-          <SimulacroSuggestion assessment={nextAssessment.a} syllabusId={nextAssessment.syllabusId} />
+          <SimulacroSuggestion
+            assessment={nextAssessment.a}
+            syllabusId={nextAssessment.syllabusId}
+          />
         )}
         <div ref={bottomRef} aria-hidden="true" />
       </div>
@@ -190,7 +212,9 @@ function MessageBubble({ message }: { message: Message }) {
             </div>
             {message.citations && message.citations.length > 0 && (
               <div className="mt-3 border-t border-border/60 pt-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">Sources</p>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
+                  Sources
+                </p>
                 <ul className="flex flex-col gap-1.5">
                   {message.citations.map((c, i) => (
                     <li
@@ -199,7 +223,9 @@ function MessageBubble({ message }: { message: Message }) {
                     >
                       <FileText className="h-3 w-3 shrink-0 mt-0.5 text-accent" />
                       <span>
-                        {c.page_start != null && <span className="font-medium">p.{c.page_start} · </span>}
+                        {c.page_start != null && (
+                          <span className="font-medium">p.{c.page_start} · </span>
+                        )}
                         &ldquo;{c.quote.length > 120 ? `${c.quote.slice(0, 120)}…` : c.quote}&rdquo;
                       </span>
                     </li>

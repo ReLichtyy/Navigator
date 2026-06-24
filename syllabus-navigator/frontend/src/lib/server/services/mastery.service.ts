@@ -4,7 +4,11 @@
  * per-topic / per-course confidence. Ownership enforced like StudyService.
  */
 import { DocumentRepository } from "../repositories/document.repo"
-import { MasteryRepository, type MasteryRow, type CourseMastery } from "../repositories/mastery.repo"
+import {
+  MasteryRepository,
+  type MasteryRow,
+  type CourseMastery,
+} from "../repositories/mastery.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 
 export const MasteryService = {

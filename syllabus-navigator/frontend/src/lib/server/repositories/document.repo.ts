@@ -65,7 +65,11 @@ export const DocumentRepository = {
   },
 
   /** Update ingestion status (called by the worker). */
-  async setStatus(syllabusId: string, status: string, errorMessage: string | null = null): Promise<void> {
+  async setStatus(
+    syllabusId: string,
+    status: string,
+    errorMessage: string | null = null,
+  ): Promise<void> {
     await sql`
       UPDATE syllabus_uploads
       SET status = ${status}, error_message = ${errorMessage}, updated_at = now()
@@ -74,7 +78,11 @@ export const DocumentRepository = {
   },
 
   /** Update graph generation status (called by the worker). */
-  async setGraphStatus(syllabusId: string, graphStatus: string, graphError: string | null = null): Promise<void> {
+  async setGraphStatus(
+    syllabusId: string,
+    graphStatus: string,
+    graphError: string | null = null,
+  ): Promise<void> {
     const isReady = graphStatus === "ready"
     await sql`
       UPDATE syllabus_uploads
@@ -85,7 +93,11 @@ export const DocumentRepository = {
     `
   },
 
-  async renameDocument(docId: string, userId: string, newName: string): Promise<DbDocument | undefined> {
+  async renameDocument(
+    docId: string,
+    userId: string,
+    newName: string,
+  ): Promise<DbDocument | undefined> {
     const rows = await sql`
       UPDATE syllabus_uploads
       SET original_filename = ${newName}
@@ -93,6 +105,5 @@ export const DocumentRepository = {
       RETURNING id, original_filename, status, graph_status
     `
     return rows[0] as DbDocument | undefined
-  }
+  },
 }
-

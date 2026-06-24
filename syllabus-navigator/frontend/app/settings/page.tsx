@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react"
 import { useUser } from "@/context/UserContext"
-import { getPreferences, getUsage, updatePreferences, UserPreferencesAPI, UsageSummaryAPI } from "@/lib/api"
+import {
+  getPreferences,
+  getUsage,
+  updatePreferences,
+  UserPreferencesAPI,
+  UsageSummaryAPI,
+} from "@/lib/api"
 import { toast } from "sonner"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -27,10 +33,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!ready) return
 
-    Promise.all([
-      getPreferences().catch(() => null),
-      getUsage().catch(() => null),
-    ])
+    Promise.all([getPreferences().catch(() => null), getUsage().catch(() => null)])
       .then(([prefData, usageData]) => {
         if (prefData?.preferences) setPreferences(prefData.preferences)
         if (usageData?.usage) setUsage(usageData.usage)
@@ -108,7 +111,9 @@ export default function SettingsPage() {
                     <SelectItem value="openrouter">OpenRouter</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Select the AI provider to use by default.</p>
+                <p className="text-xs text-muted-foreground">
+                  Select the AI provider to use by default.
+                </p>
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -161,7 +166,9 @@ export default function SettingsPage() {
               </Card>
               <Card className="gap-1 p-4">
                 <span className="text-xs text-muted-foreground">Tokens</span>
-                <span className="text-xl font-semibold">{(usage.totalTokens / 1000).toFixed(1)}k</span>
+                <span className="text-xl font-semibold">
+                  {(usage.totalTokens / 1000).toFixed(1)}k
+                </span>
               </Card>
               <Card className="gap-1 p-4">
                 <span className="text-xs text-muted-foreground">Est. Cost</span>

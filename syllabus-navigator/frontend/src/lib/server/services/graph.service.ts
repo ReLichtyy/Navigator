@@ -52,7 +52,9 @@ export const GraphService = {
 
     const ids = new Set(input.nodes.map((n) => n.id))
     // Drop edges that reference missing nodes (e.g. after a node deletion).
-    const edges = input.edges.filter((e) => ids.has(e.source) && ids.has(e.target) && e.source !== e.target)
+    const edges = input.edges.filter(
+      (e) => ids.has(e.source) && ids.has(e.target) && e.source !== e.target,
+    )
 
     const nodes = input.nodes.map((n) => ({
       externalId: n.id,
@@ -62,9 +64,19 @@ export const GraphService = {
     }))
 
     try {
-      validateNoCycles(nodes.map((n) => ({ id: n.externalId, label: n.label, weight: n.weight ?? 0, dependencies: n.dependencies })))
+      validateNoCycles(
+        nodes.map((n) => ({
+          id: n.externalId,
+          label: n.label,
+          weight: n.weight ?? 0,
+          dependencies: n.dependencies,
+        })),
+      )
     } catch {
-      throw new ApiErrorResponse("El grafo tiene un ciclo de prerrequisitos. Quita la dependencia circular.", 400)
+      throw new ApiErrorResponse(
+        "El grafo tiene un ciclo de prerrequisitos. Quita la dependencia circular.",
+        400,
+      )
     }
 
     await GraphRepository.replaceGraph(syllabusId, nodes)

@@ -48,10 +48,7 @@ async function _writeRecord(record: UsageRecord): Promise<void> {
 /**
  * Get aggregated usage for a user over a given period.
  */
-export async function getUserUsage(
-  userId: string,
-  periodDays = 30,
-): Promise<UsageSummary> {
+export async function getUserUsage(userId: string, periodDays = 30): Promise<UsageSummary> {
   const rows = await sql`
     SELECT
       model,
@@ -69,7 +66,12 @@ export async function getUserUsage(
   let totalTokens = 0
   let totalCostUsd = 0
 
-  for (const row of rows as { model: string; requests: number; tokens: number; cost_usd: string }[]) {
+  for (const row of rows as {
+    model: string
+    requests: number
+    tokens: number
+    cost_usd: string
+  }[]) {
     const costUsd = parseFloat(row.cost_usd)
     byModel[row.model] = {
       requests: row.requests,

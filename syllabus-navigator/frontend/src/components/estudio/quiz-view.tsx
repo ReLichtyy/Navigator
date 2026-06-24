@@ -70,7 +70,12 @@ export function QuizView({ title, courseLabel, questions, syllabusId, onBack }: 
   if (finished) {
     const pct = Math.round((score / total) * 100)
     const emoji = pct >= 80 ? "🏆" : pct >= 50 ? "💪" : "📚"
-    const heading = pct >= 80 ? "¡Excelente dominio!" : pct >= 50 ? "Vas por buen camino" : "A repasar un poco más"
+    const heading =
+      pct >= 80
+        ? "¡Excelente dominio!"
+        : pct >= 50
+          ? "Vas por buen camino"
+          : "A repasar un poco más"
     return (
       <div className="mx-auto max-w-2xl">
         <BackButton onBack={onBack} />
@@ -118,7 +123,10 @@ export function QuizView({ title, courseLabel, questions, syllabusId, onBack }: 
       </div>
 
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
-        <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full bg-accent transition-[width] duration-300"
+          style={{ width: `${pct}%` }}
+        />
       </div>
 
       <div className="mt-6 rounded-2xl border border-border bg-card p-6">
@@ -176,7 +184,9 @@ export function QuizView({ title, courseLabel, questions, syllabusId, onBack }: 
                 <div className={`text-sm font-bold ${correct ? "text-accent" : "text-foreground"}`}>
                   {correct ? "¡Correcto!" : "Para recordar"}
                 </div>
-                <div className="mt-1 text-sm leading-relaxed text-muted-foreground">{q.explanation}</div>
+                <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  {q.explanation}
+                </div>
               </div>
             </div>
             <div className="mt-4 flex justify-end">

@@ -1,10 +1,10 @@
-'use client'
+"use client"
 
-import * as React from 'react'
-import * as AccordionPrimitive from '@radix-ui/react-accordion'
-import { ChevronRight } from 'lucide-react'
+import * as React from "react"
+import * as AccordionPrimitive from "@radix-ui/react-accordion"
+import { ChevronRight } from "lucide-react"
 
-import { cn } from '@/lib/utils'
+import { cn } from "@/lib/utils"
 
 function Accordion(props: React.ComponentProps<typeof AccordionPrimitive.Root>) {
   return <AccordionPrimitive.Root data-slot="accordion" {...props} />
@@ -17,7 +17,7 @@ function AccordionItem({
   return (
     <AccordionPrimitive.Item
       data-slot="accordion-item"
-      className={cn('rounded-xl border border-border bg-card', className)}
+      className={cn("rounded-xl border border-border bg-card", className)}
       {...props}
     />
   )
@@ -33,8 +33,8 @@ function AccordionTrigger({
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
         className={cn(
-          'group flex flex-1 items-center gap-3 px-4 py-3.5 text-left text-sm font-medium outline-none transition-colors hover:bg-secondary/20 rounded-xl',
-          'focus-visible:ring-2 focus-visible:ring-accent/40',
+          "group flex flex-1 items-center gap-3 px-4 py-3.5 text-left text-sm font-medium outline-none transition-colors hover:bg-secondary/20 rounded-xl",
+          "focus-visible:ring-2 focus-visible:ring-accent/40",
           className,
         )}
         {...props}
@@ -57,7 +57,7 @@ function AccordionContent({
       className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down"
       {...props}
     >
-      <div className={cn('border-t border-border/60 px-4 py-3', className)}>{children}</div>
+      <div className={cn("border-t border-border/60 px-4 py-3", className)}>{children}</div>
     </AccordionPrimitive.Content>
   )
 }

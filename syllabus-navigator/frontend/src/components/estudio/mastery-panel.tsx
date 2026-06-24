@@ -45,13 +45,22 @@ export function MasteryPanel({ syllabusId }: { syllabusId: string }) {
           const b = band(t.confidence)
           return (
             <div key={t.topic_key} className="flex items-center gap-3">
-              <span className="w-40 flex-none truncate text-[13px] font-medium text-foreground" title={t.label}>
+              <span
+                className="w-40 flex-none truncate text-[13px] font-medium text-foreground"
+                title={t.label}
+              >
                 {t.label}
               </span>
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
-                <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${pct}%`, background: b.color }} />
+                <div
+                  className="h-full rounded-full transition-[width] duration-500"
+                  style={{ width: `${pct}%`, background: b.color }}
+                />
               </div>
-              <span className="w-24 flex-none text-right text-[11px] font-semibold" style={{ color: b.color }}>
+              <span
+                className="w-24 flex-none text-right text-[11px] font-semibold"
+                style={{ color: b.color }}
+              >
                 {pct}% · {b.label}
               </span>
             </div>

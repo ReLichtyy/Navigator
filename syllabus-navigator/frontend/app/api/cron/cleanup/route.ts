@@ -59,7 +59,7 @@ export async function GET(request: Request) {
         deleted_count: deletedCount,
         expired_uploads: expiredUploadsCount,
       },
-      { status: 200 }
+      { status: 200 },
     )
   } catch (error) {
     logError("cron.cleanup.error", { error: String(error) })

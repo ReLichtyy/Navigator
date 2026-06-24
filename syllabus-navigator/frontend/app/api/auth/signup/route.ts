@@ -23,17 +23,17 @@ export async function POST(request: Request) {
     if (!rl.success) {
       return NextResponse.json(
         { error: "Too many signups from this IP. Please try again later." },
-        { status: 429, headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() } }
+        {
+          status: 429,
+          headers: { "Retry-After": Math.ceil((rl.reset - Date.now()) / 1000).toString() },
+        },
       )
     }
 
     const body = await request.json().catch(() => null)
 
     if (!body || !body.email || !body.password) {
-      return NextResponse.json(
-        { error: "Email and password are required." },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Email and password are required." }, { status: 400 })
     }
 
     const email = String(body.email).toLowerCase().trim()
@@ -42,10 +42,7 @@ export async function POST(request: Request) {
 
     // Validate email format
     if (!EMAIL_REGEX.test(email)) {
-      return NextResponse.json(
-        { error: "Invalid email format." },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Invalid email format." }, { status: 400 })
     }
 
     // Validate password length

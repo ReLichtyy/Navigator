@@ -25,7 +25,7 @@ export function AuthModalProvider({ children }: { children: ReactNode }) {
     setView(newView)
     setIsOpen(true)
   }
-  
+
   const closeAuthModal = () => setIsOpen(false)
 
   return (

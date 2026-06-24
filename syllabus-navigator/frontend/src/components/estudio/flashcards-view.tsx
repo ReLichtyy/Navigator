@@ -42,7 +42,8 @@ export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }
   /** Self-grade the current card, record it, then advance. */
   const grade = useCallback(
     (known: boolean) => {
-      if (card && syllabusId) void recordFlashcardReview(syllabusId, card.front, known).catch(() => {})
+      if (card && syllabusId)
+        void recordFlashcardReview(syllabusId, card.front, known).catch(() => {})
       setGraded((g) => ({ ...g, [i]: known }))
       go(1)
     },
@@ -88,7 +89,9 @@ export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }
             <Check className="h-7 w-7 text-accent" />
           </div>
           <h2 className="text-xl font-bold tracking-tight">¡Sesión completa!</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Repasaste {Object.keys(graded).length} de {total} tarjetas.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Repasaste {Object.keys(graded).length} de {total} tarjetas.
+          </p>
           <div className="mt-5 flex justify-center gap-3">
             <span className="rounded-xl border border-accent/30 bg-accent/5 px-4 py-2 text-sm font-semibold text-accent">
               {knownCount} sabidas
@@ -124,7 +127,10 @@ export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }
       </div>
 
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
-        <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full bg-accent transition-[width] duration-300"
+          style={{ width: `${pct}%` }}
+        />
       </div>
 
       {/* Flip card (3D) */}
@@ -148,14 +154,18 @@ export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }
             <span className="absolute right-5 top-5 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
               <Eye className="h-3 w-3" /> clic para revelar
             </span>
-            <div className="max-w-2xl text-2xl font-bold leading-relaxed text-foreground">{card.front}</div>
+            <div className="max-w-2xl text-2xl font-bold leading-relaxed text-foreground">
+              {card.front}
+            </div>
           </div>
           {/* Back */}
           <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-accent/40 bg-accent/5 p-11 text-center [backface-visibility:hidden] [transform:rotateY(180deg)]">
             <span className="absolute left-5 top-5 text-[10.5px] font-bold uppercase tracking-widest text-accent/80">
               Respuesta
             </span>
-            <div className="max-w-2xl text-lg font-medium leading-relaxed text-foreground">{card.back}</div>
+            <div className="max-w-2xl text-lg font-medium leading-relaxed text-foreground">
+              {card.back}
+            </div>
           </div>
         </div>
       </div>

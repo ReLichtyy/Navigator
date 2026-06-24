@@ -19,7 +19,8 @@ async function parseError(res: Response): Promise<string> {
     const parsed = JSON.parse(errText)
     const detail = parsed.detail || parsed.error
     if (typeof detail === "string") return detail
-    if (Array.isArray(detail)) return detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join("; ")
+    if (Array.isArray(detail))
+      return detail.map((d: { msg?: string }) => d.msg ?? JSON.stringify(d)).join("; ")
     return errText || `Request failed (${res.status})`
   } catch {
     return errText || `Request failed (${res.status})`
@@ -32,10 +33,7 @@ function getHeaders(isJson = true): HeadersInit {
   return headers
 }
 
-async function request<T>(
-  path: string,
-  init: RequestInit & { json?: boolean } = {},
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit & { json?: boolean } = {}): Promise<T> {
   const { json = true, ...fetchInit } = init
   const res = await fetch(`${API_BASE}${path}`, {
     ...fetchInit,
@@ -45,7 +43,7 @@ async function request<T>(
     },
   })
   if (!res.ok) throw new ApiError(await parseError(res), res.status)
-  
+
   const contentType = res.headers.get("content-type")
   if (res.status === 204 || !contentType?.includes("application/json")) {
     return undefined as T
@@ -57,16 +55,23 @@ async function request<T>(
 // Types
 // ============================================================================
 
-import type { 
+import type {
   CitationAPI,
-  ChatOutAPI, 
-  ChatDetailAPI, 
-  MessageOutAPI, 
-  SyllabusUploadAPI, 
-  GraphResponseAPI 
+  ChatOutAPI,
+  ChatDetailAPI,
+  MessageOutAPI,
+  SyllabusUploadAPI,
+  GraphResponseAPI,
 } from "@/types/api"
 
-export type { CitationAPI, ChatOutAPI, ChatDetailAPI, MessageOutAPI, SyllabusUploadAPI, GraphResponseAPI }
+export type {
+  CitationAPI,
+  ChatOutAPI,
+  ChatDetailAPI,
+  MessageOutAPI,
+  SyllabusUploadAPI,
+  GraphResponseAPI,
+}
 
 export interface UserPreferencesAPI {
   defaultProvider: string
@@ -125,7 +130,10 @@ export interface ChatModelAPI {
 }
 
 export async function fetchChatModels() {
-  return request<{ models: ChatModelAPI[]; default: string }>("/chat/models", { method: "GET", json: false })
+  return request<{ models: ChatModelAPI[]; default: string }>("/chat/models", {
+    method: "GET",
+    json: false,
+  })
 }
 
 export interface StreamResult {
@@ -239,7 +247,10 @@ export async function renameDocument(id: string, name: string) {
 // ============================================================================
 
 export async function getPreferences() {
-  return request<{ preferences: UserPreferencesAPI }>("/user/preferences", { method: "GET", json: false })
+  return request<{ preferences: UserPreferencesAPI }>("/user/preferences", {
+    method: "GET",
+    json: false,
+  })
 }
 
 export async function updatePreferences(patch: Partial<UserPreferencesAPI>) {
@@ -260,10 +271,10 @@ export async function getUsage() {
 export async function submitFeedback(messageId: string, vote: "up" | "down", comment?: string) {
   return request<{ success: true }>("/feedback", {
     method: "POST",
-    body: JSON.stringify({ 
-      message_id: messageId, 
-      rating: vote === "up" ? 1 : -1, 
-      comment 
+    body: JSON.stringify({
+      message_id: messageId,
+      rating: vote === "up" ? 1 : -1,
+      comment,
     }),
   })
 }
@@ -486,7 +497,10 @@ export interface CourseMasteryAPI {
 }
 
 /** Record a batch of quiz outcomes against a course's topics (fire-and-forget). */
-export async function recordMastery(syllabusId: string, outcomes: { label: string; correct: boolean }[]) {
+export async function recordMastery(
+  syllabusId: string,
+  outcomes: { label: string; correct: boolean }[],
+) {
   return request<{ success: true }>(`/mastery`, {
     method: "POST",
     body: JSON.stringify({ syllabus_id: syllabusId, outcomes }),

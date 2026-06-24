@@ -18,7 +18,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ syllabu
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })
     }
-    logError("api.mastery.syllabus_get_error", { error: err instanceof Error ? err.message : String(err) })
+    logError("api.mastery.syllabus_get_error", {
+      error: err instanceof Error ? err.message : String(err),
+    })
     return NextResponse.json({ error: "Failed to load mastery." }, { status: 500 })
   }
 }

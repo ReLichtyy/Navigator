@@ -1,6 +1,16 @@
 "use client"
 
-import { Clock, MessageSquare, MoreHorizontal, Pencil, Plus, Search, Trash2, X, User as UserIcon } from "lucide-react"
+import {
+  Clock,
+  MessageSquare,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  X,
+  User as UserIcon,
+} from "lucide-react"
 import { useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import type { Chat } from "@/components/navigator/types"
@@ -73,7 +83,9 @@ export function HistorySidebar({
       aria-hidden={collapsed}
       className={cn(
         "h-full shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground",
-        embedded ? "flex w-full opacity-100" : "hidden transition-[width,opacity] duration-300 ease-in-out md:flex",
+        embedded
+          ? "flex w-full opacity-100"
+          : "hidden transition-[width,opacity] duration-300 ease-in-out md:flex",
         !embedded && (collapsed ? "w-0 opacity-0 pointer-events-none" : "w-72 opacity-100"),
       )}
     >
@@ -143,7 +155,9 @@ export function HistorySidebar({
             <p className="px-3 py-4 text-sm text-red-400">{error}</p>
           ) : filteredChats.length === 0 ? (
             <p className="px-3 py-4 text-sm text-muted-foreground">
-              {searchQuery ? "No chats match your search." : "No chats yet. Start a new conversation."}
+              {searchQuery
+                ? "No chats match your search."
+                : "No chats yet. Start a new conversation."}
             </p>
           ) : (
             <ul className="flex flex-col gap-0.5">
@@ -177,7 +191,9 @@ export function HistorySidebar({
                       <MessageSquare
                         className={cn(
                           "mt-0.5 h-3.5 w-3.5 shrink-0 transition-colors",
-                          isActive ? "text-accent" : "text-muted-foreground/70 group-hover:text-foreground",
+                          isActive
+                            ? "text-accent"
+                            : "text-muted-foreground/70 group-hover:text-foreground",
                         )}
                         strokeWidth={2.25}
                       />
@@ -265,8 +281,6 @@ export function HistorySidebar({
             </ul>
           )}
         </nav>
-
-
       </div>
     </aside>
   )

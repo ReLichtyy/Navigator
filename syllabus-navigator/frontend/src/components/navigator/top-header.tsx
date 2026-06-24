@@ -48,7 +48,12 @@ export function TopHeader({
 
       <div className="flex items-center gap-2">
         {status === "anonymous" ? (
-          <Button variant="ghost" size="sm" className="font-medium" onClick={() => openAuthModal("login")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="font-medium"
+            onClick={() => openAuthModal("login")}
+          >
             Sign In
           </Button>
         ) : (
@@ -61,10 +66,13 @@ export function TopHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-1.5 text-sm font-medium">
-                {status === "guest" ? "Guest User" : displayName ?? "User"}
+                {status === "guest" ? "Guest User" : (displayName ?? "User")}
               </div>
               {status === "guest" ? (
-                <DropdownMenuItem onClick={() => openAuthModal("signup")} className="cursor-pointer text-accent">
+                <DropdownMenuItem
+                  onClick={() => openAuthModal("signup")}
+                  className="cursor-pointer text-accent"
+                >
                   Create Account
                 </DropdownMenuItem>
               ) : null}

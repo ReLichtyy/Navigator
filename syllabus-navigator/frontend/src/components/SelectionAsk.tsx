@@ -63,7 +63,13 @@ export function SelectionAsk({ onAsk, children }: Props) {
             setSel(null)
             window.getSelection()?.removeAllRanges()
           }}
-          style={{ position: "fixed", left: sel.x, top: sel.y - 44, transform: "translateX(-50%)", zIndex: 60 }}
+          style={{
+            position: "fixed",
+            left: sel.x,
+            top: sel.y - 44,
+            transform: "translateX(-50%)",
+            zIndex: 60,
+          }}
           className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-accent-foreground shadow-lg ring-1 ring-black/20 transition-opacity hover:opacity-90"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" /> Preguntar al chat

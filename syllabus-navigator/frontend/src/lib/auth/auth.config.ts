@@ -41,7 +41,7 @@ export const authConfig = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string
-        session.user.role = token.role as any ?? "free"
+        session.user.role = (token.role as any) ?? "free"
       }
       return session
     },

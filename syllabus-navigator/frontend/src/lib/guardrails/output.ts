@@ -72,11 +72,7 @@ const errorDetection: GuardrailRule = {
 
 // ── Exported Rules Array ─────────────────────────────────────────────────────
 
-export const OUTPUT_RULES: GuardrailRule[] = [
-  errorDetection,
-  htmlStrip,
-  lengthCap,
-]
+export const OUTPUT_RULES: GuardrailRule[] = [errorDetection, htmlStrip, lengthCap]
 
 /**
  * Run all output guardrails. Applies sanitization cumulatively.

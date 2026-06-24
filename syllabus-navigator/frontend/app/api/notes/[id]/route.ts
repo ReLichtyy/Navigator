@@ -18,7 +18,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params
     const parsed = UpdateNoteSchema.safeParse(await req.json())
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid body" }, { status: 400 })
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "Invalid body" },
+        { status: 400 },
+      )
     }
     const note = await DateNoteRepository.update(userId, id, parsed.data.body)
     if (!note) return NextResponse.json({ error: "Note not found" }, { status: 404 })

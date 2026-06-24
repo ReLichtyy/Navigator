@@ -32,7 +32,11 @@ export async function POST(request: Request) {
     await triggerIngestionWorker()
     await invalidatePrefix(`uploads:list:${userId}`)
 
-    logInfo("api.upload.success", { userId, uploadId: upload.id, filename: upload.original_filename })
+    logInfo("api.upload.success", {
+      userId,
+      uploadId: upload.id,
+      filename: upload.original_filename,
+    })
 
     return NextResponse.json(
       {
@@ -40,13 +44,13 @@ export async function POST(request: Request) {
         status: "processed",
         message: "File uploaded and processed.",
       },
-      { status: 201 }
+      { status: 201 },
     )
   } catch (err) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })
     }
-    
+
     logError("api.upload.error", {
       error: err instanceof Error ? err.message : String(err),
     })

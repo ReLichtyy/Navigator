@@ -19,7 +19,10 @@ function hasPdfMagic(bytes: Uint8Array): boolean {
   for (let off = 0; off <= limit; off++) {
     let match = true
     for (let i = 0; i < PDF_MAGIC.length; i++) {
-      if (bytes[off + i] !== PDF_MAGIC[i]) { match = false; break }
+      if (bytes[off + i] !== PDF_MAGIC[i]) {
+        match = false
+        break
+      }
     }
     if (match) return true
   }

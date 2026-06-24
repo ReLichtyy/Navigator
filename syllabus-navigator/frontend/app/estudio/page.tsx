@@ -93,7 +93,12 @@ function EstudioContent() {
   )
   // Course pills for the mind-map view (code + short label).
   const mindCourses = useMemo<MindCourse[]>(
-    () => readyCourses.map((c, i) => ({ id: c.id, code: courseCode(i), label: cleanName(c.original_filename) })),
+    () =>
+      readyCourses.map((c, i) => ({
+        id: c.id,
+        code: courseCode(i),
+        label: cleanName(c.original_filename),
+      })),
     [readyCourses],
   )
   const currentCode = useMemo(() => {
@@ -128,7 +133,10 @@ function EstudioContent() {
 
   // Load (or regenerate) the study set for the current course, honoring difficulty/topic.
   const loadSet = useCallback(
-    async (id: string, opts: { refresh?: boolean; difficulty?: StudyDifficulty; topic?: string | null } = {}) => {
+    async (
+      id: string,
+      opts: { refresh?: boolean; difficulty?: StudyDifficulty; topic?: string | null } = {},
+    ) => {
       const d = opts.difficulty ?? "medio"
       const t = opts.topic ?? null
       if (opts.refresh) setRegenerating(true)
@@ -138,7 +146,11 @@ function EstudioContent() {
       }
       setSetError(null)
       try {
-        const data = await fetchStudySet(id, { refresh: opts.refresh, difficulty: d, topic: t ?? undefined })
+        const data = await fetchStudySet(id, {
+          refresh: opts.refresh,
+          difficulty: d,
+          topic: t ?? undefined,
+        })
         setSet(data)
         setLoadedKey(paramKey(d, t))
       } catch (e) {
@@ -185,7 +197,12 @@ function EstudioContent() {
 
   // 3 topic suggestions for the current week of the selected course.
   const weekTopics = useMemo(
-    () => pickWeekTopics(courseEvents, { today: plan?.today, weekStart: plan?.week_start, weekEnd: plan?.week_end }, 3),
+    () =>
+      pickWeekTopics(
+        courseEvents,
+        { today: plan?.today, weekStart: plan?.week_start, weekEnd: plan?.week_end },
+        3,
+      ),
     [courseEvents, plan],
   )
 
@@ -229,7 +246,9 @@ function EstudioContent() {
     setSavingRename(true)
     try {
       const { upload } = await renameDocument(id, name)
-      setCourses((prev) => prev.map((c) => (c.id === id ? { ...c, original_filename: upload.original_filename } : c)))
+      setCourses((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, original_filename: upload.original_filename } : c)),
+      )
       setRenamingId(null)
     } catch {
       toast.error("No se pudo renombrar el curso.")
@@ -240,9 +259,7 @@ function EstudioContent() {
 
   // ---------- gates ----------
   if (ready && (status === "anonymous" || status === "guest")) {
-    return (
-      <Gate onSignup={() => openAuthModal("signup")} />
-    )
+    return <Gate onSignup={() => openAuthModal("signup")} />
   }
 
   return (
@@ -250,7 +267,9 @@ function EstudioContent() {
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-6">
         <GraduationCap className="h-5 w-5 text-accent" />
         <h1 className="text-lg font-semibold">Área de Estudio</h1>
-        <Badge variant="new" className="ml-1 uppercase">Nuevo</Badge>
+        <Badge variant="new" className="ml-1 uppercase">
+          Nuevo
+        </Badge>
       </header>
 
       <div className="flex-1 overflow-auto p-6 sm:px-10 sm:py-9">
@@ -281,10 +300,25 @@ function EstudioContent() {
                           }}
                           className="h-7 w-44 text-sm"
                         />
-                        <Button size="icon-sm" variant="accent" disabled={savingRename || !renameValue.trim()} onClick={() => commitRename(c.id)} aria-label="Guardar nombre">
-                          {savingRename ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                        <Button
+                          size="icon-sm"
+                          variant="accent"
+                          disabled={savingRename || !renameValue.trim()}
+                          onClick={() => commitRename(c.id)}
+                          aria-label="Guardar nombre"
+                        >
+                          {savingRename ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
                         </Button>
-                        <Button size="icon-sm" variant="ghost" onClick={() => setRenamingId(null)} aria-label="Cancelar">
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => setRenamingId(null)}
+                          aria-label="Cancelar"
+                        >
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -296,7 +330,11 @@ function EstudioContent() {
                         variant={active ? "secondary" : "outline"}
                         onClick={() => pickCourse(c.id)}
                         onDoubleClick={() => startRename(c)}
-                        className={active ? "border-accent/40 bg-accent/10 pr-8 text-foreground" : "text-muted-foreground"}
+                        className={
+                          active
+                            ? "border-accent/40 bg-accent/10 pr-8 text-foreground"
+                            : "text-muted-foreground"
+                        }
                         title="Doble-click para renombrar"
                       >
                         {c.original_filename.replace(/\.pdf$/i, "")}
@@ -335,7 +373,9 @@ function EstudioContent() {
                       setTopic(null)
                     }}
                     regenerating={regenerating}
-                    onRegenerate={() => courseId && loadSet(courseId, { refresh: true, difficulty, topic })}
+                    onRegenerate={() =>
+                      courseId && loadSet(courseId, { refresh: true, difficulty, topic })
+                    }
                     setMode={setMode}
                     onLaunch={launchMode}
                     backToMenu={backToMenu}
@@ -394,13 +434,45 @@ function ModeRouter({
 }) {
   switch (mode) {
     case "flash":
-      return <FlashcardsView title="Tarjetas dinámicas" courseLabel={courseName} cards={set.flashcards} onBack={backToMenu} syllabusId={courseId} />
+      return (
+        <FlashcardsView
+          title="Tarjetas dinámicas"
+          courseLabel={courseName}
+          cards={set.flashcards}
+          onBack={backToMenu}
+          syllabusId={courseId}
+        />
+      )
     case "repaso":
-      return <FlashcardsView title="Modo repaso" courseLabel={courseName} cards={set.flashcards} onBack={backToMenu} syllabusId={courseId} />
+      return (
+        <FlashcardsView
+          title="Modo repaso"
+          courseLabel={courseName}
+          cards={set.flashcards}
+          onBack={backToMenu}
+          syllabusId={courseId}
+        />
+      )
     case "quiz":
-      return <QuizView title="Quiz dinámico" courseLabel={courseName} questions={set.quiz} syllabusId={courseId} onBack={backToMenu} />
+      return (
+        <QuizView
+          title="Quiz dinámico"
+          courseLabel={courseName}
+          questions={set.quiz}
+          syllabusId={courseId}
+          onBack={backToMenu}
+        />
+      )
     case "simulacro":
-      return <QuizView title="Simulacro · Prueba corta" courseLabel={courseName} questions={set.quiz} syllabusId={courseId} onBack={backToMenu} />
+      return (
+        <QuizView
+          title="Simulacro · Prueba corta"
+          courseLabel={courseName}
+          questions={set.quiz}
+          syllabusId={courseId}
+          onBack={backToMenu}
+        />
+      )
     case "mind":
       return (
         <MindView
@@ -445,13 +517,55 @@ function ModeRouter({
   }
 }
 
-const MODES: { key: Mode; title: string; desc: string; Icon: typeof HelpCircle; meta: (s: StudySetAPI) => string }[] = [
-  { key: "quiz", title: "Quiz dinámico", desc: "Preguntas de opción múltiple generadas de tus documentos.", Icon: HelpCircle, meta: (s) => `${s.quiz.length} preg.` },
-  { key: "flash", title: "Tarjetas dinámicas", desc: "Flashcards de concepto → definición con repetición espaciada.", Icon: Layers, meta: (s) => `${s.flashcards.length} tarjetas` },
-  { key: "repaso", title: "Modo repaso", desc: "Repasa las tarjetas del curso, una a una.", Icon: RotateCcw, meta: () => "SRS" },
-  { key: "simulacro", title: "Simulacro · Prueba corta", desc: "Examen con el formato de la próxima evaluación.", Icon: Timer, meta: () => "cronometrado" },
-  { key: "mind", title: "Mapa mental", desc: "Estructura visual de los temas y cómo se conectan.", Icon: Network, meta: () => "visual" },
-  { key: "resumen", title: "Resumen automático", desc: "Síntesis de los temas clave, lista para repasar.", Icon: AlignLeft, meta: () => "auto" },
+const MODES: {
+  key: Mode
+  title: string
+  desc: string
+  Icon: typeof HelpCircle
+  meta: (s: StudySetAPI) => string
+}[] = [
+  {
+    key: "quiz",
+    title: "Quiz dinámico",
+    desc: "Preguntas de opción múltiple generadas de tus documentos.",
+    Icon: HelpCircle,
+    meta: (s) => `${s.quiz.length} preg.`,
+  },
+  {
+    key: "flash",
+    title: "Tarjetas dinámicas",
+    desc: "Flashcards de concepto → definición con repetición espaciada.",
+    Icon: Layers,
+    meta: (s) => `${s.flashcards.length} tarjetas`,
+  },
+  {
+    key: "repaso",
+    title: "Modo repaso",
+    desc: "Repasa las tarjetas del curso, una a una.",
+    Icon: RotateCcw,
+    meta: () => "SRS",
+  },
+  {
+    key: "simulacro",
+    title: "Simulacro · Prueba corta",
+    desc: "Examen con el formato de la próxima evaluación.",
+    Icon: Timer,
+    meta: () => "cronometrado",
+  },
+  {
+    key: "mind",
+    title: "Mapa mental",
+    desc: "Estructura visual de los temas y cómo se conectan.",
+    Icon: Network,
+    meta: () => "visual",
+  },
+  {
+    key: "resumen",
+    title: "Resumen automático",
+    desc: "Síntesis de los temas clave, lista para repasar.",
+    Icon: AlignLeft,
+    meta: () => "auto",
+  },
 ]
 
 const DIFFICULTIES: { key: StudyDifficulty; label: string; hint: string }[] = [
@@ -497,7 +611,9 @@ function Menu({
             <b>{courseName}</b> · carpeta de knowledge propia
           </div>
         </div>
-        <Badge variant="accent" className="flex-none">● Indexado</Badge>
+        <Badge variant="accent" className="flex-none">
+          ● Indexado
+        </Badge>
       </Card>
 
       {/* ─── Difficulty + topic focus ─── */}
@@ -579,7 +695,15 @@ function Menu({
 
 // ---------- small presentational helpers ----------
 
-function TopicChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function TopicChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
   return (
     <button
       onClick={onClick}
@@ -621,7 +745,9 @@ function EmptyCourses() {
     <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-border bg-card text-center text-muted-foreground">
       <GraduationCap className="mb-3 h-10 w-10 opacity-20" />
       <p className="mb-1 text-sm font-medium">Aún no hay cursos indexados.</p>
-      <p className="text-xs">Sube un sílabo en la Knowledge Base para generar material de estudio.</p>
+      <p className="text-xs">
+        Sube un sílabo en la Knowledge Base para generar material de estudio.
+      </p>
     </div>
   )
 }

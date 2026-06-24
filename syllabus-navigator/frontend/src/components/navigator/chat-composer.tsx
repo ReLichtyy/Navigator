@@ -2,7 +2,18 @@
 
 import type React from "react"
 
-import { ArrowUp, ChevronDown, FileText, Paperclip, X, Sparkles, CalendarDays, AlignLeft, HelpCircle, ListChecks } from "lucide-react"
+import {
+  ArrowUp,
+  ChevronDown,
+  FileText,
+  Paperclip,
+  X,
+  Sparkles,
+  CalendarDays,
+  AlignLeft,
+  HelpCircle,
+  ListChecks,
+} from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
 import type { AttachedFile } from "@/components/navigator/types"
@@ -15,10 +26,30 @@ const DEFAULT_MODELS: ChatModelAPI[] = [
 
 // Quick-action tools: each sends a ready-made prompt to the assistant.
 const TOOLS: { id: string; label: string; prompt: string; Icon: typeof CalendarDays }[] = [
-  { id: "week", label: "¿Qué tengo esta semana?", prompt: "¿Qué quizes, exámenes y temas tengo esta semana según mis cronogramas?", Icon: CalendarDays },
-  { id: "summary", label: "Resume el curso", prompt: "Hazme un resumen ejecutivo de los temas principales del curso.", Icon: AlignLeft },
-  { id: "quiz", label: "Quiz rápido", prompt: "Hazme un quiz corto de 5 preguntas de opción múltiple sobre este curso, una por una.", Icon: HelpCircle },
-  { id: "topics", label: "Temas y su peso", prompt: "Lista los temas del curso y el peso de cada evaluación.", Icon: ListChecks },
+  {
+    id: "week",
+    label: "¿Qué tengo esta semana?",
+    prompt: "¿Qué quizes, exámenes y temas tengo esta semana según mis cronogramas?",
+    Icon: CalendarDays,
+  },
+  {
+    id: "summary",
+    label: "Resume el curso",
+    prompt: "Hazme un resumen ejecutivo de los temas principales del curso.",
+    Icon: AlignLeft,
+  },
+  {
+    id: "quiz",
+    label: "Quiz rápido",
+    prompt: "Hazme un quiz corto de 5 preguntas de opción múltiple sobre este curso, una por una.",
+    Icon: HelpCircle,
+  },
+  {
+    id: "topics",
+    label: "Temas y su peso",
+    prompt: "Lista los temas del curso y el peso de cada evaluación.",
+    Icon: ListChecks,
+  },
 ]
 
 export function ChatComposer({
@@ -164,12 +195,21 @@ export function ChatComposer({
                 )}
               >
                 <FileText
-                  className={cn("h-3.5 w-3.5", f.status === "error" ? "text-red-500" : "text-accent")}
+                  className={cn(
+                    "h-3.5 w-3.5",
+                    f.status === "error" ? "text-red-500" : "text-accent",
+                  )}
                   strokeWidth={2.25}
                 />
                 <span className="max-w-[160px] truncate">{f.name}</span>
-                <span className={cn(f.status === "error" ? "text-red-500/70" : "text-muted-foreground")}>
-                  {f.status === "uploading" ? "Uploading..." : f.status === "error" ? "Failed" : f.size}
+                <span
+                  className={cn(f.status === "error" ? "text-red-500/70" : "text-muted-foreground")}
+                >
+                  {f.status === "uploading"
+                    ? "Uploading..."
+                    : f.status === "error"
+                      ? "Failed"
+                      : f.size}
                 </span>
                 <button
                   type="button"
@@ -259,17 +299,20 @@ export function ChatComposer({
             <Paperclip className="h-4 w-4" />
           </button>
 
-          <input ref={inputRef} type="file" accept="application/pdf" multiple onChange={onPick} className="sr-only" />
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf"
+            multiple
+            onChange={onPick}
+            className="sr-only"
+          />
 
           <textarea
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={
-              isDragging
-                ? "Drop PDFs to attach…"
-                : "Type your message..."
-            }
+            placeholder={isDragging ? "Drop PDFs to attach…" : "Type your message..."}
             rows={1}
             disabled={disabled}
             className="min-h-9 max-h-40 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
@@ -295,7 +338,11 @@ export function ChatComposer({
       <div className="flex h-4 items-center justify-end px-1">
         {value.length === 0 && !disabled && (
           <p className="hidden text-[11px] text-muted-foreground sm:block">
-            Press <kbd className="rounded border border-border bg-secondary px-1 font-mono text-[10px]">Enter</kbd> to send
+            Press{" "}
+            <kbd className="rounded border border-border bg-secondary px-1 font-mono text-[10px]">
+              Enter
+            </kbd>{" "}
+            to send
           </p>
         )}
       </div>

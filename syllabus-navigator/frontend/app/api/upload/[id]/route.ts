@@ -66,13 +66,10 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })
     }
-    
+
     logError("api.upload.delete_error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json(
-      { error: "Failed to delete upload" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Failed to delete upload" }, { status: 500 })
   }
 }

@@ -19,22 +19,39 @@ export function Markdown({ content, className }: MarkdownProps) {
         rehypePlugins={[rehypeKatex]}
         components={{
           a: ({ node, ...props }) => (
-            <a {...props} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline font-medium" />
+            <a
+              {...props}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent hover:underline font-medium"
+            />
           ),
           p: ({ node, ...props }) => <p {...props} className="leading-relaxed mb-4 last:mb-0" />,
           ul: ({ node, ...props }) => <ul {...props} className="list-disc pl-5 mb-4 space-y-1" />,
-          ol: ({ node, ...props }) => <ol {...props} className="list-decimal pl-5 mb-4 space-y-1" />,
+          ol: ({ node, ...props }) => (
+            <ol {...props} className="list-decimal pl-5 mb-4 space-y-1" />
+          ),
           li: ({ node, ...props }) => <li {...props} className="leading-relaxed" />,
           pre: ({ node, ...props }) => (
-            <pre {...props} className="bg-secondary/50 rounded-md p-4 overflow-x-auto mb-4 border border-border/50 text-[13px]" />
+            <pre
+              {...props}
+              className="bg-secondary/50 rounded-md p-4 overflow-x-auto mb-4 border border-border/50 text-[13px]"
+            />
           ),
           code: ({ node, className, children, ...props }) => {
             const match = /language-(\w+)/.exec(className || "")
-            const isInline = !match && !className?.includes("language-") && typeof children === "string" && !children.includes("\n")
-            
+            const isInline =
+              !match &&
+              !className?.includes("language-") &&
+              typeof children === "string" &&
+              !children.includes("\n")
+
             if (isInline) {
               return (
-                <code {...props} className="bg-secondary/50 rounded px-1.5 py-0.5 text-[13px] font-mono text-primary">
+                <code
+                  {...props}
+                  className="bg-secondary/50 rounded px-1.5 py-0.5 text-[13px] font-mono text-primary"
+                >
                   {children}
                 </code>
               )
@@ -51,13 +68,17 @@ export function Markdown({ content, className }: MarkdownProps) {
             </div>
           ),
           th: ({ node, ...props }) => (
-            <th {...props} className="border border-border bg-secondary/50 px-3 py-2 text-left font-semibold" />
+            <th
+              {...props}
+              className="border border-border bg-secondary/50 px-3 py-2 text-left font-semibold"
+            />
           ),
-          td: ({ node, ...props }) => (
-            <td {...props} className="border border-border px-3 py-2" />
-          ),
+          td: ({ node, ...props }) => <td {...props} className="border border-border px-3 py-2" />,
           blockquote: ({ node, ...props }) => (
-            <blockquote {...props} className="border-l-4 border-accent pl-4 italic text-muted-foreground mb-4" />
+            <blockquote
+              {...props}
+              className="border-l-4 border-accent pl-4 italic text-muted-foreground mb-4"
+            />
           ),
         }}
       >

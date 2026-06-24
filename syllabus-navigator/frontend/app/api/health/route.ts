@@ -51,9 +51,10 @@ export async function GET() {
 
         checks.database = {
           ok: missing.length === 0,
-          detail: missing.length === 0
-            ? `Connected. Server time: ${dbTime}`
-            : `Missing tables: ${missing.join(", ")}`,
+          detail:
+            missing.length === 0
+              ? `Connected. Server time: ${dbTime}`
+              : `Missing tables: ${missing.join(", ")}`,
           latency_ms: dbMs,
         }
       } catch (err) {
@@ -71,9 +72,10 @@ export async function GET() {
 
       checks.llm = {
         ok: llmProviders.length > 0,
-        detail: llmProviders.length > 0
-          ? `Configured: ${llmProviders.join(", ")}`
-          : "No LLM provider configured. Set OPENAI_API_KEY or OPENROUTER_API_KEY.",
+        detail:
+          llmProviders.length > 0
+            ? `Configured: ${llmProviders.join(", ")}`
+            : "No LLM provider configured. Set OPENAI_API_KEY or OPENROUTER_API_KEY.",
       }
 
       // ── Cache ─────────────────────────────────────────────────────────────
@@ -112,9 +114,12 @@ export async function GET() {
     const statusCode = result.status === "ok" ? 200 : 503
     return NextResponse.json(result, { status: statusCode })
   } catch (err) {
-    return NextResponse.json({
-      error: "Health check failed entirely.",
-      details: err instanceof Error ? err.message : String(err)
-    }, { status: 500 })
+    return NextResponse.json(
+      {
+        error: "Health check failed entirely.",
+        details: err instanceof Error ? err.message : String(err),
+      },
+      { status: 500 },
+    )
   }
 }

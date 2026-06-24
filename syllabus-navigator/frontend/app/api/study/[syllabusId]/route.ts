@@ -10,10 +10,7 @@ import { logError } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ syllabusId: string }> },
-) {
+export async function GET(req: Request, { params }: { params: Promise<{ syllabusId: string }> }) {
   try {
     const { userId } = await requireAuth()
     const { syllabusId } = await params

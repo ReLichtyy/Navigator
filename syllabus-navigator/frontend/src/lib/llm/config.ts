@@ -12,9 +12,9 @@ export interface ModelDefinition {
   provider: LLMProvider
   displayName: string
   contextWindow: number
-  costPer1kPrompt: number   // USD per 1K prompt tokens
+  costPer1kPrompt: number // USD per 1K prompt tokens
   costPer1kCompletion: number // USD per 1K completion tokens
-  tier: "free" | "pro"       // minimum tier to use this model
+  tier: "free" | "pro" // minimum tier to use this model
 }
 
 // Driven by feature flags (DEFAULT_LLM_PROVIDER / DEFAULT_LLM_MODEL env vars) so

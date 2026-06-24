@@ -76,7 +76,9 @@ export const RecommendationService = {
     const reviewFor = (syllabusId: string, title: string): string[] => {
       const lower = title.toLowerCase()
       const matches = (topicsBySyllabus.get(syllabusId) ?? []).filter(
-        (t) => t.label && (lower.includes(t.label.toLowerCase()) || t.label.toLowerCase().includes(lower)),
+        (t) =>
+          t.label &&
+          (lower.includes(t.label.toLowerCase()) || t.label.toLowerCase().includes(lower)),
       )
       const out = new Set<string>()
       for (const m of matches) for (const p of m.prereqs) out.add(p)

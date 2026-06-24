@@ -25,7 +25,9 @@ export function CrossCourseView() {
     setLoading(true)
     fetchCrossGraph()
       .then((g) => alive && setGraph(g))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : "No se pudo cargar el grafo."))
+      .catch(
+        (e) => alive && setError(e instanceof Error ? e.message : "No se pudo cargar el grafo."),
+      )
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
@@ -34,7 +36,9 @@ export function CrossCourseView() {
 
   const colorOf = useMemo(() => {
     const map = new Map<string, string>()
-    graph?.courses.forEach((c, i) => map.set(c.syllabus_id, COURSE_COLORS[i % COURSE_COLORS.length]))
+    graph?.courses.forEach((c, i) =>
+      map.set(c.syllabus_id, COURSE_COLORS[i % COURSE_COLORS.length]),
+    )
     return map
   }, [graph])
 
@@ -56,7 +60,9 @@ export function CrossCourseView() {
     }
     return graph.courses.map((c) => ({
       ...c,
-      topics: (byCourse.get(c.syllabus_id) ?? []).slice().sort((a, b) => b.weight_percent - a.weight_percent),
+      topics: (byCourse.get(c.syllabus_id) ?? [])
+        .slice()
+        .sort((a, b) => b.weight_percent - a.weight_percent),
       prereqs: prereqCount.get(c.syllabus_id) ?? 0,
     }))
   }, [graph])
@@ -79,7 +85,10 @@ export function CrossCourseView() {
       // keep a display label
       if (!displayLabel.has(key)) displayLabel.set(key, a.label)
     }
-    return [...byLabel.entries()].map(([key, sids]) => ({ label: displayLabel.get(key) ?? key, sids: [...sids] }))
+    return [...byLabel.entries()].map(([key, sids]) => ({
+      label: displayLabel.get(key) ?? key,
+      sids: [...sids],
+    }))
   }, [graph])
 
   if (loading) {
@@ -90,14 +99,20 @@ export function CrossCourseView() {
     )
   }
   if (error) {
-    return <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">{error}</div>
+    return (
+      <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+        {error}
+      </div>
+    )
   }
   if (!graph || graph.nodes.length === 0) {
     return (
       <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-border bg-card text-center text-muted-foreground">
         <Network className="mb-3 h-10 w-10 opacity-20" />
         <p className="mb-1 text-sm font-medium">Aún no hay temas en tus cursos.</p>
-        <p className="text-xs">Genera el mapa mental de cada curso para construir el grafo entre cursos.</p>
+        <p className="text-xs">
+          Genera el mapa mental de cada curso para construir el grafo entre cursos.
+        </p>
       </div>
     )
   }
@@ -119,11 +134,18 @@ export function CrossCourseView() {
         ) : (
           <div className="flex flex-wrap gap-2.5">
             {bridges.map((b) => (
-              <div key={b.label} className="flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/5 px-3 py-2">
+              <div
+                key={b.label}
+                className="flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/5 px-3 py-2"
+              >
                 <span className="text-[13px] font-bold text-foreground">{b.label}</span>
                 <div className="flex items-center gap-1">
                   {b.sids.map((sid) => (
-                    <span key={sid} className="h-2.5 w-2.5 rounded-sm" style={{ background: colorOf.get(sid) ?? "#888" }} />
+                    <span
+                      key={sid}
+                      className="h-2.5 w-2.5 rounded-sm"
+                      style={{ background: colorOf.get(sid) ?? "#888" }}
+                    />
                   ))}
                 </div>
               </div>
@@ -137,13 +159,22 @@ export function CrossCourseView() {
         {grouped.map((c) => {
           const color = colorOf.get(c.syllabus_id) ?? "#888"
           return (
-            <div key={c.syllabus_id} className="flex flex-col rounded-2xl border border-border bg-card p-4">
+            <div
+              key={c.syllabus_id}
+              className="flex flex-col rounded-2xl border border-border bg-card p-4"
+            >
               <div className="mb-3 flex items-center gap-2">
                 <span className="h-3 w-3 flex-none rounded-sm" style={{ background: color }} />
-                <span className="flex-1 truncate text-sm font-bold text-foreground" title={c.course}>
+                <span
+                  className="flex-1 truncate text-sm font-bold text-foreground"
+                  title={c.course}
+                >
                   {c.course}
                 </span>
-                <span className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground" title="prerrequisitos en este curso">
+                <span
+                  className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground"
+                  title="prerrequisitos en este curso"
+                >
                   <GitBranch className="h-3 w-3" />
                   {c.prereqs}
                 </span>
@@ -153,11 +184,17 @@ export function CrossCourseView() {
                   <span
                     key={t.id}
                     className="rounded-lg border border-border bg-secondary/40 px-2.5 py-1 text-[12px] font-medium text-muted-foreground"
-                    title={t.weight_percent > 0 ? `${Math.round(t.weight_percent)}% del examen` : undefined}
+                    title={
+                      t.weight_percent > 0
+                        ? `${Math.round(t.weight_percent)}% del examen`
+                        : undefined
+                    }
                   >
                     {t.label}
                     {t.weight_percent > 0 && (
-                      <span className="ml-1.5 font-mono text-[10px] text-accent">{Math.round(t.weight_percent)}%</span>
+                      <span className="ml-1.5 font-mono text-[10px] text-accent">
+                        {Math.round(t.weight_percent)}%
+                      </span>
                     )}
                   </span>
                 ))}

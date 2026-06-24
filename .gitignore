@@ -22,6 +22,7 @@ yarn-error.log*
 # Archivos de build
 dist/
 build/
+*.tsbuildinfo
 
 # OS
 .DS_Store

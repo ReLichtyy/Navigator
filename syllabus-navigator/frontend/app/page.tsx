@@ -25,7 +25,7 @@ function PageContent() {
   const router = useRouter()
 
   useEffect(() => {
-    if (!ready || !ws.chatsLoading && ws.activeChatId) {
+    if (!ready || (!ws.chatsLoading && ws.activeChatId)) {
       const docId = searchParams.get("docId")
       const docName = searchParams.get("docName")
       if (docId && docName && status !== "anonymous") {
@@ -78,7 +78,7 @@ function PageContent() {
           onSelectKnowledge={ws.selectKnowledge}
           activeDocumentName={ws.activeDocumentName}
         />
-        
+
         <GuestBanner />
 
         <section className="relative flex min-h-0 flex-1 flex-col">

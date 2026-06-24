@@ -14,9 +14,7 @@ import { logError, logInfo } from "@/lib/observability/logger"
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL ?? ""
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? ""
 
-async function upstashCommand(
-  command: string[],
-): Promise<unknown> {
+async function upstashCommand(command: string[]): Promise<unknown> {
   const res = await fetch(`${UPSTASH_URL}`, {
     method: "POST",
     headers: {
