@@ -82,6 +82,21 @@ export const MODELS: ModelDefinition[] = [
 ]
 
 /**
+ * GPT-5 family + reasoning (o-series) models reject a non-default `temperature`
+ * and require `max_completion_tokens` instead of `max_tokens`. Any caller that
+ * builds raw OpenAI params (the RAG generators, the provider adapter) must omit
+ * `temperature` for these models or the request 400s. Exported here — dep-free,
+ * so importing it can't create a cycle — to keep one canonical definition.
+ */
+export function isNextGenModel(modelId: string): boolean {
+  return /^(gpt-5|o[134])/.test(modelId)
+}
+
+// Warn (once per unknown id) when metering can't price a model, so a misconfigured
+// DEFAULT_LLM_MODEL surfaces in logs instead of silently billing $0. See BUG-003.
+const _warnedUnknownCost = new Set<string>()
+
+/**
  * Estimate cost in USD for a given usage.
  */
 export function estimateCost(
@@ -90,7 +105,17 @@ export function estimateCost(
   completionTokens: number,
 ): number {
   const model = MODELS.find((m) => m.id === modelId)
-  if (!model) return 0
+  if (!model) {
+    if (!_warnedUnknownCost.has(modelId)) {
+      _warnedUnknownCost.add(modelId)
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[metering] estimateCost: unknown model "${modelId}" — not in MODELS catalog; ` +
+          `recording cost as 0. Add it to MODELS to meter spend accurately.`,
+      )
+    }
+    return 0
+  }
   return (
     (promptTokens / 1000) * model.costPer1kPrompt +
     (completionTokens / 1000) * model.costPer1kCompletion

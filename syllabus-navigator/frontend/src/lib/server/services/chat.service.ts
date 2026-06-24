@@ -127,7 +127,8 @@ export const ChatService = {
 
     // 3. Load history
     const recentHistory = await ChatRepository.getRecentHistory(chatId, MAX_HISTORY_TURNS * 2)
-    const allHistory = await ChatRepository.getAllHistory(chatId)
+    // First-turn test only — a COUNT/EXISTS, not the whole history (BUG-005).
+    const isFirstMessage = !(await ChatRepository.hasMessages(chatId))
 
     // 4. Save user message
     await ChatRepository.saveMessage(chatId, "user", question)
@@ -164,7 +165,7 @@ export const ChatService = {
 
     // 10. Generate title for first message
     let title: string | undefined
-    if (allHistory.length === 0) {
+    if (isFirstMessage) {
       try {
         const titlePrompt = getPrompt("chat:title-gen", { question })
         const titleResp = await chatCompletion(
@@ -227,7 +228,8 @@ export const ChatService = {
 
     // 3. Load history
     const recentHistory = await ChatRepository.getRecentHistory(chatId, MAX_HISTORY_TURNS * 2)
-    const allHistory = await ChatRepository.getAllHistory(chatId)
+    // First-turn test only — a COUNT/EXISTS, not the whole history (BUG-005).
+    const isFirstMessage = !(await ChatRepository.hasMessages(chatId))
 
     // 4. Save user message
     await ChatRepository.saveMessage(chatId, "user", question)
@@ -256,7 +258,7 @@ export const ChatService = {
 
     // 8. Generate title asynchronously if needed
     let titlePromise: Promise<string | undefined> = Promise.resolve(undefined)
-    if (allHistory.length === 0) {
+    if (isFirstMessage) {
       titlePromise = (async () => {
         try {
           const titlePrompt = getPrompt("chat:title-gen", { question })
@@ -342,6 +344,39 @@ export const ChatService = {
           logError("llm.stream_loop.error", {
             error: err instanceof Error ? err.message : String(err),
           })
+          // BUG-004: the user turn was already persisted before streaming. If we
+          // fail mid-stream, save whatever partial answer we streamed (marked
+          // truncated) so the history isn't left with an orphaned user turn, and
+          // record the failure so error rate is visible in metering. Best-effort:
+          // never let bookkeeping throw out of the catch.
+          try {
+            const partial = fullContent.trim()
+            if (partial) {
+              await ChatRepository.saveMessage(
+                chatId,
+                "ai",
+                `${partial}\n\n_(respuesta interrumpida)_`,
+                citations,
+              )
+            }
+            recordUsage({
+              userId,
+              provider: llmProvider,
+              model: llmModel,
+              promptTokens,
+              completionTokens,
+              totalTokens,
+              estimatedCostUsd: estimateCost(llmModel, promptTokens, completionTokens),
+              latencyMs: Date.now() - startTime,
+              chatId,
+              success: false,
+              errorType: err instanceof Error ? err.name : "stream_error",
+            })
+          } catch (saveErr) {
+            logError("llm.stream_loop.partial_persist_error", {
+              error: saveErr instanceof Error ? saveErr.message : String(saveErr),
+            })
+          }
           controller.enqueue(
             new TextEncoder().encode(
               `data: ${JSON.stringify({ error: "Failed to generate response" })}\n\n`,

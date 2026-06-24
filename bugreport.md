@@ -8,7 +8,15 @@ Severidad: 🔴 alta · 🟠 media · 🟡 baja.
 
 ---
 
-## BUG-001 — 🟠 Los generadores RAG se rompen con modelos GPT-5 / o-series
+## BUG-001 — 🟠 Los generadores RAG se rompen con modelos GPT-5 / o-series ✅ RESUELTO (2026-06-24)
+
+> **Fix aplicado:** `isNextGenModel(model)` exportado desde `lib/llm/config.ts` (sin deps).
+> `graph-gen`, `schedule-gen`, `study-gen` **y el nuevo `course-infer`** ahora incluyen
+> `temperature` solo cuando el modelo no es next-gen (`...(isNextGenModel(DEFAULT_MODEL) ? {} :
+> { temperature })`). `providers/openai.ts` reusa el mismo helper (antes lo tenía privado).
+> Nota: `course-infer.ts:106` era una **nueva instancia de la misma relación inestable**
+> introducida en el commit "rag backend" — el mismo footgun se había propagado a la capa de
+> inferencia de cursos.
 
 - **Ubicación:** `frontend/src/lib/server/rag/graph-gen.ts:103`,
   `schedule-gen.ts:118`, `study-gen.ts:320`.
@@ -30,7 +38,11 @@ Severidad: 🔴 alta · 🟠 media · 🟡 baja.
 
 ---
 
-## BUG-002 — 🟡 `embedTexts` asume que la respuesta de OpenAI viene en orden
+## BUG-002 — 🟡 `embedTexts` asume que la respuesta de OpenAI viene en orden ✅ RESUELTO (2026-06-24)
+
+> **Fix aplicado:** `embeddings.ts` ahora ordena por `index` antes de extraer:
+> `resp.data.slice().sort((a,b)=>a.index-b.index)` y recorre ese arreglo. Cada embedding
+> queda asociado a su chunk correcto aunque OpenAI devuelva el batch desordenado.
 
 - **Ubicación:** `frontend/src/lib/llm/embeddings.ts:36`.
 - **Qué:** `for (const d of resp.data) out.push(d.embedding)` confía en que `resp.data` está en el
@@ -46,7 +58,11 @@ Severidad: 🔴 alta · 🟠 media · 🟡 baja.
 
 ---
 
-## BUG-003 — 🟡 Costo/metering cae a 0 con un `DEFAULT_LLM_MODEL` fuera del catálogo
+## BUG-003 — 🟡 Costo/metering cae a 0 con un `DEFAULT_LLM_MODEL` fuera del catálogo ✅ RESUELTO (2026-06-24)
+
+> **Fix aplicado:** `estimateCost` ahora emite un `console.warn` (una vez por id desconocido,
+> deduplicado con un `Set`) cuando el modelo no está en `MODELS`, antes de devolver 0. Así un
+> `DEFAULT_LLM_MODEL` mal configurado aparece en logs en vez de subfacturar en silencio.
 
 - **Ubicación:** `frontend/src/lib/llm/config.ts` (`estimateCost`, `MODELS`) + flag
   `DEFAULT_LLM_MODEL` (`lib/config/flags.ts`).
@@ -62,7 +78,13 @@ Severidad: 🔴 alta · 🟠 media · 🟡 baja.
 
 ---
 
-## BUG-004 — 🟡 Fallo a mitad del stream deja turno de usuario huérfano y pierde la respuesta parcial
+## BUG-004 — 🟡 Fallo a mitad del stream deja turno de usuario huérfano y pierde la respuesta parcial ✅ RESUELTO (2026-06-24)
+
+> **Fix aplicado:** el `catch` de `processMessageStream` ahora, si `fullContent` no está vacío,
+> persiste la respuesta parcial (marcada `_(respuesta interrumpida)_`) y siempre registra
+> `recordUsage({…, success:false, errorType})`. Las operaciones de bookkeeping van envueltas en
+> su propio try/catch para no lanzar dentro del catch. El historial ya no queda con un turno
+> `user` huérfano y los fallos entran al metering.
 
 - **Ubicación:** `frontend/src/lib/server/services/chat.service.ts:213-349`
   (`processMessageStream`), catch en `:340-344`.
@@ -81,7 +103,12 @@ Severidad: 🔴 alta · 🟠 media · 🟡 baja.
   guardar el mensaje de usuario solo tras el primer chunk exitoso, o borrar el turno `user` colgado si
   el stream falla sin contenido.
 
-## BUG-005 — 🟡 `getAllHistory` carga TODO el historial en cada turno solo para saber si es el primero
+## BUG-005 — 🟡 `getAllHistory` carga TODO el historial en cada turno solo para saber si es el primero ✅ RESUELTO (2026-06-24)
+
+> **Fix aplicado:** nuevo `ChatRepository.hasMessages(chatId)` con
+> `SELECT EXISTS(SELECT 1 FROM messages WHERE chat_id=$1)`. Ambos paths (`processMessage` y
+> `processMessageStream`) usan `const isFirstMessage = !(await hasMessages(chatId))` (medido
+> antes del insert del turno `user`, igual que antes) en vez de traer todo el historial.
 
 - **Ubicación:** `frontend/src/lib/server/services/chat.service.ts:130` y `:230`
   (`const allHistory = await ChatRepository.getAllHistory(chatId)` → usado solo como
@@ -95,5 +122,54 @@ Severidad: 🔴 alta · 🟠 media · 🟡 baja.
 - **Fix sugerido:** Reemplazar por `ChatRepository.hasMessages(chatId)` / `countMessages` con
   `SELECT EXISTS(SELECT 1 FROM messages WHERE chat_id = $1)` o `COUNT(*)`. (Nota: hoy `saveMessage`
   del usuario corre antes, así que el "primer turno" debe medirse antes de ese insert — ya se hace.)
+
+## BUG-006 — 🔴 Schema drift: la BD viva no tiene las columnas/tablas del commit "rag backend" ✅ RESUELTO (2026-06-24)
+
+- **Ubicación:** `src/lib/schema.sql` (commit `390aeee5` "rag backend") vs. la BD Neon en runtime.
+  Repos afectados al consultar columnas inexistentes: `document.repo#listUploads`,
+  `chunk.repo#search`/`searchByUser`, `course.repo` (tabla `user_courses`).
+- **Qué (causa raíz de los 3 síntomas reportados):** el commit "rag backend" añadió columnas y
+  una tabla nuevas (`syllabus_uploads.source_url|source_type|course_id|infer_status|
+  inferred_course|infer_confidence`, `chunks.char_start|char_end`, tabla `user_courses`,
+  `course_suggestions`) pero **no se corrió `npm run db:migrate`** tras el pull. Probe en la BD
+  viva confirmó: Clerk (`clerk_id`,`image`) sí migrado, pero **TODO lo de "rag backend" faltaba**.
+  Cada query que selecciona esas columnas lanza `column ... does not exist` → 500.
+- **Por qué es dañino — mapeo exacto a lo que se ve en pantalla:**
+  1. `GET /api/upload/list` selecciona `source_type, source_url, course_id, infer_status` →
+     500 → la página Cursos muestra **"Failed to load documents."** (el screenshot).
+  2. `GET/POST /api/courses` usa la tabla `user_courses` → 500. El GET está envuelto en
+     `.catch(()=>({courses:[]}))` en `knowledge/page.tsx`, así que aunque el POST crease el curso
+     **nunca aparece** → "si quiero añadir un curso no se agrega".
+  3. Chat: `chunk.repo#search*` hace `JOIN syllabus_uploads` y selecciona `su.source_url,
+     su.source_type` → 500 antes de empezar el stream → **el chat no da respuesta**.
+  Es exactamente el ⚠️ que advierte `CLAUDE.md`: "existing DBs need `npm run db:migrate` re-run
+  after a pull that touches the schema." La "relación inestable" es el **acoplamiento repos↔schema
+  desplegado fuera de sincronía**: el código se mergeó sin aplicar la migración.
+- **Fix aplicado:** corrido `npm run db:migrate` contra la BD viva. Probe posterior confirma todas
+  las columnas/tablas presentes. Los 3 síntomas dependían de esto.
+- **Prevención sugerida (no aplicada):** correr migrate como paso de deploy (o un check de salud
+  que verifique columnas clave) para que el schema nunca quede atrás del código de nuevo.
+
+---
+
+## BUG-007 — 🟠 `scripts/migrate.mjs` parte los bloques `DO $$ … $$` y se saltaba FK/CHECK ✅ RESUELTO (2026-06-24)
+
+- **Ubicación:** `frontend/scripts/migrate.mjs` (split de sentencias).
+- **Qué:** el runner partía el DDL por `;` (tras quitar comentarios `--`). Postgres usa bloques
+  PL/pgSQL `DO $$ BEGIN … EXCEPTION … END $$;` que **contienen sus propios `;`**, así que el
+  split los **destrozaba** en fragmentos inválidos. En el primer `db:migrate` esto produjo
+  `6 errores` (`unterminated dollar-quoted string`, `syntax error at or near "EXCEPTION"`) y
+  **omitió silenciosamente** dos sentencias importantes: el FK
+  `syllabus_uploads_course_fk (… REFERENCES user_courses(id) ON DELETE SET NULL)` y el CHECK
+  `syllabus_uploads_infer_status_chk`.
+- **Por qué es dañino:** sin el FK `ON DELETE SET NULL`, borrar un curso (`CourseRepository.
+  deleteByIdAndUser`) **no pone en NULL** el `course_id` de sus documentos → quedan apuntando a un
+  curso inexistente (`course_id` huérfano) → otra "relación inestable". Sin el CHECK, `infer_status`
+  admite valores fuera del dominio. La migración además reportaba "completada con errores" sin que
+  fuera obvio qué quedó sin aplicar.
+- **Fix aplicado:** `splitStatements()` ahora recorre el texto y solo corta en `;` cuando la
+  profundidad de comillas-dólar (`$$`) es cero, tratando cada bloque `DO $$ … $$` como una sola
+  sentencia. Re-corrido `db:migrate`: **61 OK, 0 errores**; probe confirma que el FK y el CHECK
+  ahora existen.
 
 <!-- Próximas entradas: añade BUG-00N con el mismo formato. -->

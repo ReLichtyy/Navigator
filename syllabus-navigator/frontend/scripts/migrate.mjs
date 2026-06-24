@@ -35,7 +35,10 @@ if (existsSync(envPath)) {
     const eqIdx = trimmed.indexOf("=")
     if (eqIdx === -1) continue
     const key = trimmed.slice(0, eqIdx).trim()
-    const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "")
+    const val = trimmed
+      .slice(eqIdx + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "")
     if (!(key in process.env)) process.env[key] = val
   }
   console.log("✔  Variables cargadas desde .env.local")
@@ -48,8 +51,8 @@ const DATABASE_URL = process.env.DATABASE_URL
 if (!DATABASE_URL) {
   console.error(
     "\n✖  ERROR: DATABASE_URL no está definida.\n" +
-    "   Crea frontend/.env.local con:\n" +
-    "   DATABASE_URL=postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require\n"
+      "   Crea frontend/.env.local con:\n" +
+      "   DATABASE_URL=postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require\n",
   )
   process.exit(1)
 }
@@ -69,14 +72,40 @@ const sql = neon(DATABASE_URL)
 // Strip `--` line comments before splitting: comments may contain `;`
 // (e.g. "solo cuentas; NULL para invitados"), which would otherwise break
 // the naive split and shatter a CREATE TABLE into invalid fragments.
-const statements = DDL
-  .replace(/\r/g, "")          // normalize CRLF so the comment strip below works
+const cleaned = DDL.replace(/\r/g, "") // normalize CRLF so the comment strip below works
   .split("\n")
   .map((line) => line.replace(/--.*/, ""))
   .join("\n")
-  .split(";")
-  .map((s) => s.trim())
-  .filter(Boolean)
+
+// Split on `;`, but NOT inside `$$ ... $$` dollar-quoted blocks (PL/pgSQL `DO`
+// blocks contain their own `;` and `EXCEPTION ... END` — a naive split shatters
+// them into invalid fragments). Walk the text and only break at a `;` while the
+// dollar-quote depth is zero.
+function splitStatements(text) {
+  const out = []
+  let buf = ""
+  let inDollar = false
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "$" && text[i + 1] === "$") {
+      inDollar = !inDollar
+      buf += "$$"
+      i++
+      continue
+    }
+    if (text[i] === ";" && !inDollar) {
+      const s = buf.trim()
+      if (s) out.push(s)
+      buf = ""
+      continue
+    }
+    buf += text[i]
+  }
+  const tail = buf.trim()
+  if (tail) out.push(tail)
+  return out
+}
+
+const statements = splitStatements(cleaned)
 
 console.log(`\n🚀  Aplicando migración en Neon Postgres…`)
 console.log(`    Sentencias encontradas: ${statements.length}\n`)

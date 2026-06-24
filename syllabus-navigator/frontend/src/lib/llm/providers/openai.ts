@@ -7,6 +7,7 @@
 
 import OpenAI from "openai"
 import type { LLMProviderAdapter, LLMMessage, LLMConfig, LLMResponse } from "../types"
+import { isNextGenModel } from "../config"
 import { logError } from "@/lib/observability/logger"
 
 let _client: OpenAI | null = null
@@ -24,12 +25,9 @@ function getClient(): OpenAI {
  * GPT-5 family + reasoning (o-series) models changed the chat-completions
  * contract: `max_tokens` is rejected (must be `max_completion_tokens`) and
  * `temperature` only accepts the default (1). Build the param set per family so
- * one provider serves both the old (gpt-4*) and new models.
+ * one provider serves both the old (gpt-4*) and new models. The family test
+ * (`isNextGenModel`) is shared with the RAG generators via lib/llm/config.
  */
-function isNextGenModel(model: string): boolean {
-  return /^(gpt-5|o[134])/.test(model)
-}
-
 function buildParams(model: string, config: LLMConfig) {
   if (isNextGenModel(model)) {
     // Omit temperature (only default 1 allowed); rename the token cap.

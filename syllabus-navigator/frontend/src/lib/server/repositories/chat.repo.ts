@@ -37,6 +37,18 @@ export const ChatRepository = {
     return rows as DbMessage[]
   },
 
+  /**
+   * Cheap "is this the first turn?" check — avoids loading the whole message
+   * list just to test `length === 0` on every message (BUG-005). Must be called
+   * BEFORE the user turn is persisted.
+   */
+  async hasMessages(chatId: string): Promise<boolean> {
+    const rows = await sql`
+      SELECT EXISTS(SELECT 1 FROM messages WHERE chat_id = ${chatId}::uuid) AS has
+    `
+    return (rows as { has: boolean }[])[0].has
+  },
+
   async getAllHistory(chatId: string): Promise<DbMessage[]> {
     const rows = await sql`
       SELECT role, content 

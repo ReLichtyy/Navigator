@@ -7,7 +7,7 @@
 
 import OpenAI from "openai"
 import { z } from "zod"
-import { DEFAULT_MODEL } from "@/lib/llm/config"
+import { DEFAULT_MODEL, isNextGenModel } from "@/lib/llm/config"
 import { logError } from "@/lib/observability/logger"
 import type { GraphNodeInput } from "../repositories/graph.repo"
 
@@ -100,7 +100,8 @@ export async function extractGraphFromText(syllabusText: string): Promise<GraphN
   try {
     const completion = await client.chat.completions.create({
       model: DEFAULT_MODEL,
-      temperature: 0,
+      // GPT-5/o-series reject non-default temperature → omit it for those (BUG-001).
+      ...(isNextGenModel(DEFAULT_MODEL) ? {} : { temperature: 0 }),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
