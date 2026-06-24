@@ -2,14 +2,36 @@ import { DocumentRepository } from "../repositories/document.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { JobRepository } from "../repositories/job.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
-import { pdfToPageChunks } from "../rag/chunking"
+import { pdfToPageChunks, textToChunks, fetchUrlText, meaningfulTextLength } from "../rag/chunking"
 import { storePdf } from "../storage/blob"
 import { logInfo } from "@/lib/observability/logger"
 import type { Role } from "@/lib/auth/rbac"
 import crypto from "crypto"
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB
+const MAX_TEXT_CHARS = 200_000 // ~50k tokens; cap pasted text / fetched pages
 const GUEST_TTL_HOURS = 24
+
+// Below this many non-whitespace chars a PDF is treated as a scan with no usable
+// digital text → status 'needs_ocr' (OCR is intentionally NOT run; see processUpload).
+const MIN_PDF_TEXT_CHARS = 200
+
+const NEEDS_OCR_MESSAGE =
+  "PDF escaneado o sin texto digital confiable. OCR automático deshabilitado para " +
+  "priorizar costo y estabilidad. El archivo quedó guardado, pendiente de OCR o de " +
+  "una versión con texto digital seleccionable."
+
+export type IngestStatus = "pending" | "needs_ocr"
+
+interface IngestResult {
+  id: string
+  original_filename: string
+  jobId: string | null
+  status: IngestStatus
+}
+
+const GUEST_EXPIRY = () =>
+  new Date(Date.now() + GUEST_TTL_HOURS * 3600 * 1000).toISOString()
 
 // "%PDF-" — the magic signature every PDF starts with (allowing a small leading
 // offset, which some valid PDFs have before the header).
@@ -39,11 +61,7 @@ export const DocumentService = {
    *
    * Returns the new upload id and the enqueued job id (for fire-and-forget trigger).
    */
-  async processUpload(
-    userId: string,
-    role: Role,
-    file: File,
-  ): Promise<{ id: string; original_filename: string; jobId: string }> {
+  async processUpload(userId: string, role: Role, file: File): Promise<IngestResult> {
     // Client-reported MIME is spoofable; we re-check the real bytes below.
     if (file.type !== "application/pdf") {
       throw new ApiErrorResponse("Only PDF files are allowed.", 400)
@@ -70,20 +88,27 @@ export const DocumentService = {
 
     // Parse + chunk now (fast, no network) so the async worker never needs the raw PDF.
     const chunks = await pdfToPageChunks(bytes)
-    if (chunks.length === 0) {
-      throw new ApiErrorResponse("No text could be extracted from this PDF.", 422)
-    }
 
     const isGuest = role === "guest"
+    // Store the PDF (accounts only) BEFORE the text check so even a scan-only PDF
+    // stays previewable/replaceable while it waits for OCR.
     const fileUrl = isGuest ? null : await storePdf(userId, file.name, bytes)
-    const expiresAt = isGuest
-      ? new Date(Date.now() + GUEST_TTL_HOURS * 3600 * 1000).toISOString()
-      : null
+    const expiresAt = isGuest ? GUEST_EXPIRY() : null
 
     const upload = await DocumentRepository.createUpload(userId, file.name, sourceHash, {
       fileUrl,
       expiresAt,
+      sourceType: "pdf",
     })
+
+    // Scanned / image-only PDF: no reliable digital text. Persist but DON'T index
+    // (no chunks, no embed job). OCR is intentionally disabled here; a future OCR
+    // flow can re-chunk + enqueue without touching the retriever, schema or UI.
+    if (meaningfulTextLength(chunks) < MIN_PDF_TEXT_CHARS) {
+      await DocumentRepository.setStatus(upload.id, "needs_ocr", NEEDS_OCR_MESSAGE)
+      logInfo("document.upload.needs_ocr", { userId, isGuest, uploadId: upload.id })
+      return { ...upload, jobId: null, status: "needs_ocr" }
+    }
 
     await ChunkRepository.replaceChunksText(upload.id, chunks)
     const jobId = await JobRepository.enqueue("ingest", { syllabusId: upload.id })
@@ -96,6 +121,68 @@ export const DocumentService = {
       stored: Boolean(fileUrl),
     })
 
-    return { ...upload, jobId }
+    return { ...upload, jobId, status: "pending" }
+  },
+
+  /**
+   * Ingest a web link: fetch the page, extract clean text, chunk + enqueue embed.
+   * Reuses the same chunks/jobs/worker pipeline as PDFs — only the text source
+   * differs. Guests allowed (ephemeral, 24h); no blob (the URL is the source).
+   */
+  async processLink(userId: string, role: Role, url: string): Promise<IngestResult> {
+    const { title, text } = await fetchUrlText(url)
+    if (text.replace(/\s/g, "").length < MIN_PDF_TEXT_CHARS) {
+      throw new ApiErrorResponse("El enlace no contiene texto legible suficiente.", 422)
+    }
+
+    const clipped = text.slice(0, MAX_TEXT_CHARS)
+    // Hash the URL so re-adding the same link updates in place (idempotent).
+    const sourceHash = crypto.createHash("sha256").update(`link:${url}`).digest("hex")
+    const isGuest = role === "guest"
+
+    const upload = await DocumentRepository.createUpload(userId, title || url, sourceHash, {
+      expiresAt: isGuest ? GUEST_EXPIRY() : null,
+      sourceType: "link",
+      sourceUrl: url,
+    })
+
+    await ChunkRepository.replaceChunksText(upload.id, textToChunks(clipped))
+    const jobId = await JobRepository.enqueue("ingest", { syllabusId: upload.id })
+
+    logInfo("document.link.phase1", { userId, isGuest, uploadId: upload.id, url })
+    return { ...upload, jobId, status: "pending" }
+  },
+
+  /**
+   * Ingest user-pasted text. No parsing — straight to chunk + enqueue embed.
+   * Guests allowed (ephemeral, 24h).
+   */
+  async processText(
+    userId: string,
+    role: Role,
+    title: string,
+    text: string,
+  ): Promise<IngestResult> {
+    const clean = text.trim()
+    if (clean.replace(/\s/g, "").length < MIN_PDF_TEXT_CHARS) {
+      throw new ApiErrorResponse("El texto es demasiado corto para indexar.", 422)
+    }
+
+    const clipped = clean.slice(0, MAX_TEXT_CHARS)
+    // Hash the content so identical pastes dedupe per user.
+    const sourceHash = crypto.createHash("sha256").update(`text:${clipped}`).digest("hex")
+    const isGuest = role === "guest"
+    const name = title.trim() || "Nota de texto"
+
+    const upload = await DocumentRepository.createUpload(userId, name, sourceHash, {
+      expiresAt: isGuest ? GUEST_EXPIRY() : null,
+      sourceType: "text",
+    })
+
+    await ChunkRepository.replaceChunksText(upload.id, textToChunks(clipped))
+    const jobId = await JobRepository.enqueue("ingest", { syllabusId: upload.id })
+
+    logInfo("document.text.phase1", { userId, isGuest, uploadId: upload.id })
+    return { ...upload, jobId, status: "pending" }
   },
 }

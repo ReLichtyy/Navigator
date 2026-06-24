@@ -16,6 +16,7 @@ import { DocumentRepository } from "../repositories/document.repo"
 import { JobRepository } from "../repositories/job.repo"
 import { extractGraphFromText } from "../rag/graph-gen"
 import { extractScheduleFromText } from "../rag/schedule-gen"
+import { CourseService } from "./course.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 const JOB_TYPE = "ingest"
@@ -48,8 +49,19 @@ export const IngestionService = {
       throw err // graph won't run if embeddings failed
     }
 
-    // Concatenated text is reused by both graph and schedule extraction.
+    // Concatenated text is reused by graph, schedule and course inference.
     const text = await ChunkRepository.getConcatenatedText(syllabusId)
+
+    // --- Course inference (best-effort; accounts only, skips guests internally) ---
+    // Runs before graph/schedule so a slow LLM there can't starve the suggestion.
+    try {
+      await CourseService.inferForDocument(syllabusId, text)
+    } catch (err) {
+      logError("ingestion.course_infer_failed", {
+        syllabusId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
 
     // --- Graph generation (best-effort: a failure here doesn't fail the upload) ---
     try {

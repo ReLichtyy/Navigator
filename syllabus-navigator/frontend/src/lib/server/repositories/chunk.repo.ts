@@ -8,9 +8,14 @@ export interface RetrievedChunk {
   content: string
   page_start: number | null
   page_end: number | null
+  char_start: number | null
+  char_end: number | null
   distance: number
   source_name?: string | null
   syllabus_id?: string | null
+  source_type?: string | null
+  source_url?: string | null
+  file_url?: string | null
 }
 
 export interface PendingChunk {
@@ -31,12 +36,20 @@ export const ChunkRepository = {
     const params: unknown[] = []
     let p = 1
     chunks.forEach((c, i) => {
-      values.push(`($${p++}::uuid, $${p++}, $${p++}, $${p++}, $${p++})`)
-      params.push(syllabusId, i, c.text, c.pageStart, c.pageEnd)
+      values.push(`($${p++}::uuid, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++})`)
+      params.push(
+        syllabusId,
+        i,
+        c.text,
+        c.pageStart ?? null,
+        c.pageEnd ?? null,
+        c.charStart ?? null,
+        c.charEnd ?? null,
+      )
     })
 
     const text = `
-      INSERT INTO chunks (syllabus_id, chunk_index, content, page_start, page_end)
+      INSERT INTO chunks (syllabus_id, chunk_index, content, page_start, page_end, char_start, char_end)
       VALUES ${values.join(", ")}
     `
     await sql.query(text, params)
@@ -73,10 +86,13 @@ export const ChunkRepository = {
   async search(syllabusId: string, queryEmbedding: number[], limit = 8): Promise<RetrievedChunk[]> {
     const qvec = toVectorLiteral(queryEmbedding)
     const rows = await sql`
-      SELECT id, chunk_index, content, page_start, page_end,
-             embedding <=> ${qvec}::vector AS distance
-      FROM chunks
-      WHERE syllabus_id = ${syllabusId}::uuid AND embedding IS NOT NULL
+      SELECT c.id, c.chunk_index, c.content, c.page_start, c.page_end, c.char_start, c.char_end,
+             c.syllabus_id, su.original_filename AS source_name,
+             su.source_type, su.source_url, su.file_url,
+             c.embedding <=> ${qvec}::vector AS distance
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE c.syllabus_id = ${syllabusId}::uuid AND c.embedding IS NOT NULL
       ORDER BY distance ASC
       LIMIT ${limit}
     `
@@ -94,8 +110,9 @@ export const ChunkRepository = {
   ): Promise<RetrievedChunk[]> {
     const qvec = toVectorLiteral(queryEmbedding)
     const rows = await sql`
-      SELECT c.id, c.chunk_index, c.content, c.page_start, c.page_end,
+      SELECT c.id, c.chunk_index, c.content, c.page_start, c.page_end, c.char_start, c.char_end,
              c.syllabus_id, su.original_filename AS source_name,
+             su.source_type, su.source_url, su.file_url,
              c.embedding <=> ${qvec}::vector AS distance
       FROM chunks c
       JOIN syllabus_uploads su ON su.id = c.syllabus_id

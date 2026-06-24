@@ -32,6 +32,7 @@ function mapApiChat(c: any): Chat {
     title: c.title,
     activeModel: c.active_model,
     syllabusId: c.syllabus_id,
+    syllabusName: c.syllabus_name ?? null,
     createdAt: c.created_at,
     timestamp: relativeTime(c.created_at),
     messageCount: c.message_count,

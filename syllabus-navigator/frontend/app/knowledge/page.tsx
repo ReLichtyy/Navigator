@@ -7,12 +7,18 @@ import { useAuthModal } from "@/context/AuthModalContext"
 import {
   listSyllabi,
   uploadSyllabus,
+  addLink,
+  addTextSource,
   deleteSyllabus,
   fetchGraph,
   reprocessGraph,
   renameDocument,
+  listCourses,
+  createCourse,
+  deleteCourse,
+  setDocumentCourse,
 } from "@/lib/api"
-import type { SyllabusUploadAPI, GraphResponseAPI } from "@/lib/api"
+import type { SyllabusUploadAPI, GraphResponseAPI, CourseAPI } from "@/lib/api"
 import Link from "next/link"
 import {
   Search,
@@ -34,9 +40,12 @@ import {
   FolderInput,
   Network as NetworkIcon,
   FileText as FileIcon,
+  Link2,
+  Type,
 } from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
+import CourseSuggestions from "@/components/CourseSuggestions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -61,23 +70,24 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { getDocStatus } from "@/lib/ui/doc-status"
-import {
-  groupByCourse,
-  parseCourseCode,
-  setCourseCode,
-  type CourseGroup,
-} from "@/lib/ui/course-group"
+import { getDocStatus, isChatReady, NEEDS_OCR_HINT } from "@/lib/ui/doc-status"
+import { groupByRealCourse, type RealCourse } from "@/lib/ui/course-group"
 
 export default function KnowledgeBasePage() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
 
   const [uploads, setUploads] = useState<SyllabusUploadAPI[]>([])
+  const [courses, setCourses] = useState<CourseAPI[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isUploading, setIsUploading] = useState(false)
+
+  // Create-course dialog
+  const [createCourseOpen, setCreateCourseOpen] = useState(false)
+  const [newCourseName, setNewCourseName] = useState("")
+  const [creatingCourse, setCreatingCourse] = useState(false)
   const [previewDoc, setPreviewDoc] = useState<{
     id: string
     name: string
@@ -90,6 +100,14 @@ export default function KnowledgeBasePage() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [isSavingRename, setIsSavingRename] = useState(false)
+
+  // Add-source dialog (PDF / link / text)
+  const [addOpen, setAddOpen] = useState(false)
+  const [addTab, setAddTab] = useState<"pdf" | "link" | "text">("pdf")
+  const [linkUrl, setLinkUrl] = useState("")
+  const [textTitle, setTextTitle] = useState("")
+  const [textBody, setTextBody] = useState("")
+  const [isAdding, setIsAdding] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   // BUG FIX #4: Use ref for interval to prevent stale closure race condition
@@ -107,8 +125,13 @@ export default function KnowledgeBasePage() {
   const fetchUploads = useCallback(async (silent = false) => {
     try {
       if (!silent) setLoading(true)
-      const data = await listSyllabi()
+      const [data, courseData] = await Promise.all([
+        listSyllabi(),
+        listCourses().catch(() => ({ courses: [] as CourseAPI[] })),
+      ])
       if (!isMountedRef.current) return
+
+      setCourses(courseData.courses)
 
       // Filter out any optimistic "uploading" rows before merging
       setUploads((prev) => {
@@ -205,6 +228,41 @@ export default function KnowledgeBasePage() {
     await fetchUploads(true)
   }
 
+  const handleAddLink = async () => {
+    const url = linkUrl.trim()
+    if (!url) return
+    setIsAdding(true)
+    try {
+      await addLink(url)
+      toast.success("Enlace añadido.")
+      setLinkUrl("")
+      setAddOpen(false)
+      await fetchUploads(true)
+    } catch (err: any) {
+      toast.error(err?.message ?? "No se pudo añadir el enlace.")
+    } finally {
+      setIsAdding(false)
+    }
+  }
+
+  const handleAddText = async () => {
+    const body = textBody.trim()
+    if (!body) return
+    setIsAdding(true)
+    try {
+      await addTextSource(body, textTitle.trim() || undefined)
+      toast.success("Texto añadido.")
+      setTextTitle("")
+      setTextBody("")
+      setAddOpen(false)
+      await fetchUploads(true)
+    } catch (err: any) {
+      toast.error(err?.message ?? "No se pudo añadir el texto.")
+    } finally {
+      setIsAdding(false)
+    }
+  }
+
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete "${name}"?`)) return
     // Optimistic removal
@@ -250,34 +308,63 @@ export default function KnowledgeBasePage() {
     if (previewDoc && !previewGraph && !previewLoading) loadGraphPreview(previewDoc.id)
   }
 
-  // Delete a whole course = delete every document in the group.
-  const handleDeleteCourse = async (name: string, docs: SyllabusUploadAPI[]) => {
-    const ids = docs.filter((d) => !(d as any)._optimistic).map((d) => d.id)
-    if (ids.length === 0) return
-    if (!confirm(`¿Eliminar el curso "${name}" y sus ${ids.length} documento(s)?`)) return
-    setUploads((prev) => prev.filter((u) => !ids.includes(u.id)))
+  // Delete a course folder. The course entity is removed; its documents survive
+  // (course_id → NULL) and fall back to "Sin curso" rather than being deleted.
+  const handleDeleteCourse = async (courseId: string, name: string, docCount: number) => {
+    const msg =
+      docCount > 0
+        ? `¿Eliminar el curso "${name}"? Sus ${docCount} documento(s) se conservarán sin curso.`
+        : `¿Eliminar el curso "${name}"?`
+    if (!confirm(msg)) return
+    // Optimistic: drop the course + unassign its docs locally.
+    setCourses((prev) => prev.filter((c) => c.id !== courseId))
+    setUploads((prev) =>
+      prev.map((u) => (u.course_id === courseId ? { ...u, course_id: null } : u)),
+    )
     try {
-      await Promise.all(ids.map((id) => deleteSyllabus(id)))
+      await deleteCourse(courseId)
       toast.success("Curso eliminado.")
     } catch {
-      toast.error("No se pudieron eliminar todos los documentos.")
+      toast.error("No se pudo eliminar el curso.")
       await fetchUploads(true)
     }
   }
 
-  // Move a document to another course = re-code its filename's course prefix.
-  const handleMove = async (doc: SyllabusUploadAPI, targetCode: string | null) => {
-    const newName = setCourseCode(doc.original_filename, targetCode)
-    if (newName === doc.original_filename) return
+  // Move a document to another course (or out of one) via the real course_id FK.
+  const handleMove = async (doc: SyllabusUploadAPI, targetCourseId: string | null) => {
+    if ((doc.course_id ?? null) === targetCourseId) return
     setUploads((prev) =>
-      prev.map((u) => (u.id === doc.id ? { ...u, original_filename: newName } : u)),
+      prev.map((u) => (u.id === doc.id ? { ...u, course_id: targetCourseId } : u)),
     )
     try {
-      await renameDocument(doc.id, newName)
-      toast.success(targetCode ? `Movido a ${targetCode}.` : "Movido a Otros.")
+      if (targetCourseId) {
+        await setDocumentCourse(doc.id, { action: "confirm", course_id: targetCourseId })
+        toast.success("Documento movido.")
+      } else {
+        await setDocumentCourse(doc.id, { action: "skip" })
+        toast.success("Quitado del curso.")
+      }
+      await fetchUploads(true)
     } catch {
       toast.error("No se pudo mover el documento.")
       await fetchUploads(true)
+    }
+  }
+
+  const handleCreateCourse = async () => {
+    const name = newCourseName.trim()
+    if (!name) return
+    setCreatingCourse(true)
+    try {
+      await createCourse({ name })
+      toast.success(`Curso "${name}" creado.`)
+      setNewCourseName("")
+      setCreateCourseOpen(false)
+      await fetchUploads(true)
+    } catch (err: any) {
+      toast.error(err?.message ?? "No se pudo crear el curso.")
+    } finally {
+      setCreatingCourse(false)
     }
   }
 
@@ -359,9 +446,17 @@ export default function KnowledgeBasePage() {
   const filteredUploads = uploads.filter((u) =>
     u.original_filename.toLowerCase().includes(searchQuery.toLowerCase()),
   )
-  const courseGroups = groupByCourse(filteredUploads)
-  // Coded courses available as "move" targets.
-  const codedCourses = courseGroups.filter((g) => g.code)
+  const realCourses: RealCourse[] = courses.map((c) => ({ id: c.id, name: c.name, color: c.color }))
+  // While searching, only surface course folders that still have a matching doc.
+  const visibleCourses = searchQuery
+    ? realCourses.filter((c) => filteredUploads.some((u) => u.course_id === c.id))
+    : realCourses
+  const courseGroups = groupByRealCourse(filteredUploads, visibleCourses)
+
+  // Full upload backing the preview dialog (for status-aware actions).
+  const previewUpload = previewDoc ? uploads.find((u) => u.id === previewDoc.id) : undefined
+  const previewReady = previewUpload ? isChatReady(previewUpload) : false
+  const previewNeedsOcr = previewUpload?.status === "needs_ocr"
 
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground overflow-hidden">
@@ -371,11 +466,27 @@ export default function KnowledgeBasePage() {
           Cursos
         </h1>
         <div className="flex items-center gap-2">
-          <Button onClick={handleUploadClick} disabled={isUploading} variant="outline" size="pill">
+          <Button
+            onClick={() => {
+              setNewCourseName("")
+              setCreateCourseOpen(true)
+            }}
+            disabled={isUploading}
+            variant="outline"
+            size="pill"
+          >
             <FolderPlus className="h-4 w-4" />
             Añadir curso
           </Button>
-          <Button onClick={handleUploadClick} disabled={isUploading} variant="accent" size="pill">
+          <Button
+            onClick={() => {
+              setAddTab("pdf")
+              setAddOpen(true)
+            }}
+            disabled={isUploading}
+            variant="accent"
+            size="pill"
+          >
             {isUploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -400,6 +511,8 @@ export default function KnowledgeBasePage() {
             Cada curso tiene su propia carpeta de knowledge. Los modos de estudio se generan desde
             estos documentos.
           </p>
+
+          <CourseSuggestions uploads={uploads} onChanged={() => fetchUploads(true)} />
 
           <div className="mb-6 flex items-center justify-between">
             <div className="relative w-72">
@@ -429,7 +542,7 @@ export default function KnowledgeBasePage() {
                 Reintentar
               </Button>
             </div>
-          ) : filteredUploads.length === 0 ? (
+          ) : courseGroups.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-border/60 bg-card text-center p-6 text-muted-foreground">
               <FileText className="h-10 w-10 mb-3 opacity-20" />
               <p className="text-sm font-medium mb-1">
@@ -448,7 +561,11 @@ export default function KnowledgeBasePage() {
                   (d) => d.status === "processed" && !(d as any)._optimistic,
                 )
                 return (
-                  <AccordionItem key={course.key} value={course.key} className="relative">
+                  <AccordionItem
+                    key={course.id ?? "sin-curso"}
+                    value={course.id ?? "sin-curso"}
+                    className="relative"
+                  >
                     <div className="absolute right-3 top-2.5 z-10 flex items-center gap-1.5">
                       {firstReady && (
                         <Button asChild size="sm" variant="secondary" className="h-8 gap-1.5">
@@ -458,32 +575,35 @@ export default function KnowledgeBasePage() {
                           </Link>
                         </Button>
                       )}
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        onClick={() => handleDeleteCourse(course.name, course.docs)}
-                        className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        title="Eliminar curso"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {course.id && (
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() =>
+                            handleDeleteCourse(course.id!, course.name, course.docs.length)
+                          }
+                          className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          title="Eliminar curso"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                     <AccordionTrigger className="pr-40">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10">
-                        <BookText className="h-[18px] w-[18px] text-accent" />
+                      <div
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
+                        style={course.color ? { backgroundColor: `${course.color}22` } : undefined}
+                      >
+                        <BookText
+                          className="h-[18px] w-[18px] text-accent"
+                          style={course.color ? { color: course.color } : undefined}
+                        />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          {course.code && (
-                            <Badge variant="accent" className="font-mono text-[10px]">
-                              {course.code}
-                            </Badge>
-                          )}
-                          <span className="truncate font-semibold text-foreground">
-                            {course.name}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="truncate font-semibold text-foreground">
+                          {course.name}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
                           {course.docs.length}{" "}
                           {course.docs.length === 1 ? "documento" : "documentos"} · clic para ver
                         </span>
@@ -578,7 +698,7 @@ export default function KnowledgeBasePage() {
                                   )}
                                   <MoveMenu
                                     doc={doc}
-                                    targets={codedCourses}
+                                    targets={realCourses}
                                     optimistic={optimistic}
                                     onMove={handleMove}
                                   />
@@ -625,6 +745,157 @@ export default function KnowledgeBasePage() {
         </div>
       </div>
 
+      {/* Create Course Dialog */}
+      <Dialog
+        open={createCourseOpen}
+        onOpenChange={(open) => !creatingCourse && setCreateCourseOpen(open)}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nuevo curso</DialogTitle>
+            <DialogDescription>
+              Crea una carpeta de curso. Luego asígnale documentos desde las sugerencias o el menú
+              «mover».
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={newCourseName}
+            placeholder="Nombre del curso"
+            onChange={(e) => setNewCourseName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreateCourse()}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setCreateCourseOpen(false)}
+              disabled={creatingCourse}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="accent"
+              onClick={handleCreateCourse}
+              disabled={creatingCourse || !newCourseName.trim()}
+            >
+              {creatingCourse ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FolderPlus className="h-4 w-4" />
+              )}
+              Crear curso
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Source Dialog (PDF / Link / Text) */}
+      <Dialog open={addOpen} onOpenChange={(open) => !isAdding && setAddOpen(open)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Añadir fuente</DialogTitle>
+            <DialogDescription>
+              Sube un PDF, pega un enlace o escribe texto. Todo se indexa para el chat.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mb-3 inline-flex gap-1 rounded-lg border border-border bg-card/50 p-0.5">
+            {[
+              { id: "pdf" as const, label: "PDF", Icon: FileIcon },
+              { id: "link" as const, label: "Enlace", Icon: Link2 },
+              { id: "text" as const, label: "Texto", Icon: Type },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setAddTab(t.id)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  addTab === t.id
+                    ? "bg-accent/15 text-accent"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <t.Icon className="h-3.5 w-3.5" /> {t.label}
+              </button>
+            ))}
+          </div>
+
+          {addTab === "pdf" && (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/70 p-6 text-center">
+              <FileIcon className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">
+                Selecciona uno o más PDFs (máx. 5MB cada uno).
+              </p>
+              <Button
+                variant="accent"
+                size="sm"
+                onClick={() => {
+                  setAddOpen(false)
+                  handleUploadClick()
+                }}
+              >
+                <Plus className="h-4 w-4" /> Elegir PDF
+              </Button>
+            </div>
+          )}
+
+          {addTab === "link" && (
+            <div className="flex flex-col gap-3">
+              <Input
+                type="url"
+                placeholder="https://ejemplo.com/articulo"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddLink()}
+              />
+              <Button
+                variant="accent"
+                onClick={handleAddLink}
+                disabled={isAdding || !linkUrl.trim()}
+                className="self-end"
+              >
+                {isAdding ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4" />
+                )}
+                Añadir enlace
+              </Button>
+            </div>
+          )}
+
+          {addTab === "text" && (
+            <div className="flex flex-col gap-3">
+              <Input
+                type="text"
+                placeholder="Título (opcional)"
+                value={textTitle}
+                onChange={(e) => setTextTitle(e.target.value)}
+              />
+              <textarea
+                placeholder="Pega o escribe el contenido…"
+                value={textBody}
+                onChange={(e) => setTextBody(e.target.value)}
+                rows={8}
+                className="max-h-64 min-h-32 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-accent/20"
+              />
+              <Button
+                variant="accent"
+                onClick={handleAddText}
+                disabled={isAdding || !textBody.trim()}
+                className="self-end"
+              >
+                {isAdding ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Type className="h-4 w-4" />
+                )}
+                Añadir texto
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Graph Preview Dialog */}
       <Dialog
         open={!!previewDoc}
@@ -641,29 +912,53 @@ export default function KnowledgeBasePage() {
               <DialogTitle className="truncate text-base">{previewDoc?.name}</DialogTitle>
               <DialogDescription className="text-xs">Vista previa del documento</DialogDescription>
             </div>
-            <div className="inline-flex shrink-0 gap-1 rounded-lg border border-border bg-card/50 p-0.5">
-              <button
-                onClick={() => setPreviewMode("pdf")}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  previewMode === "pdf"
-                    ? "bg-accent/15 text-accent"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                size="sm"
+                variant="accent"
+                disabled={!previewReady}
+                title={
+                  previewReady
+                    ? "Abrir el chat preguntando sobre este documento"
+                    : "Disponible cuando el documento esté listo"
+                }
+                onClick={() => previewDoc && handleChat(previewDoc.id, previewDoc.name)}
               >
-                <FileIcon className="h-3.5 w-3.5" /> PDF
-              </button>
-              <button
-                onClick={showGraphPreview}
-                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  previewMode === "graph"
-                    ? "bg-accent/15 text-accent"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <NetworkIcon className="h-3.5 w-3.5" /> Mapa
-              </button>
+                <MessageSquare className="h-3.5 w-3.5" />
+                Pregúntame sobre este documento
+              </Button>
+              <div className="inline-flex gap-1 rounded-lg border border-border bg-card/50 p-0.5">
+                <button
+                  onClick={() => setPreviewMode("pdf")}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    previewMode === "pdf"
+                      ? "bg-accent/15 text-accent"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <FileIcon className="h-3.5 w-3.5" /> PDF
+                </button>
+                <button
+                  onClick={showGraphPreview}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    previewMode === "graph"
+                      ? "bg-accent/15 text-accent"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <NetworkIcon className="h-3.5 w-3.5" /> Mapa
+                </button>
+              </div>
             </div>
           </DialogHeader>
+          {previewNeedsOcr && (
+            <div className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {NEEDS_OCR_HINT} No se usará como contexto del chat hasta que tenga texto.
+              </span>
+            </div>
+          )}
           <div className="relative min-h-0 flex-1 bg-background/50">
             {previewMode === "pdf" ? (
               previewDoc?.fileUrl ? (
@@ -722,8 +1017,7 @@ export default function KnowledgeBasePage() {
   )
 }
 
-/** Per-document "move to another course" menu. Courses are filename-derived, so
- *  moving re-codes the file's course prefix via setCourseCode. */
+/** Per-document "move to another course" menu, backed by the real course_id FK. */
 function MoveMenu({
   doc,
   targets,
@@ -731,12 +1025,12 @@ function MoveMenu({
   onMove,
 }: {
   doc: SyllabusUploadAPI
-  targets: CourseGroup[]
+  targets: RealCourse[]
   optimistic: boolean
-  onMove: (doc: SyllabusUploadAPI, targetCode: string | null) => void
+  onMove: (doc: SyllabusUploadAPI, targetCourseId: string | null) => void
 }) {
-  const current = parseCourseCode(doc.original_filename)
-  const others = targets.filter((t) => t.code && t.code !== current)
+  const current = doc.course_id ?? null
+  const others = targets.filter((t) => t.id !== current)
 
   return (
     <DropdownMenu>
@@ -758,10 +1052,11 @@ function MoveMenu({
           <DropdownMenuItem disabled>No hay otros cursos</DropdownMenuItem>
         ) : (
           others.map((t) => (
-            <DropdownMenuItem key={t.key} onClick={() => onMove(doc, t.code)}>
-              <Badge variant="accent" className="mr-1.5 font-mono text-[10px]">
-                {t.code}
-              </Badge>
+            <DropdownMenuItem key={t.id} onClick={() => onMove(doc, t.id)}>
+              <span
+                className="mr-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-accent"
+                style={t.color ? { backgroundColor: t.color } : undefined}
+              />
               <span className="truncate">{t.name}</span>
             </DropdownMenuItem>
           ))
@@ -769,9 +1064,7 @@ function MoveMenu({
         {current && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onMove(doc, null)}>
-              Quitar de curso (Otros)
-            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onMove(doc, null)}>Quitar de curso</DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>

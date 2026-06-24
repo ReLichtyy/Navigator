@@ -62,7 +62,7 @@ describe("UI-4 / UI-11 Cursos window", () => {
   it("renders courses as an <Accordion>, not a hand-rolled <table>", () => {
     expect(f).not.toMatch(/<table\b/)
     expect(f).toContain("<Accordion")
-    expect(f).toContain("groupByCourse(")
+    expect(f).toContain("groupByRealCourse(")
   })
   it("graph preview is a <Dialog>, not a hand-rolled fixed-inset modal", () => {
     expect(f).not.toContain("fixed inset-0")

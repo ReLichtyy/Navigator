@@ -21,32 +21,50 @@ export const TONE_VARIANT: Record<DocTone, "ok" | "error" | "warn" | "pending"> 
   pending: "pending",
 }
 
-export function getDocStatus(doc: SyllabusUploadAPI & { _optimistic?: boolean }): DocStatusView {
-  if (doc._optimistic) return { label: "Uploading…", tone: "pending", canReprocess: false }
+/** Message shown for a scanned/no-text PDF. Single source of truth (UI + tooltip). */
+export const NEEDS_OCR_HINT =
+  "Este PDF es escaneado; sube una versión digital (con texto seleccionable) o espera al OCR."
 
+export function getDocStatus(doc: SyllabusUploadAPI & { _optimistic?: boolean }): DocStatusView {
+  if (doc._optimistic) return { label: "Subiendo…", tone: "pending", canReprocess: false }
+
+  if (doc.status === "needs_ocr") {
+    return {
+      label: "Escaneado",
+      tone: "warn",
+      tooltip: NEEDS_OCR_HINT,
+      canReprocess: false,
+    }
+  }
   if (doc.status === "error") {
     return {
-      label: "Failed",
+      label: "No se procesó",
       tone: "error",
-      tooltip: doc.error_message ?? "Processing failed.",
+      tooltip: doc.error_message ?? "No se pudo procesar el documento. Reintenta el procesamiento.",
       canReprocess: true,
     }
   }
   if (doc.status === "pending") {
-    return { label: "Processing…", tone: "pending", canReprocess: false }
+    return { label: "Procesando…", tone: "pending", canReprocess: false }
   }
 
-  // status === "processed" → look at the graph stage
+  // status === "processed" → the document is already usable for chat; the graph
+  // is a secondary stage, so these states stay non-blocking.
   if (doc.graph_status === "failed") {
     return {
-      label: "Graph failed",
+      label: "Listo · mapa falló",
       tone: "warn",
-      tooltip: doc.graph_error ?? "Graph generation failed.",
+      tooltip: doc.graph_error ?? "El documento está listo, pero el mapa no se pudo generar.",
       canReprocess: true,
     }
   }
   if (doc.graph_status === "pending" || doc.graph_status === "processing") {
-    return { label: "Building graph…", tone: "pending", canReprocess: false }
+    return { label: "Generando mapa…", tone: "pending", canReprocess: false }
   }
-  return { label: "Ready", tone: "ok", canReprocess: false }
+  return { label: "Listo", tone: "ok", canReprocess: false }
+}
+
+/** True when the document is fully indexed and usable as chat context. */
+export function isChatReady(doc: SyllabusUploadAPI & { _optimistic?: boolean }): boolean {
+  return !doc._optimistic && doc.status === "processed"
 }

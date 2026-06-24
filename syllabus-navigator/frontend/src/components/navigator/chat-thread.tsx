@@ -1,6 +1,15 @@
 "use client"
 
-import { ArrowUpRight, Compass, FileText, ThumbsUp, ThumbsDown, Timer } from "lucide-react"
+import {
+  ArrowUpRight,
+  Compass,
+  FileText,
+  Link2,
+  RefreshCw,
+  ThumbsUp,
+  ThumbsDown,
+  Timer,
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -75,6 +84,19 @@ export function ChatThread({
   messages: Message[]
   onPrompt?: (text: string) => void
 }) {
+  // The user question immediately preceding an assistant message, by message id —
+  // used to "regenerate" an answer the user marked as unhelpful (feedback loop).
+  const prevUserById = new Map<string, string>()
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role !== "user") {
+      for (let j = i - 1; j >= 0; j--) {
+        if (messages[j].role === "user") {
+          prevUserById.set(messages[i].id, messages[j].content)
+          break
+        }
+      }
+    }
+  }
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
@@ -148,7 +170,15 @@ export function ChatThread({
     <div ref={scrollRef} className="animate-fade-in h-full overflow-y-auto py-6">
       <div className="flex flex-col gap-5">
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <MessageBubble
+            key={m.id}
+            message={m}
+            onRegenerate={
+              onPrompt && prevUserById.has(m.id)
+                ? () => onPrompt(prevUserById.get(m.id)!)
+                : undefined
+            }
+          />
         ))}
         {showSuggestion && nextAssessment && (
           <SimulacroSuggestion
@@ -162,8 +192,68 @@ export function ChatThread({
   )
 }
 
-function MessageBubble({ message }: { message: Message }) {
+/** Build a navigable href for a citation, or null if the source can't be opened. */
+function citationHref(c: NonNullable<Message["citations"]>[number]): string | null {
+  if (c.source_type === "link" && c.source_url) return c.source_url
+  if (c.file_url) {
+    // PDFs open at the cited page when the viewer supports the #page fragment.
+    return c.page_start ? `${c.file_url}#page=${c.page_start}` : c.file_url
+  }
+  return null
+}
+
+function CitationItem({ c }: { c: NonNullable<Message["citations"]>[number] }) {
+  const href = citationHref(c)
+  const isLink = c.source_type === "link"
+  const Icon = isLink ? Link2 : FileText
+  const locator =
+    c.page_start != null
+      ? `p.${c.page_start}`
+      : c.char_start != null
+        ? `pos.${c.char_start}`
+        : null
+  const quote = c.quote.length > 120 ? `${c.quote.slice(0, 120)}…` : c.quote
+
+  const inner = (
+    <>
+      <Icon className="h-3 w-3 shrink-0 mt-0.5 text-accent" />
+      <span className="min-w-0">
+        {c.source_name && <span className="font-medium text-foreground/80">{c.source_name} · </span>}
+        {locator && <span className="font-medium">{locator} · </span>}
+        &ldquo;{quote}&rdquo;
+      </span>
+      {href && <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 mt-0.5 text-accent/70" />}
+    </>
+  )
+
+  const cls =
+    "flex gap-2 rounded-md bg-secondary/50 px-2 py-1.5 text-[11px] text-muted-foreground"
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(cls, "transition-colors hover:bg-secondary hover:text-foreground")}
+        title={isLink ? "Abrir el enlace original" : "Abrir el PDF en la página citada"}
+      >
+        {inner}
+      </a>
+    )
+  }
+  return <div className={cls}>{inner}</div>
+}
+
+function MessageBubble({
+  message,
+  onRegenerate,
+}: {
+  message: Message
+  onRegenerate?: () => void
+}) {
   const isUser = message.role === "user"
+  const [vote, setVote] = useState<"up" | "down" | null>(null)
 
   if (isUser) {
     return (
@@ -213,48 +303,67 @@ function MessageBubble({ message }: { message: Message }) {
             {message.citations && message.citations.length > 0 && (
               <div className="mt-3 border-t border-border/60 pt-2">
                 <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
-                  Sources
+                  Fuentes
                 </p>
                 <ul className="flex flex-col gap-1.5">
                   {message.citations.map((c, i) => (
-                    <li
-                      key={`${c.chunk_id}-${i}`}
-                      className="flex gap-2 rounded-md bg-secondary/50 px-2 py-1.5 text-[11px] text-muted-foreground"
-                    >
-                      <FileText className="h-3 w-3 shrink-0 mt-0.5 text-accent" />
-                      <span>
-                        {c.page_start != null && (
-                          <span className="font-medium">p.{c.page_start} · </span>
-                        )}
-                        &ldquo;{c.quote.length > 120 ? `${c.quote.slice(0, 120)}…` : c.quote}&rdquo;
-                      </span>
+                    <li key={`${c.chunk_id}-${i}`}>
+                      <CitationItem c={c} />
                     </li>
                   ))}
                 </ul>
               </div>
             )}
 
-            {/* Feedback Buttons */}
-            <div className="mt-2 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+            {/* Feedback loop: record the vote, confirm visually, and offer a
+                regenerate when the answer was marked unhelpful. */}
+            <div
+              className={cn(
+                "mt-2 flex items-center gap-1.5 transition-opacity",
+                vote ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+              )}
+            >
               <button
                 onClick={() => {
+                  setVote("up")
                   submitFeedback(message.id, "up").catch(() => {})
-                  // Optimistic UI state could be added here
                 }}
-                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                title="Helpful response"
+                aria-pressed={vote === "up"}
+                className={cn(
+                  "rounded p-1 transition-colors hover:bg-secondary hover:text-foreground",
+                  vote === "up" ? "text-accent" : "text-muted-foreground",
+                )}
+                title="Respuesta útil"
               >
                 <ThumbsUp className="h-3.5 w-3.5" />
               </button>
               <button
                 onClick={() => {
+                  setVote("down")
                   submitFeedback(message.id, "down").catch(() => {})
                 }}
-                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-                title="Not helpful"
+                aria-pressed={vote === "down"}
+                className={cn(
+                  "rounded p-1 transition-colors hover:bg-secondary hover:text-foreground",
+                  vote === "down" ? "text-destructive" : "text-muted-foreground",
+                )}
+                title="No fue útil"
               >
                 <ThumbsDown className="h-3.5 w-3.5" />
               </button>
+
+              {vote === "down" && onRegenerate && (
+                <button
+                  onClick={onRegenerate}
+                  className="ml-1 inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/10"
+                  title="Volver a intentar esta respuesta"
+                >
+                  <RefreshCw className="h-3 w-3" /> Reintentar
+                </button>
+              )}
+              {vote && (
+                <span className="ml-0.5 text-[11px] text-muted-foreground">Gracias</span>
+              )}
             </div>
           </>
         )}

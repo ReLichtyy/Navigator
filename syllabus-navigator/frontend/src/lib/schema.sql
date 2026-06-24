@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS syllabus_uploads (
   user_id          TEXT        NOT NULL,
   original_filename TEXT       NOT NULL,
   source_hash      TEXT        NOT NULL,
-  status           TEXT        NOT NULL DEFAULT 'pending',
+  source_type      TEXT        NOT NULL DEFAULT 'pdf',  -- pdf | link | text
+  source_url       TEXT,        -- URL original (solo fuentes 'link')
+  status           TEXT        NOT NULL DEFAULT 'pending', -- pending|processed|error|needs_ocr
   error_message    TEXT,
   graph_status     TEXT        NOT NULL DEFAULT 'pending',
   graph_error      TEXT,
@@ -61,8 +63,25 @@ CREATE TABLE IF NOT EXISTS syllabus_uploads (
 );
 
 -- Columnas añadidas para despliegues existentes (idempotente)
-ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS file_url   TEXT;
-ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS file_url    TEXT;
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS expires_at  TIMESTAMPTZ;
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'pdf';
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS source_url  TEXT;
+
+-- Course Intelligence Layer: inferred course assignment for a document.
+-- course_id is only set AFTER the user confirms a suggestion (NULL = sin curso).
+-- inferred_course / infer_confidence hold the latest suggestion shown to the user.
+-- infer_status drives the confirm/reject UI flow.
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS course_id        UUID;
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS inferred_course  TEXT;
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS infer_confidence REAL;
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS infer_status     TEXT NOT NULL DEFAULT 'pending';
+-- Guard the status domain (added separately so it's idempotent on existing DBs).
+DO $$ BEGIN
+  ALTER TABLE syllabus_uploads ADD CONSTRAINT syllabus_uploads_infer_status_chk
+    CHECK (infer_status IN ('pending','suggested','confirmed','rejected','skipped'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_course ON syllabus_uploads(course_id);
 
 CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_user_id ON syllabus_uploads(user_id);
 CREATE INDEX IF NOT EXISTS idx_syllabus_uploads_status  ON syllabus_uploads(status);
@@ -77,11 +96,17 @@ CREATE TABLE IF NOT EXISTS chunks (
   chunk_index  INT           NOT NULL,
   content      TEXT          NOT NULL,
   embedding    vector(1536),               -- text-embedding-3-small
-  page_start   INT,
+  page_start   INT,                        -- locator de página (fuentes 'pdf')
   page_end     INT,
+  char_start   INT,                        -- locator por offset de carácter (fuentes 'link'/'text')
+  char_end     INT,
   created_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
   UNIQUE (syllabus_id, chunk_index)
 );
+
+-- Locators por carácter para fuentes sin paginación (idempotente).
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS char_start INT;
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS char_end   INT;
 
 CREATE INDEX IF NOT EXISTS idx_chunks_syllabus_id ON chunks(syllabus_id);
 -- Índice ANN por similitud coseno (operador <=>). Requiere pgvector >= 0.5 (HNSW).
@@ -300,3 +325,41 @@ CREATE TABLE IF NOT EXISTS topic_mastery (
   UNIQUE (user_id, syllabus_id, topic_key)
 );
 CREATE INDEX IF NOT EXISTS topic_mastery_user_idx ON topic_mastery (user_id, syllabus_id);
+
+-- ---------------------------------------------------------------------------
+-- Course Intelligence Layer (Navigator) — user-defined courses + auto-inference
+-- ---------------------------------------------------------------------------
+-- A user's own course folders. The legacy `courses` table (program/code/term,
+-- Sprint-4 stub, never written) is intentionally left untouched; this is the
+-- live, user-scoped entity that documents get assigned to after confirmation.
+CREATE TABLE IF NOT EXISTS user_courses (
+  id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT        NOT NULL,
+  description  TEXT,
+  subject_tags TEXT[],                 -- e.g. ['arquitectura','software','patrones']
+  color        TEXT,                   -- UI accent
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_user_courses_user ON user_courses(user_id);
+
+-- Now that user_courses exists, point syllabus_uploads.course_id at it (idempotent).
+DO $$ BEGIN
+  ALTER TABLE syllabus_uploads ADD CONSTRAINT syllabus_uploads_course_fk
+    FOREIGN KEY (course_id) REFERENCES user_courses(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- History of course suggestions per document — kept to learn/improve over time.
+CREATE TABLE IF NOT EXISTS course_suggestions (
+  id                  UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  document_id         UUID        NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  suggested_course_id UUID        REFERENCES user_courses(id) ON DELETE SET NULL,
+  suggested_name      TEXT        NOT NULL,   -- inferred name even if the course doesn't exist yet
+  confidence          REAL        NOT NULL,
+  method              TEXT        NOT NULL,   -- 'filename' | 'content' | 'embedding' | 'combined'
+  accepted            BOOLEAN,                -- NULL = pending, true = accepted, false = rejected
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_course_suggestions_doc ON course_suggestions(document_id);

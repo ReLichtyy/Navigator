@@ -79,12 +79,14 @@ export const ChatRepository = {
     return sql`
       SELECT
         c.id, c.title, c.active_model, c.syllabus_id,
+        su.original_filename AS syllabus_name,
         c.created_at,
         COUNT(m.id)::int AS message_count
       FROM chats c
       LEFT JOIN messages m ON m.chat_id = c.id
+      LEFT JOIN syllabus_uploads su ON su.id = c.syllabus_id
       WHERE c.user_id = ${userId}
-      GROUP BY c.id
+      GROUP BY c.id, su.original_filename
       ORDER BY c.created_at DESC
     `
   },

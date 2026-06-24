@@ -23,6 +23,8 @@ const REQUIRED_TABLES = [
   "topic_dependencies",
   "chats",
   "messages",
+  "user_courses",
+  "course_suggestions",
 ]
 
 const startTime = Date.now()

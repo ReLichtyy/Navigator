@@ -14,8 +14,17 @@ import { flags } from "@/lib/config/flags"
 const EMPTY_RESULT: RetrievalResult = { hasContext: false, contextBlock: "", citations: [] }
 
 const TOP_K = 8
+// Over-fetch from the vector index, then re-rank down to TOP_K. A wider candidate
+// pool lets the lexical signal rescue chunks the pure-vector order ranked just
+// outside the cut.
+const CANDIDATE_K = TOP_K * 3
 const MAX_CITATIONS = 5
 const QUOTE_LEN = 500
+
+// Weight of the lexical (keyword-overlap) signal relative to vector similarity in
+// the hybrid re-rank score. Vector similarity dominates; lexical breaks ties and
+// rescues exact-term matches.
+const LEXICAL_WEIGHT = 0.35
 
 /**
  * Relevance gate (cosine distance, range 0..2; lower = closer).
@@ -48,14 +57,49 @@ export const GROUNDED_SYSTEM_PROMPT =
 export const NO_CONTEXT_MESSAGE =
   "No consta en tus archivos subidos: no encontré fragmentos relevantes en este sílabo."
 
-/** Apply the relevance gate + build context/citations from ranked chunks. */
-function buildResult(all: RetrievedChunk[], withSource: boolean): RetrievalResult {
-  // Relevance gate: if the closest chunk is past the ceiling, off-topic → no
-  // context. Otherwise drop the noisy tail.
-  const chunks =
-    all.length === 0 || all[0].distance > MAX_DISTANCE
-      ? []
-      : all.filter((c) => c.distance <= MAX_DISTANCE)
+/** Tokenize to lowercase word stems (length ≥ 3) for lexical overlap scoring. */
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((t) => t.length >= 3)
+}
+
+/**
+ * Hybrid re-rank: combine vector similarity with query/chunk keyword overlap.
+ * Cosine distance is 0..2 (lower = closer) → vectorSim = 1 - distance/2 in [0,1].
+ * lexical = fraction of distinct query terms present in the chunk, in [0,1].
+ * Returns chunks sorted by the blended score (desc). Pure + deterministic.
+ */
+export function rerankChunks<T extends { content: string; distance: number }>(
+  query: string,
+  chunks: T[],
+): T[] {
+  const queryTerms = new Set(tokenize(query))
+  const scored = chunks.map((c) => {
+    const vectorSim = 1 - c.distance / 2
+    let lexical = 0
+    if (queryTerms.size > 0) {
+      const chunkTerms = new Set(tokenize(c.content))
+      let hits = 0
+      for (const t of queryTerms) if (chunkTerms.has(t)) hits++
+      lexical = hits / queryTerms.size
+    }
+    return { c, score: vectorSim + LEXICAL_WEIGHT * lexical }
+  })
+  // Stable sort by score desc; ties keep original (vector) order.
+  return scored
+    .map((s, i) => ({ ...s, i }))
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .map((s) => s.c)
+}
+
+/** Apply the relevance gate, re-rank, then build context/citations. */
+function buildResult(all: RetrievedChunk[], withSource: boolean, query: string): RetrievalResult {
+  // Relevance gate: the gate is on raw vector distance (closest candidate). If even
+  // the nearest chunk is past the ceiling, the question is off-topic → no context.
+  const nearest = all.reduce((min, c) => Math.min(min, c.distance), Infinity)
+  const passing = all.length === 0 || nearest > MAX_DISTANCE ? [] : all.filter((c) => c.distance <= MAX_DISTANCE)
+
+  // Re-rank the survivors with the hybrid signal, then keep TOP_K.
+  const chunks = rerankChunks(query, passing).slice(0, TOP_K)
 
   if (chunks.length === 0) {
     return { hasContext: false, contextBlock: "", citations: [] }
@@ -71,9 +115,14 @@ function buildResult(all: RetrievedChunk[], withSource: boolean): RetrievalResul
       chunk_id: c.id,
       page_start: c.page_start,
       page_end: c.page_end,
+      char_start: c.char_start ?? null,
+      char_end: c.char_end ?? null,
       quote: c.content.length > QUOTE_LEN ? `${c.content.slice(0, QUOTE_LEN)}...` : c.content,
       source_name: c.source_name ?? null,
       syllabus_id: c.syllabus_id ?? null,
+      source_type: (c.source_type as CitationAPI["source_type"]) ?? null,
+      source_url: c.source_url ?? null,
+      file_url: c.file_url ?? null,
     })
   })
 
@@ -88,16 +137,16 @@ export const RetrievalService = {
   async retrieve(syllabusId: string, question: string): Promise<RetrievalResult> {
     if (!flags.ragEnabled) return EMPTY_RESULT
     const queryEmbedding = await embedText(question)
-    const all = await ChunkRepository.search(syllabusId, queryEmbedding, TOP_K)
-    return buildResult(all, false)
+    const all = await ChunkRepository.search(syllabusId, queryEmbedding, CANDIDATE_K)
+    return buildResult(all, false, question)
   },
 
   /** Retrieve relevant context across ALL the user's courses (unbound chat). */
   async retrieveForUser(userId: string, question: string): Promise<RetrievalResult> {
     if (!flags.ragEnabled) return EMPTY_RESULT
     const queryEmbedding = await embedText(question)
-    const all = await ChunkRepository.searchByUser(userId, queryEmbedding, TOP_K)
-    return buildResult(all, true)
+    const all = await ChunkRepository.searchByUser(userId, queryEmbedding, CANDIDATE_K)
+    return buildResult(all, true, question)
   },
 
   /** Compose the user turn with the retrieved context (matches rag_engine.py). */

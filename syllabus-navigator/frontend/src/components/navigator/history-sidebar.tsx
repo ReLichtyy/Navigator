@@ -43,14 +43,26 @@ export function HistorySidebar({
   const [editValue, setEditValue] = useState("")
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [courseFilter, setCourseFilter] = useState<string>("all")
   const inputRef = useRef<HTMLInputElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
+  // Distinct courses present in the history, for the "historial por curso" filter.
+  const courses = useMemo(() => {
+    const names = new Set<string>()
+    for (const c of chats) if (c.syllabusName) names.add(c.syllabusName)
+    return Array.from(names).sort((a, b) => a.localeCompare(b))
+  }, [chats])
+
   const filteredChats = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    if (!q) return chats
-    return chats.filter((c) => c.title.toLowerCase().includes(q))
-  }, [chats, searchQuery])
+    return chats.filter((c) => {
+      if (q && !c.title.toLowerCase().includes(q)) return false
+      if (courseFilter === "all") return true
+      if (courseFilter === "__none__") return !c.syllabusName
+      return c.syllabusName === courseFilter
+    })
+  }, [chats, searchQuery, courseFilter])
 
   const openMenu = (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
@@ -143,6 +155,25 @@ export function HistorySidebar({
             <span>History</span>
           </div>
         </div>
+
+        {courses.length > 0 && (
+          <div className="px-4 pb-2">
+            <select
+              value={courseFilter}
+              onChange={(e) => setCourseFilter(e.target.value)}
+              aria-label="Filtrar historial por curso"
+              className="w-full rounded-lg border border-border/60 bg-card px-2.5 py-1.5 text-xs text-sidebar-foreground outline-none transition-colors hover:border-accent/40 focus:border-accent/60"
+            >
+              <option value="all">Todos los cursos</option>
+              {courses.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+              <option value="__none__">Sin curso</option>
+            </select>
+          </div>
+        )}
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
           {loading ? (

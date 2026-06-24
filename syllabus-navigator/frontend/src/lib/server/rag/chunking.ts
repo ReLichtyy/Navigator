@@ -9,8 +9,12 @@ import { extractText, getDocumentProxy } from "unpdf"
 
 export interface TextChunk {
   text: string
-  pageStart: number
-  pageEnd: number
+  /** Página 1-based (fuentes PDF). null para link/texto. */
+  pageStart: number | null
+  pageEnd: number | null
+  /** Offset de carácter en el texto fuente (fuentes link/texto). null para PDF. */
+  charStart?: number | null
+  charEnd?: number | null
 }
 
 /** Split long text into overlapping windows. */
@@ -28,6 +32,42 @@ export function splitText(text: string, maxLen = 1200, overlap = 120): string[] 
     start = Math.max(0, end - overlap)
   }
   return chunks
+}
+
+/**
+ * Split long text into overlapping windows, tracking the char offset of each
+ * window in the (trimmed) source. Used for link/text sources whose citations
+ * locate by character range instead of page number.
+ */
+export function splitTextWithOffsets(
+  text: string,
+  maxLen = 1200,
+  overlap = 120,
+): { text: string; start: number; end: number }[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  if (trimmed.length <= maxLen) return [{ text: trimmed, start: 0, end: trimmed.length }]
+
+  const out: { text: string; start: number; end: number }[] = []
+  let start = 0
+  while (start < trimmed.length) {
+    const end = Math.min(start + maxLen, trimmed.length)
+    out.push({ text: trimmed.slice(start, end), start, end })
+    if (end === trimmed.length) break
+    start = Math.max(0, end - overlap)
+  }
+  return out
+}
+
+/** Plain text (user-pasted or extracted from a URL) → chunks with char locators. */
+export function textToChunks(text: string, maxLen = 1200, overlap = 120): TextChunk[] {
+  return splitTextWithOffsets(text, maxLen, overlap).map((w) => ({
+    text: w.text,
+    pageStart: null,
+    pageEnd: null,
+    charStart: w.start,
+    charEnd: w.end,
+  }))
 }
 
 /** Extract per-page text from a PDF and split into chunk dicts with page numbers. */
@@ -50,4 +90,69 @@ export async function pdfToPageChunks(
     }
   })
   return out
+}
+
+/**
+ * Count "meaningful" characters (non-whitespace) across chunks. Used to decide
+ * if a PDF carries real digital text or is just a scan with garbage/no text.
+ */
+export function meaningfulTextLength(chunks: TextChunk[]): number {
+  let n = 0
+  for (const c of chunks) n += c.text.replace(/\s/g, "").length
+  return n
+}
+
+export interface ExtractedUrl {
+  title: string
+  text: string
+}
+
+const HTML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&nbsp;": " ",
+}
+
+/** Minimal HTML → text: drop scripts/styles/tags, decode common entities, collapse whitespace. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/(p|div|li|h[1-6]|br|tr|section|article)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&[a-z]+;|&#39;/gi, (m) => HTML_ENTITIES[m.toLowerCase()] ?? " ")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
+/**
+ * Fetch a URL and extract clean text + title. No headless browser: server-side
+ * fetch + HTML strip, good enough for articles/syllabi pages. Throws on non-OK
+ * responses or non-HTML content so the caller can surface a clear error.
+ */
+export async function fetchUrlText(url: string, maxBytes = 2_000_000): Promise<ExtractedUrl> {
+  const res = await fetch(url, {
+    redirect: "follow",
+    headers: { "User-Agent": "SyllabusNavigator/1.0 (+content-ingest)" },
+  })
+  if (!res.ok) throw new Error(`No se pudo acceder al enlace (HTTP ${res.status}).`)
+
+  const contentType = res.headers.get("content-type") ?? ""
+  if (!/text\/html|text\/plain|application\/xhtml/i.test(contentType)) {
+    throw new Error(`Tipo de contenido no soportado para enlaces: ${contentType || "desconocido"}.`)
+  }
+
+  const raw = (await res.text()).slice(0, maxBytes)
+  const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
+  const title = titleMatch ? htmlToText(titleMatch[1]).slice(0, 200) : url
+  const text = /text\/plain/i.test(contentType) ? raw.trim() : htmlToText(raw)
+  return { title: title || url, text }
 }

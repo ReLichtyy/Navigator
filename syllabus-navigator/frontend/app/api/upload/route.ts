@@ -27,6 +27,23 @@ export async function POST(request: Request) {
 
     const upload = await DocumentService.processUpload(userId, role, file)
 
+    // Scanned PDF (no digital text): persisted but not indexed. Skip the worker.
+    if (upload.status === "needs_ocr") {
+      await invalidatePrefix(`uploads:list:${userId}`)
+      logInfo("api.upload.needs_ocr", { userId, uploadId: upload.id })
+      return NextResponse.json(
+        {
+          syllabus_id: upload.id,
+          status: "needs_ocr",
+          message:
+            "No pudimos indexar este PDF porque parece ser un documento escaneado o sin " +
+            "texto digital seleccionable. El OCR automático no está habilitado. El archivo " +
+            "sí quedó guardado, pero está pendiente de OCR o de una versión con texto digital.",
+        },
+        { status: 200 },
+      )
+    }
+
     // Run the worker (embeddings + graph) inline so it actually completes on
     // serverless, then invalidate so the list reflects the final status.
     await triggerIngestionWorker()

@@ -79,3 +79,52 @@ export function groupByCourse(uploads: SyllabusUploadAPI[]): CourseGroup[] {
     return a.key.localeCompare(b.key)
   })
 }
+
+// ---------------------------------------------------------------------------
+// Real course grouping (Course Intelligence Layer) — group by the confirmed
+// course_id FK instead of the filename. Empty courses are shown so the user
+// sees every folder; documents without a course fall into a "Sin curso" bucket.
+// ---------------------------------------------------------------------------
+export interface RealCourse {
+  id: string
+  name: string
+  color: string | null
+}
+
+export interface RealCourseGroup {
+  /** Course id, or null for the "Sin curso" bucket. */
+  id: string | null
+  name: string
+  color: string | null
+  docs: SyllabusUploadAPI[]
+}
+
+export function groupByRealCourse(
+  uploads: SyllabusUploadAPI[],
+  courses: RealCourse[],
+): RealCourseGroup[] {
+  const known = new Set(courses.map((c) => c.id))
+  const byCourse = new Map<string, SyllabusUploadAPI[]>()
+  const uncategorized: SyllabusUploadAPI[] = []
+
+  for (const u of uploads) {
+    // A course_id pointing at a course we don't know about (e.g. a refetch race)
+    // is treated as uncategorised so the document never disappears.
+    if (u.course_id && known.has(u.course_id)) {
+      const arr = byCourse.get(u.course_id) ?? []
+      arr.push(u)
+      byCourse.set(u.course_id, arr)
+    } else {
+      uncategorized.push(u)
+    }
+  }
+
+  const groups: RealCourseGroup[] = courses
+    .map((c) => ({ id: c.id, name: c.name, color: c.color, docs: byCourse.get(c.id) ?? [] }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  if (uncategorized.length > 0) {
+    groups.push({ id: null, name: "Sin curso", color: null, docs: uncategorized })
+  }
+  return groups
+}

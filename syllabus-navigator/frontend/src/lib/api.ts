@@ -62,6 +62,7 @@ import type {
   MessageOutAPI,
   SyllabusUploadAPI,
   GraphResponseAPI,
+  CourseAPI,
 } from "@/types/api"
 
 export type {
@@ -71,6 +72,7 @@ export type {
   MessageOutAPI,
   SyllabusUploadAPI,
   GraphResponseAPI,
+  CourseAPI,
 }
 
 export interface UserPreferencesAPI {
@@ -231,6 +233,20 @@ export async function uploadSyllabus(file: File) {
   })
 }
 
+export async function addLink(url: string) {
+  return request<{ syllabus_id: string; status: string; message: string }>("/upload/link", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  })
+}
+
+export async function addTextSource(text: string, title?: string) {
+  return request<{ syllabus_id: string; status: string; message: string }>("/upload/text", {
+    method: "POST",
+    body: JSON.stringify({ text, title }),
+  })
+}
+
 export async function deleteSyllabus(id: string) {
   return request<{ success: boolean }>(`/upload/${id}`, { method: "DELETE", json: false })
 }
@@ -239,6 +255,67 @@ export async function renameDocument(id: string, name: string) {
   return request<{ upload: SyllabusUploadAPI }>(`/upload/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ name }),
+  })
+}
+
+// ============================================================================
+// Courses — Course Intelligence Layer (inference + assignment)
+// ============================================================================
+
+/** List the user's courses (with document counts). */
+export async function listCourses() {
+  return request<{ courses: CourseAPI[] }>("/courses", { method: "GET", json: false })
+}
+
+/** Create a course. */
+export async function createCourse(input: {
+  name: string
+  description?: string | null
+  subject_tags?: string[] | null
+  color?: string | null
+}) {
+  return request<{ course: CourseAPI }>("/courses", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+/**
+ * Act on a document's course suggestion. confirm with no course → accept the
+ * standing suggestion; with course_id → assign existing; with new_course_name →
+ * create + assign. reject leaves it uncategorised; skip defers the decision.
+ */
+export async function setDocumentCourse(
+  docId: string,
+  body:
+    | {
+        action: "confirm"
+        course_id?: string
+        new_course_name?: string
+        new_course_tags?: string[]
+      }
+    | { action: "reject" }
+    | { action: "skip" },
+) {
+  return request<{ upload: SyllabusUploadAPI }>(`/upload/${encodeURIComponent(docId)}/course`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+/** Rename a course. */
+export async function renameCourse(courseId: string, name: string) {
+  return request<{ course: CourseAPI }>(`/courses/${encodeURIComponent(courseId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  })
+}
+
+/** Delete a course; its documents survive and become uncategorised. */
+export async function deleteCourse(courseId: string) {
+  return request<{ success: boolean }>(`/courses/${encodeURIComponent(courseId)}`, {
+    method: "DELETE",
+    json: false,
   })
 }
 

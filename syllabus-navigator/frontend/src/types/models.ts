@@ -15,7 +15,14 @@ export interface Citation {
   chunk_id: string
   page_start: number | null
   page_end: number | null
+  char_start?: number | null
+  char_end?: number | null
   quote: string
+  source_type?: "pdf" | "link" | "text" | null
+  source_url?: string | null
+  file_url?: string | null
+  source_name?: string | null
+  syllabus_id?: string | null
 }
 
 export interface Message {
@@ -35,6 +42,8 @@ export interface Chat {
   createdAt?: string
   activeModel?: string
   syllabusId?: string | null
+  /** Document/course name this chat is bound to (for "historial por curso" filter). */
+  syllabusName?: string | null
   messageCount?: number
   messages: Message[]
 }

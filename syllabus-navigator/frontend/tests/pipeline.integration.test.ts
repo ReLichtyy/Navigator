@@ -100,6 +100,10 @@ vi.mock("@/lib/server/rag/chunking", () => ({
       pageEnd: 2,
     },
   ]),
+  // Above MIN_PDF_TEXT_CHARS so the digital-PDF path indexes (not needs_ocr).
+  meaningfulTextLength: vi.fn(() => 9999),
+  textToChunks: vi.fn((t: string) => [{ text: t, pageStart: null, pageEnd: null }]),
+  fetchUrlText: vi.fn(async () => ({ title: "Doc", text: "x" })),
 }))
 
 vi.mock("@/lib/server/storage/blob", () => ({
