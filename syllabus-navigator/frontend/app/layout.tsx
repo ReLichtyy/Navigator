@@ -1,3 +1,5 @@
+import { ClerkProvider } from "@clerk/nextjs"
+import { dark } from "@clerk/themes"
 import type { Metadata } from "next"
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
@@ -21,24 +23,22 @@ export const metadata: Metadata = {
   generator: "v0.app",
 }
 
-import { auth } from "@/lib/auth/auth"
-
 import { AppSidebar } from "@/components/navigator/app-sidebar"
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const session = await auth()
-
   return (
     <html lang="es" className={`dark ${geist.variable} ${geistMono.variable} bg-background`}>
       <body className="font-sans antialiased flex h-dvh w-full overflow-hidden text-foreground">
-        <ClientProviders session={session}>
-          <AppSidebar />
-          <div className="flex-1 flex flex-col min-w-0">{children}</div>
-        </ClientProviders>
+        <ClerkProvider appearance={{ baseTheme: dark }}>
+          <ClientProviders>
+            <AppSidebar />
+            <div className="flex-1 flex flex-col min-w-0">{children}</div>
+          </ClientProviders>
+        </ClerkProvider>
       </body>
     </html>
   )

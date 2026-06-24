@@ -12,20 +12,23 @@ CREATE EXTENSION IF NOT EXISTS vector;  -- pgvector: embeddings para retrieval R
 CREATE TABLE IF NOT EXISTS users (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email         TEXT NOT NULL UNIQUE,
-  password_hash TEXT,                                  -- NULL para cuentas OAuth (Google)
+  password_hash TEXT,                                  -- legacy NextAuth/credentials; NULL bajo Clerk
   display_name  TEXT NOT NULL DEFAULT 'User',
   role          TEXT NOT NULL DEFAULT 'free',
-  image         TEXT,                                  -- avatar URL del proveedor OAuth
+  image         TEXT,                                  -- avatar URL del proveedor (Google/Clerk)
+  clerk_id      TEXT UNIQUE,                           -- id de usuario en Clerk (user_xxx)
   tenant_id     UUID,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Migración de despliegues existentes: password_hash deja de ser obligatorio (OAuth)
+-- Migración de despliegues existentes: password_hash deja de ser obligatorio (OAuth/Clerk)
 ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_clerk_id ON users(clerk_id) WHERE clerk_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS user_preferences (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

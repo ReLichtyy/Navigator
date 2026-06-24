@@ -32,7 +32,7 @@ export const DocumentRepository = {
 
   async listUploads(userId: string): Promise<DbDocument[]> {
     const rows = await sql`
-      SELECT id, original_filename, status, graph_status, error_message, graph_error, created_at
+      SELECT id, original_filename, status, graph_status, error_message, graph_error, file_url, created_at
       FROM syllabus_uploads
       WHERE user_id = ${userId}
       ORDER BY created_at DESC

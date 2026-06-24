@@ -41,6 +41,8 @@ export interface SyllabusUploadAPI {
   graph_status: "pending" | "processing" | "ready" | "failed"
   error_message?: string | null
   graph_error?: string | null
+  /** Blob URL of the original PDF (accounts with blob storage only; null otherwise). */
+  file_url?: string | null
   created_at: string
 }
 

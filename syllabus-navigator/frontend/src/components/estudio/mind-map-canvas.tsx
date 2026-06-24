@@ -1,7 +1,6 @@
 "use client"
 
 import { CSSProperties, useState } from "react"
-import type { StudySetAPI } from "@/lib/api"
 import {
   Plus,
   Minus,
@@ -25,20 +24,15 @@ import {
   Loader2,
 } from "lucide-react"
 
-type Mindmap = StudySetAPI["mindmap"]
+export type Mindmap = { center: string; branches: { label: string; items: string[] }[] }
 export type MindCourse = { id: string; code: string; label: string }
 
 // Branch palette — matches the Navigator design (green / blue / purple / amber).
 const PALETTE = ["#5BE39A", "#6FB6F0", "#C9A0F0", "#F0C27C"]
-// Fixed branch slots inside the 980×540 world.
-const BPOS = [
-  { x: 430, y: 96 },
-  { x: 726, y: 172 },
-  { x: 726, y: 344 },
-  { x: 430, y: 420 },
-]
 // Where edges leave the center node (its right-middle).
 const C_ANCHOR = { x: 200, y: 274 }
+// Cap visible branches so the radial fan stays legible.
+const MAX_BRANCHES = 8
 
 type Tool = "select" | "add" | "connect" | "text" | "color" | "layout" | "lock" | "export" | "del"
 
@@ -48,24 +42,38 @@ function hexA(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`
 }
 
+// Distribute N branches vertically on the right with a two-column stagger so
+// the fan looks organic (generalises the reference's fixed 4 slots).
+function branchPos(i: number, n: number): { x: number; y: number } {
+  const colX = [430, 726]
+  const top = 70
+  const bottom = 410
+  const y = n > 1 ? top + (i * (bottom - top)) / (n - 1) : 200
+  return { x: colX[i % 2], y: Math.round(y) }
+}
+
 export function MindMapCanvas({
   mindmap,
-  courses,
+  courses = [],
   activeCourseId,
   onPickCourse,
   courseCode,
   courseName,
   loading = false,
   onRegenerate,
+  onTopicDouble,
 }: {
   mindmap: Mindmap
-  courses: MindCourse[]
-  activeCourseId: string
-  onPickCourse: (id: string) => void
-  courseCode: string
-  courseName: string
+  /** Optional top course picker. Omit/empty to hide it (e.g. the /mapa page owns its own). */
+  courses?: MindCourse[]
+  activeCourseId?: string
+  onPickCourse?: (id: string) => void
+  courseCode?: string
+  courseName?: string
   loading?: boolean
   onRegenerate?: (opts: { focus: string[]; instructions: string }) => void
+  /** Double-click a node → send its label to the chat. */
+  onTopicDouble?: (label: string) => void
 }) {
   // viewport
   const [zoom, setZoom] = useState(1)
@@ -81,7 +89,9 @@ export function MindMapCanvas({
   const [focus, setFocus] = useState<string[]>([])
   const [editText, setEditText] = useState("")
 
-  const branches = mindmap.branches.slice(0, 4)
+  const branches = mindmap.branches.slice(0, MAX_BRANCHES)
+  const n = branches.length
+  const showPicker = courses.length > 0 && !!onPickCourse
 
   const zoomBy = (f: number) => {
     setZoom((oz) => {
@@ -149,43 +159,40 @@ export function MindMapCanvas({
   const mmH = Math.min(86, 86 / zoom)
   const mmLeft = Math.max(0, Math.min(152 - mmW, -pan.x * 0.152))
   const mmTop = Math.max(0, Math.min(86 - mmH, -pan.y * 0.152))
-  const mmDots = [
-    { x: 17, y: 42, c: "#5BE39A" },
-    { x: 80, y: 13, c: PALETTE[0] },
-    { x: 127, y: 32, c: PALETTE[1] },
-    { x: 127, y: 60, c: PALETTE[2] },
-    { x: 80, y: 75, c: PALETTE[3] },
-  ]
+
+  const subtitle = [courseCode, courseName].filter(Boolean).join(" · ") || mindmap.center
 
   return (
     <div>
-      {/* course picker — "Mapa de:" */}
-      <div className="flex flex-wrap items-center gap-2.5">
-        <span className="text-xs font-semibold text-[#7C8983]">Mapa de:</span>
-        {courses.map((c) => {
-          const active = c.id === activeCourseId
-          return (
-            <button
-              key={c.id}
-              onClick={() => onPickCourse(c.id)}
-              className="flex items-center gap-1.5 rounded-[10px] border px-3 py-1.5 transition-colors"
-              style={{
-                borderColor: active ? "rgba(63,191,132,0.4)" : "rgba(255,255,255,0.08)",
-                background: active ? "rgba(63,191,132,0.1)" : "rgba(255,255,255,0.015)",
-                color: active ? "#EEF3F0" : "#9AA39E",
-              }}
-            >
-              <span
-                className="font-mono text-[10.5px] font-semibold"
-                style={{ color: active ? "#3FBF84" : "#6B756F" }}
+      {/* course picker — "Mapa de:" (optional) */}
+      {showPicker && (
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="text-xs font-semibold text-[#7C8983]">Mapa de:</span>
+          {courses.map((c) => {
+            const active = c.id === activeCourseId
+            return (
+              <button
+                key={c.id}
+                onClick={() => onPickCourse?.(c.id)}
+                className="flex items-center gap-1.5 rounded-[10px] border px-3 py-1.5 transition-colors"
+                style={{
+                  borderColor: active ? "rgba(63,191,132,0.4)" : "rgba(255,255,255,0.08)",
+                  background: active ? "rgba(63,191,132,0.1)" : "rgba(255,255,255,0.015)",
+                  color: active ? "#EEF3F0" : "#9AA39E",
+                }}
               >
-                {c.code}
-              </span>
-              <span className="text-[12.5px] font-semibold">{c.label}</span>
-            </button>
-          )
-        })}
-      </div>
+                <span
+                  className="font-mono text-[10.5px] font-semibold"
+                  style={{ color: active ? "#3FBF84" : "#6B756F" }}
+                >
+                  {c.code}
+                </span>
+                <span className="text-[12.5px] font-semibold">{c.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* CANVAS */}
       <div
@@ -193,7 +200,7 @@ export function MindMapCanvas({
         onMouseMove={panMove}
         onMouseUp={panEnd}
         onMouseLeave={panEnd}
-        className="relative mt-4 overflow-hidden rounded-[20px] border"
+        className={`relative overflow-hidden rounded-[20px] border ${showPicker ? "mt-4" : ""}`}
         style={{
           height: 560,
           borderColor: "rgba(255,255,255,0.08)",
@@ -220,7 +227,7 @@ export function MindMapCanvas({
             {branches.map((_, i) => {
               const color = PALETTE[i % 4]
               const id = "b" + i
-              const p = BPOS[i]
+              const p = branchPos(i, n)
               const ax = p.x
               const ay = p.y + (exp[id] ? 54 : 24)
               const isSel = sel === id
@@ -243,6 +250,7 @@ export function MindMapCanvas({
           {/* center node */}
           <div
             onClick={() => setSelNode((s) => (s === "center" ? null : "center"))}
+            onDoubleClick={() => onTopicDouble?.(mindmap.center)}
             style={{
               position: "absolute",
               left: 30,
@@ -277,7 +285,7 @@ export function MindMapCanvas({
           {branches.map((b, i) => {
             const color = PALETTE[i % 4]
             const id = "b" + i
-            const p = BPOS[i]
+            const p = branchPos(i, n)
             const isSel = sel === id
             const allOn = sel === "center"
             const dim = !!sel && !isSel && !allOn
@@ -285,6 +293,7 @@ export function MindMapCanvas({
             return (
               <div
                 key={id}
+                onDoubleClick={() => onTopicDouble?.(b.label)}
                 style={{
                   position: "absolute",
                   left: p.x,
@@ -306,7 +315,10 @@ export function MindMapCanvas({
                 }}
               >
                 <div
-                  onClick={() => toggleNode(id)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleNode(id)
+                  }}
                   className="flex cursor-pointer items-center gap-2.5"
                 >
                   <span
@@ -323,7 +335,7 @@ export function MindMapCanvas({
                     }}
                   />
                 </div>
-                {isExp && (
+                {isExp && b.items.length > 0 && (
                   <div className="mt-2.5 flex flex-wrap gap-1.5">
                     {b.items.map((it, j) => (
                       <span
@@ -341,32 +353,38 @@ export function MindMapCanvas({
                     ))}
                   </div>
                 )}
+                {isExp && b.items.length === 0 && (
+                  <div className="mt-2.5 text-[11px] italic text-[#7C8983]">Sin subtemas.</div>
+                )}
               </div>
             )
           })}
         </div>
 
         {/* edit button */}
-        <button
-          onClick={() => {
-            setEditOpen((o) => !o)
-            setToolsOpen(false)
-          }}
-          className="absolute right-4 top-4 flex items-center gap-1.5 rounded-[11px] px-[15px] py-[9px] text-[12.5px] font-bold"
-          style={{
-            backdropFilter: "blur(6px)",
-            border: "1px solid rgba(63,191,132,0.35)",
-            background: editOpen ? "rgba(63,191,132,0.24)" : "rgba(63,191,132,0.14)",
-            color: "#9FEDC4",
-          }}
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Editar mapa
-        </button>
+        {onRegenerate && (
+          <button
+            onClick={() => {
+              setEditOpen((o) => !o)
+              setToolsOpen(false)
+            }}
+            className="absolute right-4 top-4 flex items-center gap-1.5 rounded-[11px] px-[15px] py-[9px] text-[12.5px] font-bold"
+            style={{
+              backdropFilter: "blur(6px)",
+              border: "1px solid rgba(63,191,132,0.35)",
+              background: editOpen ? "rgba(63,191,132,0.24)" : "rgba(63,191,132,0.14)",
+              color: "#9FEDC4",
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Editar mapa
+          </button>
+        )}
 
         {/* AI edit drawer */}
         {editOpen && (
           <div
+            onMouseDown={(e) => e.stopPropagation()}
             className="absolute bottom-0 right-0 top-0 z-[25] flex w-[340px] flex-col"
             style={{
               background: "rgba(11,15,13,0.97)",
@@ -395,9 +413,7 @@ export function MindMapCanvas({
                   <div className="text-[14.5px] font-extrabold text-[#F2F6F4]">
                     Regenerar con IA
                   </div>
-                  <div className="mt-px text-[11px] text-[#7C8983]">
-                    {courseCode} · {courseName}
-                  </div>
+                  <div className="mt-px text-[11px] text-[#7C8983]">{subtitle}</div>
                 </div>
               </div>
               <button
@@ -416,38 +432,6 @@ export function MindMapCanvas({
             </div>
 
             <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-[18px]">
-              {/* course */}
-              <div>
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
-                  Curso del mapa
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {courses.map((c) => {
-                    const active = c.id === activeCourseId
-                    return (
-                      <button
-                        key={c.id}
-                        onClick={() => onPickCourse(c.id)}
-                        className="flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[12.5px] font-semibold"
-                        style={{
-                          border: `1px solid ${active ? "rgba(63,191,132,0.4)" : "rgba(255,255,255,0.08)"}`,
-                          background: active ? "rgba(63,191,132,0.1)" : "rgba(255,255,255,0.015)",
-                          color: active ? "#EEF3F0" : "#9AA39E",
-                        }}
-                      >
-                        <span
-                          className="font-mono text-[10.5px] font-semibold"
-                          style={{ color: active ? "#3FBF84" : "#6B756F" }}
-                        >
-                          {c.code}
-                        </span>
-                        <span>{c.label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
               {/* focus topics */}
               <div>
                 <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
@@ -700,17 +684,28 @@ export function MindMapCanvas({
           }}
         >
           <div className="absolute" style={{ inset: 7 }}>
-            {mmDots.map((d, i) => (
+            <div
+              className="absolute"
+              style={{
+                left: 17,
+                top: 42,
+                width: 7,
+                height: 7,
+                borderRadius: 2,
+                background: "#5BE39A",
+              }}
+            />
+            {branches.map((b, i) => (
               <div
                 key={i}
                 className="absolute"
                 style={{
-                  left: d.x,
-                  top: d.y,
+                  left: 60 + (i % 4) * 28,
+                  top: 12 + Math.floor(i / 4) * 30 + (i % 2) * 18,
                   width: 7,
                   height: 7,
                   borderRadius: 2,
-                  background: d.c,
+                  background: PALETTE[i % 4],
                 }}
               />
             ))}
@@ -740,9 +735,18 @@ export function MindMapCanvas({
             <div className="text-center">
               <div className="text-[14.5px] font-bold text-[#E8EDEA]">Procesando mapa…</div>
               <div className="mt-[5px] text-xs text-[#7C8983]">
-                Analizando temas del knowledge base de {courseCode}
+                Analizando los temas y sus relaciones.
               </div>
             </div>
+          </div>
+        )}
+
+        {/* empty state (no branches) */}
+        {!loading && n === 0 && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-8 text-center">
+            <p className="max-w-sm text-sm text-[#7C8983]">
+              Aún no hay temas en el mapa. Sube y procesa un sílabo para generar el mapa mental.
+            </p>
           </div>
         )}
       </div>

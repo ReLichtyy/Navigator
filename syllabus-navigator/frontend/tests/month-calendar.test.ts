@@ -18,7 +18,11 @@ function ev(id: string, date: string | null, course = "ISW-524"): ScheduleEventA
 
 describe("bucketEventsByDate", () => {
   it("groups events by their ISO date", () => {
-    const out = bucketEventsByDate([ev("1", "2026-06-23"), ev("2", "2026-06-23"), ev("3", "2026-07-03")])
+    const out = bucketEventsByDate([
+      ev("1", "2026-06-23"),
+      ev("2", "2026-06-23"),
+      ev("3", "2026-07-03"),
+    ])
     expect(out["2026-06-23"]).toHaveLength(2)
     expect(out["2026-07-03"]).toHaveLength(1)
   })

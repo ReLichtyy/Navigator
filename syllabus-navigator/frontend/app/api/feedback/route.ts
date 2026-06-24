@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth/auth"
+import { getAuthedUser } from "@/lib/server/utils/auth-helpers"
 import { sql } from "@/lib/db"
 import { logError, logInfo } from "@/lib/observability/logger"
 
@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic"
 
 export async function POST(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const session = await getAuthedUser()
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     await sql`
       INSERT INTO feedback (user_id, message_id, rating, comment, prompt_id, model)
       VALUES (
-        ${session.user.id}::uuid,
+        ${session.userId}::uuid,
         ${body.message_id}::uuid,
         ${rating},
         ${body.comment ?? null},
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     `
 
     logInfo("feedback.submitted", {
-      userId: session.user.id,
+      userId: session.userId,
       messageId: body.message_id,
       rating,
     })

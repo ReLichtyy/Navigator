@@ -26,7 +26,13 @@ describe("pickWeekTopics", () => {
 
   it("dedupes by title and caps at the limit", () => {
     const out = pickWeekTopics(
-      [ev("A", "2026-06-25"), ev("A", "2026-06-26"), ev("B", "2026-06-27"), ev("C", "2026-06-28"), ev("D", "2026-06-28")],
+      [
+        ev("A", "2026-06-25"),
+        ev("A", "2026-06-26"),
+        ev("B", "2026-06-27"),
+        ev("C", "2026-06-28"),
+        ev("D", "2026-06-28"),
+      ],
       range,
       3,
     )

@@ -4,7 +4,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth/auth"
+import { getAuthedUser } from "@/lib/server/utils/auth-helpers"
 import { sql } from "@/lib/db"
 import { cached, invalidate } from "@/lib/cache"
 import { logError } from "@/lib/observability/logger"
@@ -13,12 +13,12 @@ export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const session = await getAuthedUser()
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = session.user.id
+    const userId = session.userId
 
     const prefs = await cached(`user:prefs:${userId}`, 120, async () => {
       const rows = await sql`
@@ -46,12 +46,12 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const session = await getAuthedUser()
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const userId = session.user.id
+    const userId = session.userId
     const body = await request.json()
 
     const allowedFields = ["defaultProvider", "defaultModel", "theme", "language"]

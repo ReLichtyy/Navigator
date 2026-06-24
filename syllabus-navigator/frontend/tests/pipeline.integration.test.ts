@@ -18,10 +18,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest"
 const VOCAB = ["recursión", "recursion", "derivada", "derivative", "francia", "france", "pizza"]
 function embed(text: string): number[] {
   const lower = text.toLowerCase()
-  return VOCAB.map((w) => (lower.split(w).length - 1))
+  return VOCAB.map((w) => lower.split(w).length - 1)
 }
 function cosineDistance(a: number[], b: number[]): number {
-  let dot = 0, na = 0, nb = 0
+  let dot = 0,
+    na = 0,
+    nb = 0
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i]
     na += a[i] * a[i]
@@ -62,14 +64,19 @@ const store = vi.hoisted(() => {
 })
 
 vi.mock("@/lib/observability/logger", () => ({
-  logInfo: vi.fn(), logWarn: vi.fn(), logError: vi.fn(),
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+  logError: vi.fn(),
 }))
 
 // auth-helpers pulls in next-auth; we only need ApiErrorResponse here.
 vi.mock("@/lib/server/utils/auth-helpers", () => ({
   ApiErrorResponse: class extends Error {
     status: number
-    constructor(message: string, status: number) { super(message); this.status = status }
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+    }
   },
 }))
 
@@ -82,8 +89,16 @@ vi.mock("@/lib/llm/embeddings", () => ({
 vi.mock("@/lib/server/rag/chunking", () => ({
   // Parse step: pretend the PDF yielded these two chunks of text.
   pdfToPageChunks: vi.fn(async () => [
-    { text: "La recursión es una técnica donde una función se llama a sí misma.", pageStart: 1, pageEnd: 1 },
-    { text: "La derivada mide la tasa de cambio instantánea de una función.", pageStart: 2, pageEnd: 2 },
+    {
+      text: "La recursión es una técnica donde una función se llama a sí misma.",
+      pageStart: 1,
+      pageEnd: 1,
+    },
+    {
+      text: "La derivada mide la tasa de cambio instantánea de una función.",
+      pageStart: 2,
+      pageEnd: 2,
+    },
   ]),
 }))
 
@@ -107,18 +122,30 @@ vi.mock("@/lib/server/repositories/document.repo", () => ({
     createUpload: vi.fn(async (userId: string, filename: string, _hash: string, opts: any) => {
       const id = store.id("up")
       const row = {
-        id, user_id: userId, original_filename: filename,
-        status: "pending", graph_status: "pending",
-        file_url: opts?.fileUrl ?? null, expires_at: opts?.expiresAt ?? null,
+        id,
+        user_id: userId,
+        original_filename: filename,
+        status: "pending",
+        graph_status: "pending",
+        file_url: opts?.fileUrl ?? null,
+        expires_at: opts?.expiresAt ?? null,
       }
       store.uploads.set(id, row)
       return { id, original_filename: filename }
     }),
     setStatus: vi.fn(async (id: string, status: string, err?: string) => {
-      const u = store.uploads.get(id); if (u) { u.status = status; u.error_message = err ?? null }
+      const u = store.uploads.get(id)
+      if (u) {
+        u.status = status
+        u.error_message = err ?? null
+      }
     }),
     setGraphStatus: vi.fn(async (id: string, status: string, err?: string) => {
-      const u = store.uploads.get(id); if (u) { u.graph_status = status; u.graph_error = err ?? null }
+      const u = store.uploads.get(id)
+      if (u) {
+        u.graph_status = status
+        u.graph_error = err ?? null
+      }
     }),
   },
 }))
@@ -127,46 +154,68 @@ vi.mock("@/lib/server/repositories/chunk.repo", () => ({
   ChunkRepository: {
     replaceChunksText: vi.fn(async (syllabusId: string, chunks: any[]) => {
       store.chunks = store.chunks.filter((c) => c.syllabus_id !== syllabusId)
-      chunks.forEach((c, i) => store.chunks.push({
-        id: store.id("ch"), syllabus_id: syllabusId, chunk_index: i,
-        content: c.text, page_start: c.pageStart, page_end: c.pageEnd, embedding: null,
-      }))
+      chunks.forEach((c, i) =>
+        store.chunks.push({
+          id: store.id("ch"),
+          syllabus_id: syllabusId,
+          chunk_index: i,
+          content: c.text,
+          page_start: c.pageStart,
+          page_end: c.pageEnd,
+          embedding: null,
+        }),
+      )
       return chunks.length
     }),
     listPendingEmbeddings: vi.fn(async (syllabusId: string) =>
-      store.chunks.filter((c) => c.syllabus_id === syllabusId && c.embedding === null)
+      store.chunks
+        .filter((c) => c.syllabus_id === syllabusId && c.embedding === null)
         .sort((a, b) => a.chunk_index - b.chunk_index)
-        .map((c) => ({ id: c.id, content: c.content }))),
+        .map((c) => ({ id: c.id, content: c.content })),
+    ),
     setEmbedding: vi.fn(async (chunkId: string, embedding: number[]) => {
-      const c = store.chunks.find((x) => x.id === chunkId); if (c) c.embedding = embedding
+      const c = store.chunks.find((x) => x.id === chunkId)
+      if (c) c.embedding = embedding
     }),
     getConcatenatedText: vi.fn(async (syllabusId: string) =>
-      store.chunks.filter((c) => c.syllabus_id === syllabusId)
-        .sort((a, b) => a.chunk_index - b.chunk_index).map((c) => c.content).join("\n\n")),
+      store.chunks
+        .filter((c) => c.syllabus_id === syllabusId)
+        .sort((a, b) => a.chunk_index - b.chunk_index)
+        .map((c) => c.content)
+        .join("\n\n"),
+    ),
     search: vi.fn(async (syllabusId: string, q: number[], limit = 8) =>
       store.chunks
         .filter((c) => c.syllabus_id === syllabusId && c.embedding !== null)
         .map((c) => ({
-          id: c.id, chunk_index: c.chunk_index, content: c.content,
-          page_start: c.page_start, page_end: c.page_end,
+          id: c.id,
+          chunk_index: c.chunk_index,
+          content: c.content,
+          page_start: c.page_start,
+          page_end: c.page_end,
           distance: cosineDistance(q, c.embedding as number[]),
         }))
         .sort((a, b) => a.distance - b.distance)
-        .slice(0, limit)),
+        .slice(0, limit),
+    ),
   },
 }))
 
 vi.mock("@/lib/server/repositories/job.repo", () => ({
   JobRepository: {
     enqueue: vi.fn(async (type: string, payload: any) => {
-      const id = store.id("job"); store.jobs.push({ id, type, payload }); return id
+      const id = store.id("job")
+      store.jobs.push({ id, type, payload })
+      return id
     }),
   },
 }))
 
 vi.mock("@/lib/server/repositories/graph.repo", () => ({
   GraphRepository: {
-    replaceGraph: vi.fn(async (syllabusId: string, nodes: any[]) => { store.graphs.set(syllabusId, nodes) }),
+    replaceGraph: vi.fn(async (syllabusId: string, nodes: any[]) => {
+      store.graphs.set(syllabusId, nodes)
+    }),
   },
 }))
 
@@ -186,7 +235,10 @@ function pdfFile(): File {
   return new File([bytes], "calc.pdf", { type: "application/pdf" })
 }
 
-beforeEach(() => { vi.clearAllMocks(); store.reset() })
+beforeEach(() => {
+  vi.clearAllMocks()
+  store.reset()
+})
 
 describe("upload -> parse -> query pipeline", () => {
   it("persists parsed chunks and enqueues an ingest job on upload", async () => {

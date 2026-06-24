@@ -1,14 +1,14 @@
 "use client"
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react"
-import { useSession } from "next-auth/react"
-import { signOut } from "next-auth/react"
+import { useUser as useClerkUser, useClerk } from "@clerk/nextjs"
 
 interface UserContextType {
   userId: string | null
   displayName: string | null
   role: string | null
   ready: boolean
+  // "guest" kept in the union for backwards-compat with older callers; never emitted under Clerk.
   status: "anonymous" | "guest" | "authenticated" | "loading"
   resetIdentity: () => void
   setDisplayName: (name: string) => void
@@ -25,43 +25,36 @@ const UserContext = createContext<UserContextType>({
 })
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const { data: session, status: authStatus } = useSession()
+  const { isLoaded, isSignedIn, user } = useClerkUser()
+  const { signOut } = useClerk()
   const [displayName, setDisplayNameState] = useState<string | null>(null)
 
   useEffect(() => {
-    if (session?.user?.name) {
-      setDisplayNameState(session.user.name)
-    }
-  }, [session])
+    const name =
+      user?.fullName ?? user?.firstName ?? user?.primaryEmailAddress?.emailAddress ?? null
+    if (name) setDisplayNameState(name)
+  }, [user])
 
-  const setDisplayName = (name: string) => {
-    setDisplayNameState(name)
-    // Note: To persist this to the DB, you would add an API route.
-  }
+  const setDisplayName = (name: string) => setDisplayNameState(name)
 
   const resetIdentity = () => {
-    signOut({ callbackUrl: "/login" })
+    void signOut({ redirectUrl: "/sign-in" })
   }
 
-  let derivedStatus: "anonymous" | "guest" | "authenticated" | "loading" = "loading"
-  if (authStatus === "loading") {
-    derivedStatus = "loading"
-  } else if (authStatus === "authenticated" && session?.user?.role === "guest") {
-    derivedStatus = "guest"
-  } else if (authStatus === "authenticated") {
-    derivedStatus = "authenticated"
-  } else {
-    derivedStatus = "anonymous"
-  }
+  const status: UserContextType["status"] = !isLoaded
+    ? "loading"
+    : isSignedIn
+      ? "authenticated"
+      : "anonymous"
 
   return (
     <UserContext.Provider
       value={{
-        userId: session?.user?.id ?? null,
+        userId: user?.id ?? null,
         displayName,
-        role: session?.user?.role ?? null,
-        ready: authStatus !== "loading",
-        status: derivedStatus,
+        role: (user?.publicMetadata?.role as string | undefined) ?? (isSignedIn ? "free" : null),
+        ready: isLoaded,
+        status,
         resetIdentity,
         setDisplayName,
       }}

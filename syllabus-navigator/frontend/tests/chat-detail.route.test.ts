@@ -1,20 +1,47 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 
-vi.mock("@/lib/auth/auth", () => ({ auth: vi.fn() }))
+vi.mock("@/lib/server/utils/auth-helpers", () => {
+  class ApiErrorResponse extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+      this.name = "ApiErrorResponse"
+    }
+  }
+  return {
+    requireAuth: vi.fn(),
+    getAuthedUser: vi.fn(),
+    requireRateLimit: vi.fn(),
+    ApiErrorResponse,
+  }
+})
 vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn() }))
 vi.mock("@/lib/cache", () => ({ invalidatePrefix: vi.fn() }))
 vi.mock("@/lib/db", () => ({ sql: vi.fn() }))
 
-import { auth } from "@/lib/auth/auth"
+import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { sql } from "@/lib/db"
 import { GET, PATCH } from "../app/api/chat/[chatId]/route"
 
 const params = (chatId: string) => ({ params: Promise.resolve({ chatId }) })
-const asUser = (id = "u1") => vi.mocked(auth).mockResolvedValue({ user: { id, role: "free" } } as any)
-const anon = () => vi.mocked(auth).mockResolvedValue(null as any)
+const asUser = (id = "u1", role = "free") => (
+  vi.mocked(requireAuth).mockResolvedValue({ userId: id, role } as any),
+  vi.mocked(getAuthedUser).mockResolvedValue({ userId: id, role } as any)
+)
+const anon = () => (
+  vi.mocked(requireAuth).mockRejectedValue(new ApiErrorResponse("Unauthorized", 401)),
+  vi.mocked(getAuthedUser).mockResolvedValue(null as any)
+)
 const jsonReq = (body: unknown) =>
   new Request("http://t/api/chat/c1", { method: "PATCH", body: JSON.stringify(body) })
-const CHAT = { id: "c1", title: "T", active_model: "gpt-4o-mini", syllabus_id: null, created_at: "now" }
+const CHAT = {
+  id: "c1",
+  title: "T",
+  active_model: "gpt-4o-mini",
+  syllabus_id: null,
+  created_at: "now",
+}
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -36,7 +63,9 @@ describe("GET /api/chat/[chatId]", () => {
     asUser()
     vi.mocked(sql)
       .mockResolvedValueOnce([CHAT] as any) // chat
-      .mockResolvedValueOnce([{ id: "m1", role: "user", content: "hi", citations: [], created_at: "now" }] as any) // messages
+      .mockResolvedValueOnce([
+        { id: "m1", role: "user", content: "hi", citations: [], created_at: "now" },
+      ] as any) // messages
     const res = await GET(new Request("http://t/x"), params("c1"))
     expect(res.status).toBe(200)
     const body = await res.json()

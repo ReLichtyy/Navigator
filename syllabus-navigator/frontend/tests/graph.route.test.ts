@@ -1,7 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 
 // --- module mocks (no DB, no real auth) ---
-vi.mock("@/lib/auth/auth", () => ({ auth: vi.fn() }))
+vi.mock("@/lib/server/utils/auth-helpers", () => {
+  class ApiErrorResponse extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+      this.name = "ApiErrorResponse"
+    }
+  }
+  return {
+    requireAuth: vi.fn(),
+    getAuthedUser: vi.fn(),
+    requireRateLimit: vi.fn(),
+    ApiErrorResponse,
+  }
+})
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn() }))
 vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn() }))
 vi.mock("@/lib/server/repositories/document.repo", () => ({
@@ -15,7 +30,7 @@ vi.mock("@/lib/server/repositories/job.repo", () => ({
 }))
 vi.mock("@/lib/server/services/worker-trigger", () => ({ triggerIngestionWorker: vi.fn() }))
 
-import { auth } from "@/lib/auth/auth"
+import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentRepository } from "@/lib/server/repositories/document.repo"
 import { GraphRepository } from "@/lib/server/repositories/graph.repo"
 import { JobRepository } from "@/lib/server/repositories/job.repo"
@@ -27,8 +42,14 @@ const patchReq = (body: unknown) =>
   new Request("http://t/api/graph/s1", { method: "PATCH", body: JSON.stringify(body) })
 
 const params = (syllabusId: string) => ({ params: Promise.resolve({ syllabusId }) })
-const asUser = (id = "u1") => vi.mocked(auth).mockResolvedValue({ user: { id, role: "free" } } as any)
-const anon = () => vi.mocked(auth).mockResolvedValue(null as any)
+const asUser = (id = "u1", role = "free") => (
+  vi.mocked(requireAuth).mockResolvedValue({ userId: id, role } as any),
+  vi.mocked(getAuthedUser).mockResolvedValue({ userId: id, role } as any)
+)
+const anon = () => (
+  vi.mocked(requireAuth).mockRejectedValue(new ApiErrorResponse("Unauthorized", 401)),
+  vi.mocked(getAuthedUser).mockResolvedValue(null as any)
+)
 
 const DOC = { id: "s1", user_id: "u1", graph_status: "ready", graph_error: null }
 const GRAPH = {
@@ -89,7 +110,10 @@ describe("POST /api/graph/[syllabusId]/reprocess", () => {
 
   it("200 re-enqueues, marks pending, kicks worker", async () => {
     asUser()
-    vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue({ ...DOC, graph_status: "pending" } as any)
+    vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue({
+      ...DOC,
+      graph_status: "pending",
+    } as any)
     vi.mocked(GraphRepository.getGraph).mockResolvedValue(GRAPH as any)
     const res = await POST(new Request("http://t/x", { method: "POST" }), params("s1"))
     expect(res.status).toBe(200)
@@ -126,8 +150,14 @@ describe("PATCH /api/graph/[syllabusId] (editable mind map)", () => {
     vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue(DOC as any)
     const res = await PATCH(
       patchReq({
-        nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
-        edges: [{ source: "a", target: "b" }, { source: "b", target: "a" }],
+        nodes: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ],
+        edges: [
+          { source: "a", target: "b" },
+          { source: "b", target: "a" },
+        ],
       }),
       params("s1"),
     )
@@ -141,7 +171,10 @@ describe("PATCH /api/graph/[syllabusId] (editable mind map)", () => {
     vi.mocked(GraphRepository.getGraph).mockResolvedValue(GRAPH as any)
     const res = await PATCH(
       patchReq({
-        nodes: [{ id: "a", label: "A", weight_percent: 20 }, { id: "b", label: "B" }],
+        nodes: [
+          { id: "a", label: "A", weight_percent: 20 },
+          { id: "b", label: "B" },
+        ],
         edges: [{ source: "a", target: "b" }],
       }),
       params("s1"),

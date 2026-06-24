@@ -1,24 +1,45 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 
-vi.mock("@/lib/auth/auth", () => ({ auth: vi.fn() }))
+vi.mock("@/lib/server/utils/auth-helpers", () => {
+  class ApiErrorResponse extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+      this.name = "ApiErrorResponse"
+    }
+  }
+  return {
+    requireAuth: vi.fn(),
+    getAuthedUser: vi.fn(),
+    requireRateLimit: vi.fn(),
+    ApiErrorResponse,
+  }
+})
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn() }))
 vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn() }))
 vi.mock("@/lib/server/services/chat.service", () => ({
   ChatService: { processMessageStream: vi.fn() },
 }))
 
-import { auth } from "@/lib/auth/auth"
+import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { ChatService } from "@/lib/server/services/chat.service"
-import { ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { POST } from "../app/api/chat/[chatId]/messages/route"
 
 const params = (chatId: string) => ({ params: Promise.resolve({ chatId }) })
-const asUser = (id = "u1", role = "free") =>
-  vi.mocked(auth).mockResolvedValue({ user: { id, role } } as any)
-const anon = () => vi.mocked(auth).mockResolvedValue(null as any)
+const asUser = (id = "u1", role = "free") => (
+  vi.mocked(requireAuth).mockResolvedValue({ userId: id, role } as any),
+  vi.mocked(getAuthedUser).mockResolvedValue({ userId: id, role } as any)
+)
+const anon = () => (
+  vi.mocked(requireAuth).mockRejectedValue(new ApiErrorResponse("Unauthorized", 401)),
+  vi.mocked(getAuthedUser).mockResolvedValue(null as any)
+)
 const okRate = () =>
-  vi.mocked(checkRateLimit).mockResolvedValue({ success: true, reset: 0, limit: 0, remaining: 0 } as any)
+  vi
+    .mocked(checkRateLimit)
+    .mockResolvedValue({ success: true, reset: 0, limit: 0, remaining: 0 } as any)
 
 const req = (body: unknown) =>
   new Request("http://t/api/chat/c1/messages", { method: "POST", body: JSON.stringify(body) })

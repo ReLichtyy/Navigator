@@ -5,17 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useSyllabus } from "@/context/SyllabusContext"
-import {
-  listSyllabi,
-  fetchGraph,
-  reprocessGraph,
-  type SyllabusUploadAPI,
-  type GraphResponseAPI,
-} from "@/lib/api"
+import { listSyllabi, fetchStudySet, type SyllabusUploadAPI, type StudySetAPI } from "@/lib/api"
 import { Network, Loader2, AlertCircle, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import GraphCanvas from "@/components/GraphCanvas"
-import { SelectionAsk } from "@/components/SelectionAsk"
+import { MindMapCanvas } from "@/components/estudio/mind-map-canvas"
 import { CrossCourseView } from "@/components/estudio/cross-course-view"
 
 function isReady(d: SyllabusUploadAPI): boolean {
@@ -39,8 +32,9 @@ function MapaContent() {
   const [courses, setCourses] = useState<SyllabusUploadAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
   const [courseId, setCourseId] = useState<string | null>(null)
-  const [graph, setGraph] = useState<GraphResponseAPI | null>(null)
+  const [studySet, setStudySet] = useState<StudySetAPI | null>(null)
   const [setLoading, setSetLoading] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const readyCourses = useMemo(() => courses.filter(isReady), [courses])
@@ -72,12 +66,13 @@ function MapaContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, status])
 
-  const loadGraph = useCallback(async (id: string) => {
+  // The mind map is the study-set's mindmap — same source as Área de Estudio.
+  const loadSet = useCallback(async (id: string) => {
     setSetLoading(true)
-    setGraph(null)
+    setStudySet(null)
     setError(null)
     try {
-      setGraph(await fetchGraph(id))
+      setStudySet(await fetchStudySet(id))
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar el mapa mental.")
     } finally {
@@ -85,17 +80,22 @@ function MapaContent() {
     }
   }, [])
 
-  const handleReprocess = useCallback(async (id: string) => {
+  // Regenerate via the edit panel: refresh the set, optionally focused on a topic.
+  const regenerate = useCallback(async (id: string, focus: string[]) => {
+    setRegenerating(true)
+    setError(null)
     try {
-      setGraph(await reprocessGraph(id))
+      setStudySet(await fetchStudySet(id, { refresh: true, topic: focus[0] }))
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo regenerar el mapa.")
+    } finally {
+      setRegenerating(false)
     }
   }, [])
 
   useEffect(() => {
-    if (courseId) loadGraph(courseId)
-  }, [courseId, loadGraph])
+    if (courseId) loadSet(courseId)
+  }, [courseId, loadSet])
 
   if (ready && (status === "anonymous" || status === "guest")) {
     return (
@@ -168,44 +168,19 @@ function MapaContent() {
                     })}
                   </div>
 
-                  {courseName && (
-                    <p className="mt-4 text-sm text-muted-foreground">
-                      {courseName} · arrastra y conecta los temas. Selecciona cualquier texto para
-                      preguntarle al chat, o doble-click en un tema para estudiarlo.
-                    </p>
-                  )}
-
                   <div className="mt-4">
                     {setLoading ? (
                       <CenterSpinner label="Cargando mapa mental…" />
                     ) : error ? (
-                      <ErrorBox message={error} onRetry={() => courseId && loadGraph(courseId)} />
-                    ) : graph && courseId ? (
-                      <SelectionAsk onAsk={askInChat}>
-                        <GraphCanvas
-                          nodes={graph.nodes}
-                          edges={graph.edges}
-                          graphStatus={graph.graph_status}
-                          graphError={graph.graph_error}
-                          editable
-                          syllabusId={courseId}
-                          onReprocess={() => handleReprocess(courseId)}
-                          onSaved={(g) =>
-                            setGraph((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    nodes: g.nodes.map((n) => ({
-                                      ...n,
-                                      weight_percent: n.weight_percent ?? 0,
-                                    })),
-                                    edges: g.edges,
-                                  }
-                                : prev,
-                            )
-                          }
-                        />
-                      </SelectionAsk>
+                      <ErrorBox message={error} onRetry={() => courseId && loadSet(courseId)} />
+                    ) : studySet && courseId ? (
+                      <MindMapCanvas
+                        mindmap={studySet.mindmap}
+                        courseName={courseName}
+                        loading={regenerating}
+                        onTopicDouble={askInChat}
+                        onRegenerate={({ focus }) => regenerate(courseId, focus)}
+                      />
                     ) : null}
                   </div>
                 </>

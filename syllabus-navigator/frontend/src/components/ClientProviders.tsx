@@ -1,34 +1,24 @@
 "use client"
 
-import { SessionProvider } from "next-auth/react"
-import type { Session } from "next-auth"
 import { ThemeProvider } from "next-themes"
 import { UserProvider } from "@/context/UserContext"
 import { SyllabusProvider } from "@/context/SyllabusContext"
 import { AuthModalProvider } from "@/context/AuthModalContext"
 
-export default function ClientProviders({
-  children,
-  session,
-}: {
-  children: React.ReactNode
-  session?: Session | null
-}) {
+export default function ClientProviders({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider session={session}>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        forcedTheme="dark"
-        enableSystem={false}
-        disableTransitionOnChange
-      >
-        <UserProvider>
-          <SyllabusProvider>
-            <AuthModalProvider>{children}</AuthModalProvider>
-          </SyllabusProvider>
-        </UserProvider>
-      </ThemeProvider>
-    </SessionProvider>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      forcedTheme="dark"
+      enableSystem={false}
+      disableTransitionOnChange
+    >
+      <UserProvider>
+        <SyllabusProvider>
+          <AuthModalProvider>{children}</AuthModalProvider>
+        </SyllabusProvider>
+      </UserProvider>
+    </ThemeProvider>
   )
 }

@@ -60,6 +60,10 @@ interface Props {
   noteDates?: Set<string>
   /** Inline expansion rendered inside the calendar card, right under the grid. */
   dayPanel?: ReactNode
+  /** Hero sizing: taller day cells, bigger numbers, more events per cell. */
+  large?: boolean
+  /** Render the "Fechas detectadas" list under the grid (default true). */
+  showDetectedList?: boolean
 }
 
 export function MonthCalendar({
@@ -69,6 +73,8 @@ export function MonthCalendar({
   selectedDate,
   noteDates,
   dayPanel,
+  large = false,
+  showDetectedList = true,
 }: Props) {
   // Parse "today" as the anchor; default to the first dated event's month if today unparseable.
   const anchor = useMemo(() => {
@@ -159,7 +165,7 @@ export function MonthCalendar({
                     onClick={() => onSelectDay?.(cell.iso)}
                     aria-label={`Abrir ${cell.iso}`}
                     aria-pressed={isSelected}
-                    className={`flex min-h-[78px] flex-col gap-1 rounded-xl border p-1.5 text-left transition-colors hover:border-accent/40 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+                    className={`flex ${large ? "min-h-[118px]" : "min-h-[78px]"} flex-col gap-1 rounded-xl border p-1.5 text-left transition-colors hover:border-accent/40 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
                       isSelected
                         ? "border-accent bg-accent/10 ring-1 ring-accent/40"
                         : isToday
@@ -169,9 +175,9 @@ export function MonthCalendar({
                   >
                     <div className="flex w-full items-center justify-between">
                       <span
-                        className={`flex h-5 w-5 items-center justify-center rounded-md font-mono text-[11px] font-semibold ${
-                          isToday ? "bg-accent text-accent-foreground" : "text-muted-foreground"
-                        }`}
+                        className={`flex items-center justify-center rounded-md font-mono font-semibold ${
+                          large ? "h-6 w-6 text-[13px]" : "h-5 w-5 text-[11px]"
+                        } ${isToday ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
                       >
                         {cell.day}
                       </span>
@@ -179,7 +185,7 @@ export function MonthCalendar({
                         <StickyNote className="h-3 w-3 text-accent" aria-label="Tiene notas" />
                       )}
                     </div>
-                    {evs.slice(0, 3).map((e) => (
+                    {evs.slice(0, large ? 4 : 3).map((e) => (
                       <div
                         key={e.id}
                         className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5"
@@ -187,7 +193,11 @@ export function MonthCalendar({
                         <span
                           className={`h-1.5 w-1.5 flex-none rounded-full ${PALETTE[colorFor(e.course_name)]}`}
                         />
-                        <span className="min-w-0 flex-1 truncate text-[9.5px] font-medium text-foreground">
+                        <span
+                          className={`min-w-0 flex-1 truncate font-medium text-foreground ${
+                            large ? "text-[10.5px]" : "text-[9.5px]"
+                          }`}
+                        >
                           {e.title}
                         </span>
                       </div>
@@ -203,7 +213,7 @@ export function MonthCalendar({
         {dayPanel}
       </div>
 
-      {detected.length > 0 && (
+      {showDetectedList && detected.length > 0 && (
         <div>
           <div className="mb-2.5 text-[11px] font-bold uppercase tracking-widest text-accent">
             Fechas detectadas en los cronogramas

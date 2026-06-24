@@ -1,6 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 
-vi.mock("@/lib/auth/auth", () => ({ auth: vi.fn() }))
+vi.mock("@/lib/server/utils/auth-helpers", () => {
+  class ApiErrorResponse extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+      this.name = "ApiErrorResponse"
+    }
+  }
+  return {
+    requireAuth: vi.fn(),
+    getAuthedUser: vi.fn(),
+    requireRateLimit: vi.fn(),
+    ApiErrorResponse,
+  }
+})
 vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn() }))
 vi.mock("@/lib/server/repositories/date-notes.repo", () => ({
   DateNoteRepository: {
@@ -12,20 +27,31 @@ vi.mock("@/lib/server/repositories/date-notes.repo", () => ({
   },
 }))
 
-import { auth } from "@/lib/auth/auth"
+import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DateNoteRepository } from "@/lib/server/repositories/date-notes.repo"
 import { GET, POST } from "../app/api/notes/route"
 import { PATCH, DELETE } from "../app/api/notes/[id]/route"
 
-const asUser = (id = "u1") => vi.mocked(auth).mockResolvedValue({ user: { id, role: "free" } } as any)
-const anon = () => vi.mocked(auth).mockResolvedValue(null as any)
+const asUser = (id = "u1", role = "free") => (
+  vi.mocked(requireAuth).mockResolvedValue({ userId: id, role } as any),
+  vi.mocked(getAuthedUser).mockResolvedValue({ userId: id, role } as any)
+)
+const anon = () => (
+  vi.mocked(requireAuth).mockRejectedValue(new ApiErrorResponse("Unauthorized", 401)),
+  vi.mocked(getAuthedUser).mockResolvedValue(null as any)
+)
 
 const getReq = (date?: string) =>
   new Request(`http://t/api/notes${date != null ? `?date=${date}` : ""}`)
 const jsonReq = (body: unknown, method = "POST") =>
   new Request("http://t/api/notes", { method, body: JSON.stringify(body) })
 const note = (over: Record<string, unknown> = {}) => ({
-  id: "n1", note_date: "2026-06-23", body: "hola", created_at: "t", updated_at: "t", ...over,
+  id: "n1",
+  note_date: "2026-06-23",
+  body: "hola",
+  created_at: "t",
+  updated_at: "t",
+  ...over,
 })
 
 beforeEach(() => vi.clearAllMocks())

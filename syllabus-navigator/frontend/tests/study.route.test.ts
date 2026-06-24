@@ -1,21 +1,41 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 
 // --- module mocks (no DB, no real auth, no LLM) ---
-vi.mock("@/lib/auth/auth", () => ({ auth: vi.fn() }))
+vi.mock("@/lib/server/utils/auth-helpers", () => {
+  class ApiErrorResponse extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+      this.name = "ApiErrorResponse"
+    }
+  }
+  return {
+    requireAuth: vi.fn(),
+    getAuthedUser: vi.fn(),
+    requireRateLimit: vi.fn(),
+    ApiErrorResponse,
+  }
+})
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn() }))
 vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn() }))
 vi.mock("@/lib/server/services/study.service", () => ({
   StudyService: { getStudySet: vi.fn() },
 }))
 
-import { auth } from "@/lib/auth/auth"
+import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { StudyService } from "@/lib/server/services/study.service"
-import { ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { GET } from "../app/api/study/[syllabusId]/route"
 
 const params = (syllabusId: string) => ({ params: Promise.resolve({ syllabusId }) })
-const asUser = (id = "u1") => vi.mocked(auth).mockResolvedValue({ user: { id, role: "free" } } as any)
-const anon = () => vi.mocked(auth).mockResolvedValue(null as any)
+const asUser = (id = "u1", role = "free") => (
+  vi.mocked(requireAuth).mockResolvedValue({ userId: id, role } as any),
+  vi.mocked(getAuthedUser).mockResolvedValue({ userId: id, role } as any)
+)
+const anon = () => (
+  vi.mocked(requireAuth).mockRejectedValue(new ApiErrorResponse("Unauthorized", 401)),
+  vi.mocked(getAuthedUser).mockResolvedValue(null as any)
+)
 const req = (url = "http://t/api/study/s1") => new Request(url)
 
 const SET = {
@@ -37,7 +57,9 @@ describe("GET /api/study/[syllabusId]", () => {
 
   it("404 when the syllabus is not owned (service throws ApiErrorResponse)", async () => {
     asUser()
-    vi.mocked(StudyService.getStudySet).mockRejectedValue(new ApiErrorResponse("Syllabus not found", 404))
+    vi.mocked(StudyService.getStudySet).mockRejectedValue(
+      new ApiErrorResponse("Syllabus not found", 404),
+    )
     const res = await GET(req(), params("s1"))
     expect(res.status).toBe(404)
     expect(StudyService.getStudySet).toHaveBeenCalledWith("u1", "s1", { refresh: false })

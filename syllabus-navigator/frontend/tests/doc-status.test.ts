@@ -20,7 +20,12 @@ describe("getDocStatus", () => {
 
   it("status error → Failed, error, reprocessable, tooltip from error_message", () => {
     const sv = getDocStatus(doc({ status: "error", error_message: "boom" }))
-    expect(sv).toMatchObject({ label: "Failed", tone: "error", canReprocess: true, tooltip: "boom" })
+    expect(sv).toMatchObject({
+      label: "Failed",
+      tone: "error",
+      canReprocess: true,
+      tooltip: "boom",
+    })
   })
 
   it("status pending → Processing, pending", () => {
@@ -32,7 +37,12 @@ describe("getDocStatus", () => {
 
   it("graph failed → warn + reprocessable", () => {
     const sv = getDocStatus(doc({ graph_status: "failed", graph_error: "g" }))
-    expect(sv).toMatchObject({ label: "Graph failed", tone: "warn", canReprocess: true, tooltip: "g" })
+    expect(sv).toMatchObject({
+      label: "Graph failed",
+      tone: "warn",
+      canReprocess: true,
+      tooltip: "g",
+    })
   })
 
   it("graph processing → Building graph, pending", () => {

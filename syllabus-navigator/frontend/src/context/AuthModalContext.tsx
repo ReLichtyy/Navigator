@@ -1,7 +1,7 @@
 "use client"
 
-import { createContext, useContext, useState, ReactNode } from "react"
-import { AuthModal } from "@/components/auth/auth-modal"
+import { createContext, useContext, ReactNode } from "react"
+import { useClerk } from "@clerk/nextjs"
 
 type AuthModalView = "welcome" | "login" | "signup"
 
@@ -17,21 +17,22 @@ const AuthModalContext = createContext<AuthModalContextType>({
   closeAuthModal: () => {},
 })
 
+/**
+ * Thin shim over Clerk's hosted modals so existing callers keep using
+ * `openAuthModal("login" | "signup")`. "signup"/"welcome" open the sign-up flow,
+ * "login" opens sign-in. There is no custom modal anymore.
+ */
 export function AuthModalProvider({ children }: { children: ReactNode }) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [view, setView] = useState<AuthModalView>("welcome")
+  const { openSignIn, openSignUp } = useClerk()
 
-  const openAuthModal = (newView: AuthModalView = "welcome") => {
-    setView(newView)
-    setIsOpen(true)
+  const openAuthModal = (view: AuthModalView = "welcome") => {
+    if (view === "login") openSignIn({})
+    else openSignUp({})
   }
 
-  const closeAuthModal = () => setIsOpen(false)
-
   return (
-    <AuthModalContext.Provider value={{ isOpen, openAuthModal, closeAuthModal }}>
+    <AuthModalContext.Provider value={{ isOpen: false, openAuthModal, closeAuthModal: () => {} }}>
       {children}
-      <AuthModal open={isOpen} onOpenChange={setIsOpen} initialView={view} />
     </AuthModalContext.Provider>
   )
 }

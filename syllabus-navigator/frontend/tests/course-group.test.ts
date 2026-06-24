@@ -2,7 +2,14 @@ import { describe, it, expect } from "vitest"
 import { parseCourseCode, courseName, groupByCourse } from "@/lib/ui/course-group"
 
 function up(id: string, name: string, over: Record<string, unknown> = {}) {
-  return { id, original_filename: name, status: "processed", graph_status: "ready", created_at: "2026-06-01", ...over } as any
+  return {
+    id,
+    original_filename: name,
+    status: "processed",
+    graph_status: "ready",
+    created_at: "2026-06-01",
+    ...over,
+  } as any
 }
 
 describe("parseCourseCode", () => {
@@ -20,7 +27,9 @@ describe("parseCourseCode", () => {
 
 describe("courseName", () => {
   it("strips code, extension and version noise", () => {
-    expect(courseName("ISW-524 Diseño de Arquitectura.pdf", "ISW-524")).toBe("Diseño de Arquitectura")
+    expect(courseName("ISW-524 Diseño de Arquitectura.pdf", "ISW-524")).toBe(
+      "Diseño de Arquitectura",
+    )
   })
   it("falls back to filename without extension when stripped empty", () => {
     expect(courseName("ISW-524.pdf", "ISW-524")).toBe("ISW-524")

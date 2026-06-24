@@ -300,7 +300,7 @@ export function buildDirectives(opts: StudyGenOptions): string {
   const topic = opts.topic?.trim()
   if (topic) {
     lines.push(
-      `FOCUS: Generate the material ONLY about the topic "${topic}". Prioritize content from the material related to it; ignore unrelated sections. If the material barely covers it, do your best with what is present (still never invent facts).`,
+      `FOCUS: Follow this user instruction when generating the material: "${topic}". Treat it as the scope/emphasis — prioritize content from the material that matches it and ignore unrelated sections. If the material barely covers it, do your best with what is present (still never invent facts).`,
     )
   }
   const weighted = (opts.weightedTopics ?? [])

@@ -1,5 +1,5 @@
 /**
- * top-header.tsx — Top header with NextAuth session integration.
+ * top-header.tsx — Top header with Clerk session integration.
  */
 
 "use client"
@@ -65,19 +65,9 @@ export function TopHeader({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5 text-sm font-medium">
-                {status === "guest" ? "Guest User" : (displayName ?? "User")}
-              </div>
-              {status === "guest" ? (
-                <DropdownMenuItem
-                  onClick={() => openAuthModal("signup")}
-                  className="cursor-pointer text-accent"
-                >
-                  Create Account
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuItem onClick={resetIdentity} className="text-red-500 cursor-pointer">
-                {status === "guest" ? "Leave Guest Session" : "Sign out"}
+              <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "User"}</div>
+              <DropdownMenuItem onClick={resetIdentity} className="cursor-pointer text-destructive">
+                Cerrar sesión
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

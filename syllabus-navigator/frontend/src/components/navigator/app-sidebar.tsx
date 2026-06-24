@@ -67,6 +67,11 @@ export function AppSidebar() {
     }
   }, [status, pathname])
 
+  // Hide the app chrome on Clerk auth screens (sign-in/up + legacy redirects).
+  if (["/sign-in", "/sign-up", "/login", "/signup"].some((r) => pathname.startsWith(r))) {
+    return null
+  }
+
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href))
 
   function NavLink({ item }: { item: NavItem }) {
@@ -220,29 +225,19 @@ export function AppSidebar() {
                 {!collapsed && (
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-sidebar-foreground">
-                      {status === "guest" ? "Invitado" : (displayName ?? "Usuario")}
+                      {displayName ?? "Usuario"}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      {status === "guest" ? "Sesión temporal" : "Estudiante"}
+                      Estudiante
                     </span>
                   </span>
                 )}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={10} className="w-56">
-              <div className="px-2 py-1.5 text-sm font-medium">
-                {status === "guest" ? "Guest User" : (displayName ?? "User")}
-              </div>
-              {status === "guest" && (
-                <DropdownMenuItem
-                  onClick={() => openAuthModal("signup")}
-                  className="cursor-pointer text-accent"
-                >
-                  Crear cuenta
-                </DropdownMenuItem>
-              )}
+              <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "User"}</div>
               <DropdownMenuItem onClick={resetIdentity} className="cursor-pointer text-destructive">
-                {status === "guest" ? "Salir de invitado" : "Cerrar sesión"}
+                Cerrar sesión
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

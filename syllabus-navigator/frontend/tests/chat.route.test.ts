@@ -1,6 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from "vitest"
 
-vi.mock("@/lib/auth/auth", () => ({ auth: vi.fn() }))
+vi.mock("@/lib/server/utils/auth-helpers", () => {
+  class ApiErrorResponse extends Error {
+    status: number
+    constructor(message: string, status: number) {
+      super(message)
+      this.status = status
+      this.name = "ApiErrorResponse"
+    }
+  }
+  return {
+    requireAuth: vi.fn(),
+    getAuthedUser: vi.fn(),
+    requireRateLimit: vi.fn(),
+    ApiErrorResponse,
+  }
+})
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn() }))
 vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn() }))
 vi.mock("@/lib/cache", () => ({
@@ -12,7 +27,7 @@ vi.mock("@/lib/server/repositories/chat.repo", () => ({
   ChatRepository: { listChats: vi.fn(), createChat: vi.fn(), countChats: vi.fn() },
 }))
 
-import { auth } from "@/lib/auth/auth"
+import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { sql } from "@/lib/db"
 import { ChatRepository } from "@/lib/server/repositories/chat.repo"
@@ -20,11 +35,18 @@ import { DELETE } from "../app/api/chat/[chatId]/route"
 import { POST as createChat } from "../app/api/chat/history/route"
 
 const params = (chatId: string) => ({ params: Promise.resolve({ chatId }) })
-const session = (id: string, role: string) =>
-  vi.mocked(auth).mockResolvedValue({ user: { id, role } } as any)
-const anon = () => vi.mocked(auth).mockResolvedValue(null as any)
+const session = (id: string, role: string) => (
+  vi.mocked(requireAuth).mockResolvedValue({ userId: id, role } as any),
+  vi.mocked(getAuthedUser).mockResolvedValue({ userId: id, role } as any)
+)
+const anon = () => (
+  vi.mocked(requireAuth).mockRejectedValue(new ApiErrorResponse("Unauthorized", 401)),
+  vi.mocked(getAuthedUser).mockResolvedValue(null as any)
+)
 const okRate = () =>
-  vi.mocked(checkRateLimit).mockResolvedValue({ success: true, reset: 0, limit: 0, remaining: 0 } as any)
+  vi
+    .mocked(checkRateLimit)
+    .mockResolvedValue({ success: true, reset: 0, limit: 0, remaining: 0 } as any)
 
 const jsonReq = (body: unknown) =>
   new Request("http://t/api/chat/history", { method: "POST", body: JSON.stringify(body) })

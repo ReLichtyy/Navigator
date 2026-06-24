@@ -12,45 +12,36 @@ function src(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8")
 }
 
-describe("UI-1 Login window", () => {
+// Auth UI moved to Clerk (/sign-in, /sign-up). The legacy (auth)/login|signup
+// routes are now thin redirects; the real screens are Clerk's hosted components.
+describe("UI-1 Login window (Clerk redirect)", () => {
   const f = src("app/(auth)/login/page.tsx")
-  it("imports Input/Label/Button primitives", () => {
-    expect(f).toContain('@/components/ui/input')
-    expect(f).toContain('@/components/ui/label')
-    expect(f).toContain('@/components/ui/button')
-  })
-  it("has no raw <input> or hand-rolled <button>", () => {
-    expect(f).not.toMatch(/<input\b/)
-    expect(f).not.toMatch(/<button\b/)
-  })
-  it("error banner uses destructive tokens, not red-400", () => {
-    expect(f).not.toContain("text-red-400")
-    expect(f).toContain("bg-destructive/10")
+  it("redirects to the Clerk sign-in route", () => {
+    expect(f).toContain('redirect("/sign-in")')
   })
 })
 
-describe("UI-2 Signup window", () => {
+describe("UI-2 Signup window (Clerk redirect)", () => {
   const f = src("app/(auth)/signup/page.tsx")
-  it("imports Input/Label/Button primitives", () => {
-    expect(f).toContain('@/components/ui/input')
-    expect(f).toContain('@/components/ui/button')
+  it("redirects to the Clerk sign-up route", () => {
+    expect(f).toContain('redirect("/sign-up")')
   })
-  it("has no raw <input> or hand-rolled <button>", () => {
-    expect(f).not.toMatch(/<input\b/)
-    expect(f).not.toMatch(/<button\b/)
-  })
-  it("no red-400 error color", () => {
-    expect(f).not.toContain("text-red-400")
+})
+
+describe("Clerk auth routes exist", () => {
+  it("mounts <SignIn/> and <SignUp/>", () => {
+    expect(src("app/sign-in/[[...sign-in]]/page.tsx")).toContain("SignIn")
+    expect(src("app/sign-up/[[...sign-up]]/page.tsx")).toContain("SignUp")
   })
 })
 
 describe("UI-3 Settings window", () => {
   const f = src("app/settings/page.tsx")
   it("imports Select/Input/Card/Button primitives", () => {
-    expect(f).toContain('@/components/ui/select')
-    expect(f).toContain('@/components/ui/input')
-    expect(f).toContain('@/components/ui/card')
-    expect(f).toContain('@/components/ui/button')
+    expect(f).toContain("@/components/ui/select")
+    expect(f).toContain("@/components/ui/input")
+    expect(f).toContain("@/components/ui/card")
+    expect(f).toContain("@/components/ui/button")
   })
   it("has no raw <select>/<input>/<button>", () => {
     expect(f).not.toMatch(/<select\b/)
@@ -62,11 +53,11 @@ describe("UI-3 Settings window", () => {
 describe("UI-4 / UI-11 Cursos window", () => {
   const f = src("app/knowledge/page.tsx")
   it("imports Accordion/Badge/Dialog + extracted doc-status + course grouping", () => {
-    expect(f).toContain('@/components/ui/accordion')
-    expect(f).toContain('@/components/ui/badge')
-    expect(f).toContain('@/components/ui/dialog')
-    expect(f).toContain('@/lib/ui/doc-status')
-    expect(f).toContain('@/lib/ui/course-group')
+    expect(f).toContain("@/components/ui/accordion")
+    expect(f).toContain("@/components/ui/badge")
+    expect(f).toContain("@/components/ui/dialog")
+    expect(f).toContain("@/lib/ui/doc-status")
+    expect(f).toContain("@/lib/ui/course-group")
   })
   it("renders courses as an <Accordion>, not a hand-rolled <table>", () => {
     expect(f).not.toMatch(/<table\b/)
@@ -90,9 +81,9 @@ describe("UI-4 / UI-11 Cursos window", () => {
 describe("UI-5 Estudio window", () => {
   const f = src("app/estudio/page.tsx")
   it("imports Card/Badge/Button primitives", () => {
-    expect(f).toContain('@/components/ui/card')
-    expect(f).toContain('@/components/ui/badge')
-    expect(f).toContain('@/components/ui/button')
+    expect(f).toContain("@/components/ui/card")
+    expect(f).toContain("@/components/ui/badge")
+    expect(f).toContain("@/components/ui/button")
   })
   it("removed the hand-rolled 'Nuevo' pill", () => {
     expect(f).not.toContain("rounded-md bg-accent px-2 py-0.5")
@@ -105,23 +96,27 @@ describe("UI-5 Estudio window", () => {
 describe("UI-6 Agenda window", () => {
   const f = src("app/agenda/page.tsx")
   it("imports extracted agenda-format + Badge/Button/Card", () => {
-    expect(f).toContain('@/lib/ui/agenda-format')
-    expect(f).toContain('@/components/ui/badge')
-    expect(f).toContain('@/components/ui/button')
+    expect(f).toContain("@/lib/ui/agenda-format")
+    expect(f).toContain("@/components/ui/badge")
+    expect(f).toContain("@/components/ui/button")
   })
   it("does not inline TYPE_META or hand-rolled type pills", () => {
     expect(f).not.toContain("const TYPE_META")
     expect(f).not.toContain("${m.cls}")
   })
-  it("has the sync banner", () => {
-    expect(f).toContain("Calendario sincronizado")
+  it("shows the next-5-days block and the per-week accordion (calendar-first view)", () => {
+    expect(f).toContain("Próximos 5 días")
+    expect(f).toContain("Temas y actividades por semana")
+    expect(f).toContain("@/components/ui/accordion")
+    // Sync banner was removed to cut visual noise.
+    expect(f).not.toContain("Calendario sincronizado")
   })
 })
 
 describe("UI-7 Chat window", () => {
   const f = src("app/page.tsx")
   it("imports Button primitive", () => {
-    expect(f).toContain('@/components/ui/button')
+    expect(f).toContain("@/components/ui/button")
   })
   it("view-mode toggle is no longer a hand-rolled button", () => {
     expect(f).not.toContain("text-xs bg-secondary px-3 py-1.5 rounded-full")
@@ -130,10 +125,10 @@ describe("UI-7 Chat window", () => {
 
 describe("Mapa mental window", () => {
   const f = src("app/mapa/page.tsx")
-  it("exists, imports Button + uses the editable GraphCanvas", () => {
-    expect(f).toContain('@/components/ui/button')
-    expect(f).toContain("GraphCanvas")
-    expect(f).toContain("editable")
+  it("imports Button + renders the editable MindMapCanvas from the study set", () => {
+    expect(f).toContain("@/components/ui/button")
+    expect(f).toContain("MindMapCanvas")
+    expect(f).toContain("onRegenerate")
   })
 })
 
@@ -157,10 +152,18 @@ describe("UI-13 Streak wiring", () => {
 describe("App sidebar (design chrome)", () => {
   const f = src("src/components/navigator/app-sidebar.tsx")
   it("uses Badge primitive for NUEVO chips", () => {
-    expect(f).toContain('@/components/ui/badge')
+    expect(f).toContain("@/components/ui/badge")
   })
   it("matches design naming + branding", () => {
-    for (const s of ["Navigator", "Study OS", "Asistente", "Cursos", "Agenda", "Mapa mental", "Área de Estudio"]) {
+    for (const s of [
+      "Navigator",
+      "Study OS",
+      "Asistente",
+      "Cursos",
+      "Agenda",
+      "Mapa mental",
+      "Área de Estudio",
+    ]) {
       expect(f).toContain(s)
     }
   })

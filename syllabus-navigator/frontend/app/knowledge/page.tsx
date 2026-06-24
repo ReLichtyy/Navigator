@@ -31,6 +31,9 @@ import {
   RefreshCw,
   AlertTriangle,
   X,
+  FolderInput,
+  Network as NetworkIcon,
+  FileText as FileIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
@@ -50,8 +53,21 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu"
 import { getDocStatus } from "@/lib/ui/doc-status"
-import { groupByCourse } from "@/lib/ui/course-group"
+import {
+  groupByCourse,
+  parseCourseCode,
+  setCourseCode,
+  type CourseGroup,
+} from "@/lib/ui/course-group"
 
 export default function KnowledgeBasePage() {
   const { status, ready } = useUser()
@@ -62,7 +78,12 @@ export default function KnowledgeBasePage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [isUploading, setIsUploading] = useState(false)
-  const [previewDoc, setPreviewDoc] = useState<{ id: string; name: string } | null>(null)
+  const [previewDoc, setPreviewDoc] = useState<{
+    id: string
+    name: string
+    fileUrl: string | null
+  } | null>(null)
+  const [previewMode, setPreviewMode] = useState<"pdf" | "graph">("pdf")
   const [previewGraph, setPreviewGraph] = useState<GraphResponseAPI | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   // Rename state: { [docId]: draftName }
@@ -202,17 +223,61 @@ export default function KnowledgeBasePage() {
     router.push(`/?docId=${encodeURIComponent(id)}&docName=${encodeURIComponent(name)}`)
   }
 
-  const handlePreview = async (id: string, name: string) => {
-    setPreviewDoc({ id, name })
+  const handlePreview = (doc: SyllabusUploadAPI) => {
+    const fileUrl = doc.file_url ?? null
+    setPreviewDoc({ id: doc.id, name: doc.original_filename, fileUrl })
+    setPreviewGraph(null)
+    // Default to the PDF when we have one; otherwise jump straight to the graph.
+    setPreviewMode(fileUrl ? "pdf" : "graph")
+    if (!fileUrl) loadGraphPreview(doc.id)
+  }
+
+  const loadGraphPreview = async (id: string) => {
     setPreviewLoading(true)
     setPreviewGraph(null)
     try {
-      const data = await fetchGraph(id)
-      setPreviewGraph(data)
+      setPreviewGraph(await fetchGraph(id))
     } catch {
       toast.error("Failed to load graph preview.")
     } finally {
       setPreviewLoading(false)
+    }
+  }
+
+  // Switch the preview modal to the graph view, loading it on first open.
+  const showGraphPreview = () => {
+    setPreviewMode("graph")
+    if (previewDoc && !previewGraph && !previewLoading) loadGraphPreview(previewDoc.id)
+  }
+
+  // Delete a whole course = delete every document in the group.
+  const handleDeleteCourse = async (name: string, docs: SyllabusUploadAPI[]) => {
+    const ids = docs.filter((d) => !(d as any)._optimistic).map((d) => d.id)
+    if (ids.length === 0) return
+    if (!confirm(`¿Eliminar el curso "${name}" y sus ${ids.length} documento(s)?`)) return
+    setUploads((prev) => prev.filter((u) => !ids.includes(u.id)))
+    try {
+      await Promise.all(ids.map((id) => deleteSyllabus(id)))
+      toast.success("Curso eliminado.")
+    } catch {
+      toast.error("No se pudieron eliminar todos los documentos.")
+      await fetchUploads(true)
+    }
+  }
+
+  // Move a document to another course = re-code its filename's course prefix.
+  const handleMove = async (doc: SyllabusUploadAPI, targetCode: string | null) => {
+    const newName = setCourseCode(doc.original_filename, targetCode)
+    if (newName === doc.original_filename) return
+    setUploads((prev) =>
+      prev.map((u) => (u.id === doc.id ? { ...u, original_filename: newName } : u)),
+    )
+    try {
+      await renameDocument(doc.id, newName)
+      toast.success(targetCode ? `Movido a ${targetCode}.` : "Movido a Otros.")
+    } catch {
+      toast.error("No se pudo mover el documento.")
+      await fetchUploads(true)
     }
   }
 
@@ -294,6 +359,9 @@ export default function KnowledgeBasePage() {
   const filteredUploads = uploads.filter((u) =>
     u.original_filename.toLowerCase().includes(searchQuery.toLowerCase()),
   )
+  const courseGroups = groupByCourse(filteredUploads)
+  // Coded courses available as "move" targets.
+  const codedCourses = courseGroups.filter((g) => g.code)
 
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground overflow-hidden">
@@ -375,26 +443,32 @@ export default function KnowledgeBasePage() {
             </div>
           ) : (
             <Accordion type="multiple" className="flex flex-col gap-3">
-              {groupByCourse(filteredUploads).map((course) => {
+              {courseGroups.map((course) => {
                 const firstReady = course.docs.find(
                   (d) => d.status === "processed" && !(d as any)._optimistic,
                 )
                 return (
                   <AccordionItem key={course.key} value={course.key} className="relative">
-                    {firstReady && (
+                    <div className="absolute right-3 top-2.5 z-10 flex items-center gap-1.5">
+                      {firstReady && (
+                        <Button asChild size="sm" variant="secondary" className="h-8 gap-1.5">
+                          <Link href={`/estudio?course=${firstReady.id}`}>
+                            <GraduationCap className="h-3.5 w-3.5 text-accent" />
+                            Estudiar
+                          </Link>
+                        </Button>
+                      )}
                       <Button
-                        asChild
-                        size="sm"
-                        variant="secondary"
-                        className="absolute right-3 top-2.5 z-10 h-8 gap-1.5"
+                        size="icon-sm"
+                        variant="ghost"
+                        onClick={() => handleDeleteCourse(course.name, course.docs)}
+                        className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        title="Eliminar curso"
                       >
-                        <Link href={`/estudio?course=${firstReady.id}`}>
-                          <GraduationCap className="h-3.5 w-3.5 text-accent" />
-                          Estudiar
-                        </Link>
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
-                    )}
-                    <AccordionTrigger className="pr-28">
+                    </div>
+                    <AccordionTrigger className="pr-40">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10">
                         <BookText className="h-[18px] w-[18px] text-accent" />
                       </div>
@@ -502,12 +576,18 @@ export default function KnowledgeBasePage() {
                                       />
                                     </Button>
                                   )}
+                                  <MoveMenu
+                                    doc={doc}
+                                    targets={codedCourses}
+                                    optimistic={optimistic}
+                                    onMove={handleMove}
+                                  />
                                   <Button
                                     size="icon-sm"
                                     variant="ghost"
-                                    onClick={() => handlePreview(doc.id, doc.original_filename)}
+                                    onClick={() => handlePreview(doc)}
                                     disabled={optimistic}
-                                    title="Vista previa del grafo"
+                                    title="Vista previa del documento"
                                   >
                                     <Eye className="h-3.5 w-3.5 text-muted-foreground" />
                                   </Button>
@@ -556,12 +636,52 @@ export default function KnowledgeBasePage() {
         }}
       >
         <DialogContent className="flex h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
-          <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
-            <DialogTitle className="text-base">{previewDoc?.name}</DialogTitle>
-            <DialogDescription className="text-xs">Knowledge Graph Preview</DialogDescription>
+          <DialogHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 px-4 py-3 text-left">
+            <div className="min-w-0">
+              <DialogTitle className="truncate text-base">{previewDoc?.name}</DialogTitle>
+              <DialogDescription className="text-xs">Vista previa del documento</DialogDescription>
+            </div>
+            <div className="inline-flex shrink-0 gap-1 rounded-lg border border-border bg-card/50 p-0.5">
+              <button
+                onClick={() => setPreviewMode("pdf")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  previewMode === "pdf"
+                    ? "bg-accent/15 text-accent"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <FileIcon className="h-3.5 w-3.5" /> PDF
+              </button>
+              <button
+                onClick={showGraphPreview}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  previewMode === "graph"
+                    ? "bg-accent/15 text-accent"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <NetworkIcon className="h-3.5 w-3.5" /> Mapa
+              </button>
+            </div>
           </DialogHeader>
-          <div className="flex-1 min-h-0 relative bg-background/50">
-            {previewLoading ? (
+          <div className="relative min-h-0 flex-1 bg-background/50">
+            {previewMode === "pdf" ? (
+              previewDoc?.fileUrl ? (
+                <iframe
+                  src={previewDoc.fileUrl}
+                  title={previewDoc.name}
+                  className="absolute inset-0 h-full w-full border-0"
+                />
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+                  <FileIcon className="h-10 w-10 opacity-20" />
+                  <p>El PDF no está disponible para este documento.</p>
+                  <Button variant="outline" size="sm" onClick={showGraphPreview}>
+                    <NetworkIcon className="h-3.5 w-3.5" /> Ver el mapa
+                  </Button>
+                </div>
+              )
+            ) : previewLoading ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
@@ -571,6 +691,7 @@ export default function KnowledgeBasePage() {
                 edges={previewGraph.edges}
                 graphStatus={previewGraph.graph_status}
                 graphError={previewGraph.graph_error}
+                centerTitle={previewDoc.name.replace(/\.pdf$/i, "")}
                 onReprocess={handleReprocess}
                 editable
                 syllabusId={previewDoc.id}
@@ -590,13 +711,70 @@ export default function KnowledgeBasePage() {
                 }
               />
             ) : (
-              <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
-                Failed to load graph data.
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+                No se pudo cargar el mapa.
               </div>
             )}
           </div>
         </DialogContent>
       </Dialog>
     </main>
+  )
+}
+
+/** Per-document "move to another course" menu. Courses are filename-derived, so
+ *  moving re-codes the file's course prefix via setCourseCode. */
+function MoveMenu({
+  doc,
+  targets,
+  optimistic,
+  onMove,
+}: {
+  doc: SyllabusUploadAPI
+  targets: CourseGroup[]
+  optimistic: boolean
+  onMove: (doc: SyllabusUploadAPI, targetCode: string | null) => void
+}) {
+  const current = parseCourseCode(doc.original_filename)
+  const others = targets.filter((t) => t.code && t.code !== current)
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          disabled={optimistic}
+          className="text-muted-foreground"
+          title="Mover a otro curso"
+        >
+          <FolderInput className="h-3.5 w-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel>Mover a…</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {others.length === 0 ? (
+          <DropdownMenuItem disabled>No hay otros cursos</DropdownMenuItem>
+        ) : (
+          others.map((t) => (
+            <DropdownMenuItem key={t.key} onClick={() => onMove(doc, t.code)}>
+              <Badge variant="accent" className="mr-1.5 font-mono text-[10px]">
+                {t.code}
+              </Badge>
+              <span className="truncate">{t.name}</span>
+            </DropdownMenuItem>
+          ))
+        )}
+        {current && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onMove(doc, null)}>
+              Quitar de curso (Otros)
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

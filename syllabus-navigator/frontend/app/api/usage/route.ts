@@ -3,7 +3,7 @@
  */
 
 import { NextResponse } from "next/server"
-import { auth } from "@/lib/auth/auth"
+import { getAuthedUser } from "@/lib/server/utils/auth-helpers"
 import { getUserUsage } from "@/lib/metering"
 import { cached } from "@/lib/cache"
 import { logError } from "@/lib/observability/logger"
@@ -12,16 +12,16 @@ export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
   try {
-    const session = await auth()
-    if (!session?.user?.id) {
+    const session = await getAuthedUser()
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const url = new URL(request.url)
     const days = parseInt(url.searchParams.get("days") ?? "30", 10)
 
-    const usage = await cached(`usage:${session.user.id}:${days}`, 30, () =>
-      getUserUsage(session.user.id, days),
+    const usage = await cached(`usage:${session.userId}:${days}`, 30, () =>
+      getUserUsage(session.userId, days),
     )
 
     return NextResponse.json({ usage })

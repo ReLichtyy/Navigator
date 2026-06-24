@@ -32,10 +32,7 @@ describe("RetrievalService.retrieve — relevance gate", () => {
   })
 
   it("no context when even the closest chunk is past the ceiling (off-topic)", async () => {
-    vi.mocked(ChunkRepository.search).mockResolvedValue([
-      chunk("a", 0.95),
-      chunk("b", 1.2),
-    ] as any)
+    vi.mocked(ChunkRepository.search).mockResolvedValue([chunk("a", 0.95), chunk("b", 1.2)] as any)
     const r = await RetrievalService.retrieve("s1", "q")
     expect(r.hasContext).toBe(false)
     expect(r.contextBlock).toBe("")

@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import {
@@ -18,7 +18,9 @@ import {
 } from "@/lib/api"
 import { toast } from "sonner"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { pickWeekTopics } from "@/lib/ui/week-topics"
+import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
 import {
   GraduationCap,
   Loader2,
@@ -59,6 +61,7 @@ function EstudioContent() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
   const params = useSearchParams()
+  const router = useRouter()
 
   const [courses, setCourses] = useState<SyllabusUploadAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
@@ -206,12 +209,23 @@ function EstudioContent() {
     [courseEvents, plan],
   )
 
+  // The single most relevant mode for the current course (drives the "Sugerido" badge).
+  const suggestion = useMemo(
+    () => pickStudySuggestion(courseEvents, plan?.today, weekTopics.length > 0),
+    [courseEvents, plan, weekTopics],
+  )
+
   // Difficulty / topic are instant selections; they apply when a mode launches.
   const applyDifficulty = (d: StudyDifficulty) => setDifficulty(d)
   const applyTopic = (t: string | null) => setTopic(t)
 
   // Launch a mode, regenerating the set for the chosen difficulty/topic if needed.
   const launchMode = async (m: Mode) => {
+    // The mind map lives on its own page now — redirect there with the course.
+    if (m === "mind") {
+      if (courseId) router.push(`/mapa?course=${courseId}`)
+      return
+    }
     if (courseId && loadedKey !== paramKey(difficulty, topic)) {
       await loadSet(courseId, { difficulty, topic })
     }
@@ -221,7 +235,11 @@ function EstudioContent() {
   // Honor ?mode= deep links once a set is available.
   useEffect(() => {
     const m = params.get("mode") as Mode | null
-    if (m && set && ["flash", "repaso", "quiz", "simulacro", "mind", "resumen"].includes(m)) {
+    if (m === "mind") {
+      if (courseId) router.push(`/mapa?course=${courseId}`)
+      return
+    }
+    if (m && set && ["flash", "repaso", "quiz", "simulacro", "resumen"].includes(m)) {
       setMode(m)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -382,6 +400,7 @@ function EstudioContent() {
                     difficulty={difficulty}
                     topic={topic}
                     weekTopics={weekTopics}
+                    suggestion={suggestion}
                     onDifficulty={applyDifficulty}
                     onTopic={applyTopic}
                   />
@@ -411,6 +430,7 @@ function ModeRouter({
   difficulty,
   topic,
   weekTopics,
+  suggestion,
   onDifficulty,
   onTopic,
 }: {
@@ -429,6 +449,7 @@ function ModeRouter({
   difficulty: StudyDifficulty
   topic: string | null
   weekTopics: string[]
+  suggestion: StudySuggestion | null
   onDifficulty: (d: StudyDifficulty) => void
   onTopic: (t: string | null) => void
 }) {
@@ -510,6 +531,7 @@ function ModeRouter({
           difficulty={difficulty}
           topic={topic}
           weekTopics={weekTopics}
+          suggestion={suggestion}
           onDifficulty={onDifficulty}
           onTopic={onTopic}
         />
@@ -568,6 +590,9 @@ const MODES: {
   },
 ]
 
+// Max focus-instruction length — mirrors the server cap in app/api/study/[syllabusId]/route.ts.
+const MAX_TOPIC = 160
+
 const DIFFICULTIES: { key: StudyDifficulty; label: string; hint: string }[] = [
   { key: "facil", label: "Fácil", hint: "Conceptos base, recordar" },
   { key: "medio", label: "Medio", hint: "Equilibrado" },
@@ -582,6 +607,7 @@ function Menu({
   difficulty,
   topic,
   weekTopics,
+  suggestion,
   onDifficulty,
   onTopic,
 }: {
@@ -592,6 +618,7 @@ function Menu({
   difficulty: StudyDifficulty
   topic: string | null
   weekTopics: string[]
+  suggestion: StudySuggestion | null
   onDifficulty: (d: StudyDifficulty) => void
   onTopic: (t: string | null) => void
 }) {
@@ -645,24 +672,35 @@ function Menu({
           </div>
         </div>
 
-        {/* Topic focus — General + 3 topics relevant to the current week */}
+        {/* Focus instruction — free-text prompt + week-topic shortcuts */}
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5" /> Tema (opcional)
+            <Sparkles className="h-3.5 w-3.5" /> Instrucción de enfoque (opcional)
           </div>
           <p className="mb-2 text-[11px] text-muted-foreground/80">
-            Enfoca el material en un tema de esta semana, o usa General para todo el curso.
+            Escribe en qué enfocar el material (un tema o una instrucción), o déjalo en blanco para
+            todo el curso.
           </p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="relative">
+            <Textarea
+              value={topic ?? ""}
+              onChange={(e) => onTopic(e.target.value.trimStart() || null)}
+              maxLength={MAX_TOPIC}
+              placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
+              className="min-h-[4.5rem] resize-none pb-6 text-[13px]"
+            />
+            <span className="pointer-events-none absolute bottom-1.5 right-2 text-[10px] tabular-nums text-muted-foreground/70">
+              {topic?.length ?? 0}/{MAX_TOPIC}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+              Atajos
+            </span>
             <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
             {weekTopics.map((t) => (
               <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
             ))}
-            {weekTopics.length === 0 && (
-              <span className="text-[11px] text-muted-foreground">
-                No hay temas con fecha esta semana — se usará General.
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -670,24 +708,36 @@ function Menu({
       <MasteryPanel syllabusId={courseId} />
 
       <div className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        {MODES.map((m) => (
-          <Card
-            key={m.key}
-            asChild
-            className="cursor-pointer gap-0 p-5 transition-all hover:-translate-y-0.5 hover:border-accent/40"
-          >
-            <button onClick={() => onLaunch(m.key)} className="text-left">
-              <div className="flex items-center justify-between">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
-                  <m.Icon className="h-5 w-5 text-accent" />
+        {MODES.map((m) => {
+          const suggested = suggestion?.mode === m.key
+          return (
+            <Card
+              key={m.key}
+              asChild
+              className={`cursor-pointer gap-0 p-5 transition-all hover:-translate-y-0.5 hover:border-accent/40 ${
+                suggested ? "border-accent/50 bg-accent/[0.04] ring-1 ring-accent/30" : ""
+              }`}
+            >
+              <button onClick={() => onLaunch(m.key)} className="text-left">
+                <div className="flex items-center justify-between">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
+                    <m.Icon className="h-5 w-5 text-accent" />
+                  </div>
+                  {suggested ? (
+                    <Badge variant="accent" className="gap-1">
+                      <Sparkles className="h-3 w-3" />
+                      Sugerido · {suggestion!.reason}
+                    </Badge>
+                  ) : (
+                    <span className="font-mono text-xs text-muted-foreground">{m.meta(set)}</span>
+                  )}
                 </div>
-                <span className="font-mono text-xs text-muted-foreground">{m.meta(set)}</span>
-              </div>
-              <div className="mt-3.5 text-[15px] font-bold text-foreground">{m.title}</div>
-              <div className="mt-1 text-[13px] leading-snug text-muted-foreground">{m.desc}</div>
-            </button>
-          </Card>
-        ))}
+                <div className="mt-3.5 text-[15px] font-bold text-foreground">{m.title}</div>
+                <div className="mt-1 text-[13px] leading-snug text-muted-foreground">{m.desc}</div>
+              </button>
+            </Card>
+          )
+        })}
       </div>
     </div>
   )

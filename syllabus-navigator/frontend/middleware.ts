@@ -1,79 +1,39 @@
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server"
 import { NextResponse } from "next/server"
-import NextAuth from "next-auth"
-import { authConfig } from "@/lib/auth/auth.config"
 
-const { auth } = NextAuth(authConfig)
-
-// Routes that don't require authentication
-const PUBLIC_PATHS = [
+// Public routes — everything else requires a signed-in Clerk user.
+const isPublic = createRouteMatcher([
   "/",
-  "/login",
-  "/signup",
-  "/api/auth",
-  "/api/health",
-  "/api/cron",
-]
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/health(.*)",
+  "/api/cron(.*)",
+])
 
-function isPublic(pathname: string): boolean {
-  return PUBLIC_PATHS.includes(pathname) || PUBLIC_PATHS.some((p) => p !== "/" && pathname.startsWith(p))
-}
-
-export default auth((req) => {
-  const { pathname } = req.nextUrl
-
-  // 1. Allow static files and Next.js internals
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.includes(".")
-  ) {
-    return NextResponse.next()
-  }
-
-  // 2. Pure Edge-safe traceability
+export default clerkMiddleware(async (auth, req) => {
   const traceId = crypto.randomUUID()
   const requestHeaders = new Headers(req.headers)
   requestHeaders.set("x-trace-id", traceId)
-  
-  const response = NextResponse.next({ request: { headers: requestHeaders } })
+  const next = () => NextResponse.next({ request: { headers: requestHeaders } })
 
-  // 3. Allow public routes
-  if (isPublic(pathname)) {
-    return response
-  }
+  if (isPublic(req)) return next()
 
-  // 4. Check authentication using req.auth provided by NextAuth wrapper
-  const token = req.auth?.user
-
-  if (!token) {
-    if (pathname.startsWith("/api/")) {
+  const { userId } = await auth()
+  if (!userId) {
+    if (req.nextUrl.pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-    const loginUrl = new URL("/login", req.url)
-    loginUrl.searchParams.set("callbackUrl", pathname)
-    return NextResponse.redirect(loginUrl)
+    const signIn = new URL("/sign-in", req.url)
+    signIn.searchParams.set("redirect_url", req.nextUrl.pathname)
+    return NextResponse.redirect(signIn)
   }
-
-  // 5. Check guest restrictions for private paths
-  const isGuest = token.role === "guest"
-  const isPrivate = pathname.startsWith("/settings") || 
-                    pathname.startsWith("/api/user/preferences") ||
-                    pathname.startsWith("/api/usage")
-
-  if (isGuest && isPrivate) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Forbidden for guests" }, { status: 403 })
-    }
-    const homeUrl = new URL("/", req.url)
-    return NextResponse.redirect(homeUrl)
-  }
-
-  return response
+  return next()
 })
 
 export const config = {
-  // Run middleware on all routes except static assets
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    // Skip Next internals and static assets, run on everything else.
+    "/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)",
+    "/(api|trpc)(.*)",
   ],
 }

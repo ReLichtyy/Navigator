@@ -17,18 +17,30 @@ describe("normalizeStudySet", () => {
   })
 
   it("drops flashcards missing a side", () => {
-    const set = normalizeStudySet({ ...base, flashcards: [{ front: "x", back: "" }, { front: "a", back: "b" }] })!
+    const set = normalizeStudySet({
+      ...base,
+      flashcards: [
+        { front: "x", back: "" },
+        { front: "a", back: "b" },
+      ],
+    })!
     expect(set.flashcards).toHaveLength(1)
     expect(set.flashcards[0].front).toBe("a")
   })
 
   it("clamps an out-of-range quiz answer index into the options range", () => {
-    const set = normalizeStudySet({ ...base, quiz: [{ question: "Q", options: ["a", "b"], answer: 9, explanation: "e" }] })!
+    const set = normalizeStudySet({
+      ...base,
+      quiz: [{ question: "Q", options: ["a", "b"], answer: 9, explanation: "e" }],
+    })!
     expect(set.quiz[0].answer).toBe(1) // clamped to last index
   })
 
   it("drops quiz questions with fewer than 2 options", () => {
-    const set = normalizeStudySet({ ...base, quiz: [{ question: "Q", options: ["only"], answer: 0, explanation: "e" }] })
+    const set = normalizeStudySet({
+      ...base,
+      quiz: [{ question: "Q", options: ["only"], answer: 0, explanation: "e" }],
+    })
     // base flashcards/summary still present, but quiz is emptied
     expect(set!.quiz).toHaveLength(0)
   })
@@ -61,7 +73,7 @@ describe("buildDirectives (difficulty + topic)", () => {
   it("adds a FOCUS line with the topic when provided", () => {
     const out = buildDirectives({ difficulty: "facil", topic: "JSON en la Web" })
     expect(out).toContain("DIFFICULTY: EASY")
-    expect(out).toContain('FOCUS')
+    expect(out).toContain("FOCUS")
     expect(out).toContain("JSON en la Web")
   })
 
@@ -91,7 +103,9 @@ describe("normalizeStudySet (Sprint 4: topic + studyGuide)", () => {
   it("carries a quiz topic when present and omits it when absent", () => {
     const withTopic = normalizeStudySet({
       ...base,
-      quiz: [{ question: "Q?", options: ["a", "b"], answer: 0, explanation: "e", topic: " Vistas " }],
+      quiz: [
+        { question: "Q?", options: ["a", "b"], answer: 0, explanation: "e", topic: " Vistas " },
+      ],
     })!
     expect(withTopic.quiz[0].topic).toBe("Vistas")
     expect(normalizeStudySet(base)!.quiz[0].topic).toBeUndefined()

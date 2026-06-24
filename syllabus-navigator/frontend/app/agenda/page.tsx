@@ -10,13 +10,19 @@ import {
   type ScheduleEventAPI,
   type WeeklyPlanAPI,
 } from "@/lib/api"
-import { CalendarDays, Loader2, FileText, AlertCircle, CheckCircle2 } from "lucide-react"
+import { CalendarDays, Loader2, FileText, AlertCircle } from "lucide-react"
 import Link from "next/link"
 import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
 import { DayNotesPanel } from "@/components/agenda/day-notes-panel"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion"
 import { meta, whenLabel, daysBadge } from "@/lib/ui/agenda-format"
 
 export default function AgendaPage() {
@@ -86,11 +92,48 @@ export default function AgendaPage() {
     )
   }
 
-  // Group full agenda by course.
-  const byCourse = events.reduce<Record<string, ScheduleEventAPI[]>>((acc, e) => {
-    ;(acc[e.course_name] ??= []).push(e)
-    return acc
-  }, {})
+  const todayIso = plan?.today ?? ""
+
+  // Próximos 5 días: only assessments within the next 5 days (auto-updates with `today`).
+  const next5 = (plan?.upcoming_assessments ?? []).filter(
+    (a) => a.days_until != null && a.days_until >= 0 && a.days_until <= 5,
+  )
+
+  // Group the full agenda by week_label (topics + activities), collapsed in an accordion.
+  const NO_WEEK = "Sin semana fija"
+  const weekNum = (s: string) => {
+    const m = /(\d+)/.exec(s)
+    return m ? +m[1] : Number.POSITIVE_INFINITY
+  }
+  const weekMap = new Map<string, ScheduleEventAPI[]>()
+  for (const e of events) {
+    const k = e.week_label?.trim() || NO_WEEK
+    ;(weekMap.get(k) ?? weekMap.set(k, []).get(k)!).push(e)
+  }
+  const weeks = [...weekMap.entries()]
+    .map(([key, evs]) => ({
+      key,
+      evs: [...evs].sort((a, b) => {
+        if (a.event_date && b.event_date) return a.event_date < b.event_date ? -1 : 1
+        if (a.event_date) return -1
+        if (b.event_date) return 1
+        return 0
+      }),
+    }))
+    .sort((a, b) => {
+      if (a.key === NO_WEEK) return 1
+      if (b.key === NO_WEEK) return -1
+      return weekNum(a.key) - weekNum(b.key)
+    })
+
+  // Default-open the week holding the next upcoming dated event (else the first week).
+  const nextDated = events
+    .filter(
+      (e) => e.event_date && /^\d{4}-\d{2}-\d{2}$/.test(e.event_date) && e.event_date >= todayIso,
+    )
+    .sort((a, b) => (a.event_date! < b.event_date! ? -1 : 1))[0]
+  const currentWeekKey = (nextDated?.week_label?.trim() || NO_WEEK) ?? weeks[0]?.key
+  const defaultWeek = weeks.some((w) => w.key === currentWeekKey) ? currentWeekKey : weeks[0]?.key
 
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground overflow-hidden">
@@ -101,7 +144,7 @@ export default function AgendaPage() {
       </header>
 
       <div className="flex-1 overflow-auto p-6">
-        <div className="mx-auto max-w-4xl space-y-8">
+        <div className="mx-auto max-w-5xl space-y-6">
           {loading ? (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -121,104 +164,12 @@ export default function AgendaPage() {
             </div>
           ) : (
             <>
-              {/* ─── Sync banner ─── */}
-              <Card className="flex-row items-center gap-3 border-accent/25 bg-accent/5 p-4">
-                <CheckCircle2 className="h-5 w-5 shrink-0 text-accent" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-foreground">
-                    Calendario sincronizado con tus cronogramas
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Las fechas importantes se extraen automáticamente de los PDFs de cada curso.
-                  </div>
-                </div>
-                <Badge variant="accent" className="shrink-0">
-                  {events.length} fechas detectadas
-                </Badge>
-              </Card>
-
-              {/* ─── This week / recommendations ─── */}
-              {plan && (
-                <section className="rounded-xl border border-accent/30 bg-accent/5 p-5">
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-accent mb-4">
-                    Esta semana ({plan.week_start} → {plan.week_end})
-                  </h2>
-
-                  {plan.upcoming_assessments.length > 0 && (
-                    <div className="mb-5">
-                      <p className="text-xs font-medium text-muted-foreground mb-2">
-                        Próximas evaluaciones
-                      </p>
-                      <ul className="space-y-2">
-                        {plan.upcoming_assessments.map((a) => {
-                          const m = meta(a.event_type)
-                          const badge = daysBadge(a.days_until)
-                          return (
-                            <li
-                              key={a.id}
-                              className="rounded-lg bg-card border border-border/60 p-3"
-                            >
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <Badge variant={m.variant}>
-                                  <m.Icon className="h-3 w-3" />
-                                  {m.label}
-                                </Badge>
-                                <span className="font-medium text-sm">{a.title}</span>
-                                {a.weight_percent ? (
-                                  <span className="text-xs text-muted-foreground">
-                                    {a.weight_percent}%
-                                  </span>
-                                ) : null}
-                                <span className="ml-auto text-xs text-muted-foreground">
-                                  {whenLabel(a)}
-                                  {badge && (
-                                    <span className="ml-2 text-accent font-medium">· {badge}</span>
-                                  )}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-muted-foreground mt-1">
-                                {a.course_name}
-                              </p>
-                              {a.review_first.length > 0 && (
-                                <p className="text-xs mt-2">
-                                  <span className="text-muted-foreground">Repasa primero: </span>
-                                  <span className="text-foreground">
-                                    {a.review_first.join(", ")}
-                                  </span>
-                                </p>
-                              )}
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">
-                      Temas de la semana
-                    </p>
-                    {plan.this_week_topics.length > 0 ? (
-                      <ul className="flex flex-wrap gap-2">
-                        {plan.this_week_topics.map((t) => (
-                          <li key={t.id}>
-                            <Badge variant="ok">{t.title}</Badge>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No hay temas con fecha esta semana. Revisa la agenda completa abajo.
-                      </p>
-                    )}
-                  </div>
-                </section>
-              )}
-
-              {/* ─── Month calendar (dated events) + inline day expansion ─── */}
+              {/* ─── Month calendar HERO (calendar-first view) ─── */}
               <MonthCalendar
+                large
+                showDetectedList={false}
                 events={events}
-                today={plan?.today ?? "2026-06-22"}
+                today={plan?.today ?? ""}
                 onSelectDay={(iso) => setSelectedDate((cur) => (cur === iso ? null : iso))}
                 selectedDate={selectedDate}
                 noteDates={noteDates}
@@ -235,40 +186,115 @@ export default function AgendaPage() {
                 }
               />
 
-              {/* ─── Full agenda by course ─── */}
-              {Object.entries(byCourse).map(([course, evs]) => (
-                <section key={course}>
-                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-accent/70" />
-                    {course}
-                  </h3>
-                  <ul className="space-y-1.5">
-                    {evs.map((e) => {
-                      const m = meta(e.event_type)
-                      return (
-                        <li
-                          key={e.id}
-                          className="flex items-center gap-3 rounded-lg border border-border/50 bg-card px-3 py-2 text-sm"
-                        >
-                          <Badge variant={m.variant} className="shrink-0">
-                            <m.Icon className="h-3 w-3" />
-                            {m.label}
-                          </Badge>
-                          <span className="flex-1 truncate">{e.title}</span>
-                          {e.weight_percent ? (
-                            <span className="text-xs text-muted-foreground shrink-0">
-                              {e.weight_percent}%
-                            </span>
-                          ) : null}
-                          <span className="text-xs text-muted-foreground shrink-0 w-28 text-right">
-                            {whenLabel(e)}
-                          </span>
-                        </li>
-                      )
-                    })}
-                  </ul>
+              {/* ─── Próximos 5 días (only what's actually near) ─── */}
+              {plan && (
+                <section className="rounded-xl border border-accent/30 bg-accent/5 p-5">
+                  <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-accent">
+                    Próximos 5 días
+                  </h2>
+                  {next5.length > 0 ? (
+                    <ul className="space-y-2">
+                      {next5.map((a) => {
+                        const m = meta(a.event_type)
+                        const badge = daysBadge(a.days_until)
+                        return (
+                          <li key={a.id} className="rounded-lg border border-border/60 bg-card p-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant={m.variant}>
+                                <m.Icon className="h-3 w-3" />
+                                {m.label}
+                              </Badge>
+                              <span className="text-sm font-medium">{a.title}</span>
+                              {a.weight_percent ? (
+                                <span className="text-xs text-muted-foreground">
+                                  {a.weight_percent}%
+                                </span>
+                              ) : null}
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                {whenLabel(a)}
+                                {badge && (
+                                  <span className="ml-2 font-medium text-accent">· {badge}</span>
+                                )}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {a.course_name}
+                            </p>
+                            {a.review_first.length > 0 && (
+                              <p className="mt-2 text-xs">
+                                <span className="text-muted-foreground">Repasa primero: </span>
+                                <span className="text-foreground">{a.review_first.join(", ")}</span>
+                              </p>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Sin evaluaciones en los próximos 5 días. Revisa los temas por semana abajo.
+                    </p>
+                  )}
                 </section>
-              ))}
+              )}
+
+              {/* ─── Temas y actividades por semana (collapsed accordion) ─── */}
+              <section>
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                  <FileText className="h-4 w-4 text-accent/70" />
+                  Temas y actividades por semana
+                </h3>
+                <Accordion
+                  type="single"
+                  collapsible
+                  defaultValue={defaultWeek}
+                  className="space-y-2"
+                >
+                  {weeks.map((w) => (
+                    <AccordionItem key={w.key} value={w.key}>
+                      <AccordionTrigger>
+                        <span className="flex-1">{w.key}</span>
+                        {w.key === defaultWeek && (
+                          <Badge variant="accent" className="shrink-0">
+                            Actual
+                          </Badge>
+                        )}
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {w.evs.length} {w.evs.length === 1 ? "ítem" : "ítems"}
+                        </span>
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-1.5">
+                        {w.evs.map((e) => {
+                          const m = meta(e.event_type)
+                          return (
+                            <div
+                              key={e.id}
+                              className="flex items-center gap-3 rounded-lg border border-border/50 bg-card px-3 py-2 text-sm"
+                            >
+                              <Badge variant={m.variant} className="shrink-0">
+                                <m.Icon className="h-3 w-3" />
+                                {m.label}
+                              </Badge>
+                              <span className="flex-1 truncate">{e.title}</span>
+                              <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+                                {e.course_name}
+                              </span>
+                              {e.weight_percent ? (
+                                <span className="shrink-0 text-xs text-muted-foreground">
+                                  {e.weight_percent}%
+                                </span>
+                              ) : null}
+                              <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
+                                {whenLabel(e)}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              </section>
 
               {/* ─── Simulacro CTA for the next assessment ─── */}
               {(() => {
