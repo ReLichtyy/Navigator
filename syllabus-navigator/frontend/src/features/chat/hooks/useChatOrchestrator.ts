@@ -219,6 +219,7 @@ export function useChatOrchestrator({
       createChat,
       setActiveChatId,
       setActiveChat,
+      initializeSession,
       abortRef,
       activeChatIdRef,
       setChats,
