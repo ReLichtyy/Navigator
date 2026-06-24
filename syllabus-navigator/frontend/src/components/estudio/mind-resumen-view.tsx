@@ -91,7 +91,9 @@ export function ResumenView({
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-5">
           <div>
             <div className="text-lg font-extrabold tracking-tight">{courseName}</div>
-            <div className="mt-1 text-xs text-muted-foreground">Generado desde el knowledge base del curso</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Generado desde el knowledge base del curso
+            </div>
           </div>
           <button
             onClick={onRegenerate}
@@ -122,8 +124,12 @@ export function ResumenView({
           {studyGuide && studyGuide.length > 0 && (
             <div className="mt-7">
               <div className="mb-1 flex items-center gap-2">
-                <h3 className="text-sm font-extrabold tracking-tight text-foreground">Guía de estudio</h3>
-                <span className="text-[11px] text-muted-foreground">ordenada por peso en el examen</span>
+                <h3 className="text-sm font-extrabold tracking-tight text-foreground">
+                  Guía de estudio
+                </h3>
+                <span className="text-[11px] text-muted-foreground">
+                  ordenada por peso en el examen
+                </span>
               </div>
               <div className="flex flex-col gap-3">
                 {studyGuide.map((s, i) => (

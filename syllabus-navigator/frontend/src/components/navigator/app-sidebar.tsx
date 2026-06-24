@@ -122,7 +122,9 @@ export function AppSidebar() {
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <div className="truncate text-sm font-bold leading-tight text-sidebar-foreground">Navigator</div>
+              <div className="truncate text-sm font-bold leading-tight text-sidebar-foreground">
+                Navigator
+              </div>
               <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                 Study OS
               </div>
@@ -195,7 +197,10 @@ export function AppSidebar() {
           <Button
             variant="outline"
             onClick={() => openAuthModal("login")}
-            className={cn("w-full justify-start gap-2 border-sidebar-border", collapsed && "justify-center px-0")}
+            className={cn(
+              "w-full justify-start gap-2 border-sidebar-border",
+              collapsed && "justify-center px-0",
+            )}
           >
             <UserIcon className="h-4 w-4" />
             {!collapsed && <span>Iniciar sesión</span>}
@@ -215,7 +220,7 @@ export function AppSidebar() {
                 {!collapsed && (
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-sidebar-foreground">
-                      {status === "guest" ? "Invitado" : displayName ?? "Usuario"}
+                      {status === "guest" ? "Invitado" : (displayName ?? "Usuario")}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
                       {status === "guest" ? "Sesión temporal" : "Estudiante"}
@@ -226,10 +231,13 @@ export function AppSidebar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={10} className="w-56">
               <div className="px-2 py-1.5 text-sm font-medium">
-                {status === "guest" ? "Guest User" : displayName ?? "User"}
+                {status === "guest" ? "Guest User" : (displayName ?? "User")}
               </div>
               {status === "guest" && (
-                <DropdownMenuItem onClick={() => openAuthModal("signup")} className="cursor-pointer text-accent">
+                <DropdownMenuItem
+                  onClick={() => openAuthModal("signup")}
+                  className="cursor-pointer text-accent"
+                >
                   Crear cuenta
                 </DropdownMenuItem>
               )}

@@ -17,7 +17,10 @@ export async function POST(req: Request) {
     const { userId } = await requireAuth()
     const parsed = MasteryRecordSchema.safeParse(await req.json())
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid body" }, { status: 400 })
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "Invalid body" },
+        { status: 400 },
+      )
     }
     await MasteryService.record(userId, parsed.data.syllabus_id, parsed.data.outcomes)
     return NextResponse.json({ success: true })

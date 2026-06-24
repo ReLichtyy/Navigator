@@ -61,8 +61,7 @@ export async function chatCompletion(
   // Check if provider is configured
   if (!activeProvider.isConfigured()) {
     // Try the other provider
-    const fallbackName: LLMProvider =
-      resolvedConfig.provider === "openai" ? "openrouter" : "openai"
+    const fallbackName: LLMProvider = resolvedConfig.provider === "openai" ? "openrouter" : "openai"
     const fallback = providers[fallbackName]
 
     if (fallback.isConfigured()) {
@@ -80,18 +79,14 @@ export async function chatCompletion(
         resolvedConfig.model = resolvedConfig.model.split("/").pop() ?? DEFAULT_MODEL
       }
     } else {
-      throw new Error(
-        "No LLM provider is configured. Set OPENAI_API_KEY or OPENROUTER_API_KEY.",
-      )
+      throw new Error("No LLM provider is configured. Set OPENAI_API_KEY or OPENROUTER_API_KEY.")
     }
   }
 
   const finalProvider = providers[resolvedConfig.provider]
 
   // Execute with timing
-  const { result, ms } = await timed("llm.chat", () =>
-    finalProvider.chat(messages, resolvedConfig),
-  )
+  const { result, ms } = await timed("llm.chat", () => finalProvider.chat(messages, resolvedConfig))
 
   logInfo("llm.call", {
     provider: resolvedConfig.provider,
@@ -119,8 +114,7 @@ export async function* chatStream(
   let finalProvider = providers[resolvedConfig.provider]
 
   if (!finalProvider || !finalProvider.isConfigured()) {
-    const fallbackName: LLMProvider =
-      resolvedConfig.provider === "openai" ? "openrouter" : "openai"
+    const fallbackName: LLMProvider = resolvedConfig.provider === "openai" ? "openrouter" : "openai"
     const fallback = providers[fallbackName]
 
     if (fallback.isConfigured()) {

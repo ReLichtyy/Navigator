@@ -206,13 +206,13 @@ export const ChatService = {
       citations,
       provider: llmResponse.provider,
       model: llmResponse.model,
-      latencyMs: llmLatencyMs
+      latencyMs: llmLatencyMs,
     }
   },
 
   async processMessageStream(chatId: string, userId: string, userRole: Role, question: string) {
     const { chatStream } = await import("@/lib/llm")
-    
+
     // 1. Input guardrails
     const inputCheck = validateInput(question)
     if (!inputCheck.passed) {
@@ -267,7 +267,8 @@ export const ChatService = {
             ],
             { provider: routing.provider, model: routing.model, maxTokens: 20 },
           )
-          const title = titleResp.content.trim().replace(/^["']|["']$/g, "") || question.slice(0, 48)
+          const title =
+            titleResp.content.trim().replace(/^["']|["']$/g, "") || question.slice(0, 48)
           await ChatRepository.updateTitle(chatId, title)
           return title
         } catch {
@@ -332,19 +333,25 @@ export const ChatService = {
             citations,
             title: generatedTitle,
             provider: llmProvider,
-            model: llmModel
+            model: llmModel,
           })}\n\n`
           controller.enqueue(new TextEncoder().encode(finalEvent))
           controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
           controller.close()
         } catch (err) {
-          logError("llm.stream_loop.error", { error: err instanceof Error ? err.message : String(err) })
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ error: "Failed to generate response" })}\n\n`))
+          logError("llm.stream_loop.error", {
+            error: err instanceof Error ? err.message : String(err),
+          })
+          controller.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ error: "Failed to generate response" })}\n\n`,
+            ),
+          )
           controller.close()
         }
-      }
+      },
     })
 
     return readable
-  }
+  },
 }

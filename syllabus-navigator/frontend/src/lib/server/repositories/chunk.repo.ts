@@ -70,11 +70,7 @@ export const ChunkRepository = {
   },
 
   /** Retrieval: nearest chunks to a query embedding, scoped to one syllabus. */
-  async search(
-    syllabusId: string,
-    queryEmbedding: number[],
-    limit = 8,
-  ): Promise<RetrievedChunk[]> {
+  async search(syllabusId: string, queryEmbedding: number[], limit = 8): Promise<RetrievedChunk[]> {
     const qvec = toVectorLiteral(queryEmbedding)
     const rows = await sql`
       SELECT id, chunk_index, content, page_start, page_end,

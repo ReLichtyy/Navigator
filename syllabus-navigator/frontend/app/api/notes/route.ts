@@ -43,7 +43,10 @@ export async function POST(req: Request) {
     const { userId } = await requireAuth()
     const parsed = CreateNoteSchema.safeParse(await req.json())
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid body" }, { status: 400 })
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "Invalid body" },
+        { status: 400 },
+      )
     }
     const { note_date, body } = parsed.data
     const note = await DateNoteRepository.create(userId, note_date, body)

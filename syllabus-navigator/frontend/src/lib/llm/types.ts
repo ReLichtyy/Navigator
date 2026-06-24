@@ -27,23 +27,28 @@ export interface LLMResponse {
   }
 }
 
-export type LLMStreamChunk = {
-  type: "text"
-  content: string
-} | {
-  type: "finish"
-  usage: {
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-  }
-  model: string
-  provider: LLMProvider
-}
+export type LLMStreamChunk =
+  | {
+      type: "text"
+      content: string
+    }
+  | {
+      type: "finish"
+      usage: {
+        promptTokens: number
+        completionTokens: number
+        totalTokens: number
+      }
+      model: string
+      provider: LLMProvider
+    }
 
 export interface LLMProviderAdapter {
   readonly name: LLMProvider
   chat(messages: LLMMessage[], config: LLMConfig): Promise<LLMResponse>
-  chatStream?(messages: LLMMessage[], config: LLMConfig): AsyncGenerator<LLMStreamChunk, void, unknown>
+  chatStream?(
+    messages: LLMMessage[],
+    config: LLMConfig,
+  ): AsyncGenerator<LLMStreamChunk, void, unknown>
   isConfigured(): boolean
 }

@@ -19,18 +19,12 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => null)
     if (!body?.message_id || body?.rating === undefined) {
-      return NextResponse.json(
-        { error: "message_id and rating are required." },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "message_id and rating are required." }, { status: 400 })
     }
 
     const rating = Number(body.rating)
     if (rating !== 1 && rating !== -1) {
-      return NextResponse.json(
-        { error: "Rating must be 1 (good) or -1 (bad)." },
-        { status: 400 },
-      )
+      return NextResponse.json({ error: "Rating must be 1 (good) or -1 (bad)." }, { status: 400 })
     }
 
     await sql`

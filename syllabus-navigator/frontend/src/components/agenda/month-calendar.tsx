@@ -8,8 +8,18 @@ const PALETTE = ["bg-accent", "bg-blue-400", "bg-purple-400", "bg-amber-400", "b
 const DOT_HEX = ["#3FBF84", "#60a5fa", "#c084fc", "#fbbf24", "#f472b6"]
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 const MONTHS = [
-  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
 ]
 
 /** Stable color index for a course name (so the same course keeps its color). */
@@ -52,7 +62,14 @@ interface Props {
   dayPanel?: ReactNode
 }
 
-export function MonthCalendar({ events, today, onSelectDay, selectedDate, noteDates, dayPanel }: Props) {
+export function MonthCalendar({
+  events,
+  today,
+  onSelectDay,
+  selectedDate,
+  noteDates,
+  dayPanel,
+}: Props) {
   // Parse "today" as the anchor; default to the first dated event's month if today unparseable.
   const anchor = useMemo(() => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today)
@@ -117,7 +134,10 @@ export function MonthCalendar({ events, today, onSelectDay, selectedDate, noteDa
 
         <div className="mb-1.5 grid grid-cols-7 gap-1.5">
           {WEEKDAYS.map((w) => (
-            <div key={w} className="pb-0.5 text-center text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground">
+            <div
+              key={w}
+              className="pb-0.5 text-center text-[10.5px] font-bold uppercase tracking-wide text-muted-foreground"
+            >
               {w}
             </div>
           ))}
@@ -156,16 +176,20 @@ export function MonthCalendar({ events, today, onSelectDay, selectedDate, noteDa
                         {cell.day}
                       </span>
                       {hasNote && (
-                        <StickyNote
-                          className="h-3 w-3 text-accent"
-                          aria-label="Tiene notas"
-                        />
+                        <StickyNote className="h-3 w-3 text-accent" aria-label="Tiene notas" />
                       )}
                     </div>
                     {evs.slice(0, 3).map((e) => (
-                      <div key={e.id} className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5">
-                        <span className={`h-1.5 w-1.5 flex-none rounded-full ${PALETTE[colorFor(e.course_name)]}`} />
-                        <span className="min-w-0 flex-1 truncate text-[9.5px] font-medium text-foreground">{e.title}</span>
+                      <div
+                        key={e.id}
+                        className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5"
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 flex-none rounded-full ${PALETTE[colorFor(e.course_name)]}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[9.5px] font-medium text-foreground">
+                          {e.title}
+                        </span>
                       </div>
                     ))}
                   </button>
@@ -190,7 +214,9 @@ export function MonthCalendar({ events, today, onSelectDay, selectedDate, noteDa
                 key={e.id}
                 className="flex items-center gap-3.5 rounded-xl border border-border/50 bg-card px-4 py-3"
               >
-                <span className="font-mono text-[13px] font-semibold text-foreground">{e.event_date}</span>
+                <span className="font-mono text-[13px] font-semibold text-foreground">
+                  {e.event_date}
+                </span>
                 <span
                   className="h-8 w-0.5 flex-none rounded"
                   style={{ background: DOT_HEX[colorFor(e.course_name)] }}
@@ -203,7 +229,9 @@ export function MonthCalendar({ events, today, onSelectDay, selectedDate, noteDa
                   </div>
                 </div>
                 {e.weight_percent ? (
-                  <span className="flex-none font-mono text-[11px] text-muted-foreground">{e.weight_percent}%</span>
+                  <span className="flex-none font-mono text-[11px] text-muted-foreground">
+                    {e.weight_percent}%
+                  </span>
                 ) : null}
               </li>
             ))}

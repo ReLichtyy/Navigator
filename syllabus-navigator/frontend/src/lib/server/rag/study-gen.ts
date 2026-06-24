@@ -169,9 +169,19 @@ const STUDY_JSON_SCHEMA = {
         type: "object",
         additionalProperties: false,
         properties: {
-          topic: { type: "string", description: "Topic title (match a mind-map branch / weighted topic when possible)" },
-          weight: { type: "number", description: "Exam weight 0–100 for this topic; 0 when unknown" },
-          points: { type: "array", items: { type: "string" }, description: "2–5 concise things to study for this topic" },
+          topic: {
+            type: "string",
+            description: "Topic title (match a mind-map branch / weighted topic when possible)",
+          },
+          weight: {
+            type: "number",
+            description: "Exam weight 0–100 for this topic; 0 when unknown",
+          },
+          points: {
+            type: "array",
+            items: { type: "string" },
+            description: "2–5 concise things to study for this topic",
+          },
         },
         required: ["topic", "weight", "points"],
       },
@@ -209,7 +219,13 @@ export function normalizeStudySet(raw: unknown): StudySet | null {
       const options = q.options.map((o) => o.trim()).filter((o) => o.length > 0)
       const answer = Math.min(Math.max(Math.trunc(q.answer), 0), Math.max(options.length - 1, 0))
       const topic = q.topic?.trim()
-      return { question: q.question.trim(), options, answer, explanation: q.explanation.trim(), ...(topic ? { topic } : {}) }
+      return {
+        question: q.question.trim(),
+        options,
+        answer,
+        explanation: q.explanation.trim(),
+        ...(topic ? { topic } : {}),
+      }
     })
     .filter((q) => q.question.length > 0 && q.options.length >= 2)
 

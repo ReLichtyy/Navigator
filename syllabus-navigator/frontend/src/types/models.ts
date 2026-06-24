@@ -48,7 +48,6 @@ export interface AttachedFile {
   status?: "uploading" | "ready" | "error"
 }
 
-
 export interface Document {
   id: string
   userId: string

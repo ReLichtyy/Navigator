@@ -12,12 +12,15 @@ export async function POST(request: Request, { params }: RouteParams) {
   try {
     const { userId, role } = await requireAuth()
     const { chatId } = await params
-    
+
     // Parse and validate request
     const body = await request.json().catch(() => null)
     const parsedBody = MessageRequestSchema.safeParse(body)
     if (!parsedBody.success) {
-      return NextResponse.json({ answer: null, error: parsedBody.error.issues[0].message }, { status: 400 })
+      return NextResponse.json(
+        { answer: null, error: parsedBody.error.issues[0].message },
+        { status: 400 },
+      )
     }
 
     const { question } = parsedBody.data
@@ -31,22 +34,18 @@ export async function POST(request: Request, { params }: RouteParams) {
       headers: {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
       },
     })
-
   } catch (err) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ answer: null, error: err.message }, { status: err.status })
     }
-    
+
     logError("api.chat.message.error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    
-    return NextResponse.json(
-      { answer: null, error: "Failed to process message." },
-      { status: 500 }
-    )
+
+    return NextResponse.json({ answer: null, error: "Failed to process message." }, { status: 500 })
   }
 }

@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import type { Chat } from "@/types/models"
-import { listChats, newChat as apiNewChat, deleteChat as apiDeleteChat, updateChat as apiUpdateChat, ApiError } from "@/lib/api"
+import {
+  listChats,
+  newChat as apiNewChat,
+  deleteChat as apiDeleteChat,
+  updateChat as apiUpdateChat,
+  ApiError,
+} from "@/lib/api"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 
@@ -46,7 +52,7 @@ export function useChatList() {
       if (userReady) setChatsLoading(false)
       return
     }
-    
+
     // Guests don't load history from API in the same way, or maybe they do?
     // According to the original logic, guests do load it if they have an ID.
     try {
@@ -69,28 +75,31 @@ export function useChatList() {
     fetchChatList()
   }, [fetchChatList])
 
-  const createChat = useCallback(async (activeModel?: string, syllabusId?: string | null) => {
-    if (!userReady) return null
-    if (userStatus === "anonymous") {
-      openAuthModal("login")
-      return null
-    }
-
-    try {
-      const resp = await apiNewChat(syllabusId || undefined)
-      const newChatObj = mapApiChat(resp)
-      setChats((prev) => [newChatObj, ...prev])
-      return newChatObj
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 403 || err.status === 429)) {
-        toast.error(err.message)
-        openAuthModal("signup")
-      } else {
-        toast.error("Failed to create chat")
+  const createChat = useCallback(
+    async (activeModel?: string, syllabusId?: string | null) => {
+      if (!userReady) return null
+      if (userStatus === "anonymous") {
+        openAuthModal("login")
+        return null
       }
-      return null
-    }
-  }, [userReady, userStatus, openAuthModal])
+
+      try {
+        const resp = await apiNewChat(syllabusId || undefined)
+        const newChatObj = mapApiChat(resp)
+        setChats((prev) => [newChatObj, ...prev])
+        return newChatObj
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 403 || err.status === 429)) {
+          toast.error(err.message)
+          openAuthModal("signup")
+        } else {
+          toast.error("Failed to create chat")
+        }
+        return null
+      }
+    },
+    [userReady, userStatus, openAuthModal],
+  )
 
   const deleteChat = useCallback(async (id: string) => {
     if (!confirm("Are you sure you want to delete this chat?")) return false
@@ -122,6 +131,6 @@ export function useChatList() {
     createChat,
     deleteChat,
     renameChat,
-    refreshChats: fetchChatList
+    refreshChats: fetchChatList,
   }
 }

@@ -39,7 +39,11 @@ export function selectModel(ctx: RoutingContext): RoutingDecision {
     const modelDef = getModelDef(ctx.preferredModel)
 
     // Check tier access
-    if (modelDef && modelDef.tier === "pro" && (ctx.userTier === "free" || ctx.userTier === "guest")) {
+    if (
+      modelDef &&
+      modelDef.tier === "pro" &&
+      (ctx.userTier === "free" || ctx.userTier === "guest")
+    ) {
       return {
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
@@ -93,7 +97,11 @@ export function selectModel(ctx: RoutingContext): RoutingDecision {
         return { provider: "openai", model: ctx.preferredModel, reason: "User model preference" }
       }
       if (provider === "openrouter" && openrouterProvider.isConfigured()) {
-        return { provider: "openrouter", model: ctx.preferredModel, reason: "User model preference" }
+        return {
+          provider: "openrouter",
+          model: ctx.preferredModel,
+          reason: "User model preference",
+        }
       }
     }
   }

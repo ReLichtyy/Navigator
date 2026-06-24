@@ -22,7 +22,9 @@ const JOB_TYPE = "ingest"
 
 export const IngestionService = {
   /** Process one ingestion job (idempotent: re-running re-embeds pending chunks). */
-  async runIngestJob(syllabusId: string): Promise<{ embedded: number; topics: number; events: number }> {
+  async runIngestJob(
+    syllabusId: string,
+  ): Promise<{ embedded: number; topics: number; events: number }> {
     let embedded = 0
     let topics = 0
     let events = 0

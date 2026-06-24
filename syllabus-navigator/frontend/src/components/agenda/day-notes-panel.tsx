@@ -17,8 +17,18 @@ import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
 
 const MONTHS = [
-  "enero", "febrero", "marzo", "abril", "mayo", "junio",
-  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
 ]
 
 /** Pretty Spanish date from an ISO yyyy-mm-dd. */
@@ -154,13 +164,18 @@ export function DayNotesPanel({ date, dayEvents, canEdit, onClose, onCountChange
               {dayEvents.map((e) => {
                 const m = meta(e.event_type)
                 return (
-                  <li key={e.id} className="flex items-center gap-2.5 rounded-lg border border-border/50 bg-card px-3 py-2">
+                  <li
+                    key={e.id}
+                    className="flex items-center gap-2.5 rounded-lg border border-border/50 bg-card px-3 py-2"
+                  >
                     <Badge variant={m.variant} className="shrink-0">
                       <m.Icon className="h-3 w-3" />
                       {m.label}
                     </Badge>
                     <span className="min-w-0 flex-1 truncate text-sm">{e.title}</span>
-                    <span className="shrink-0 truncate text-[11px] text-muted-foreground">{e.course_name}</span>
+                    <span className="shrink-0 truncate text-[11px] text-muted-foreground">
+                      {e.course_name}
+                    </span>
                   </li>
                 )
               })}
@@ -178,7 +193,9 @@ export function DayNotesPanel({ date, dayEvents, canEdit, onClose, onCountChange
           {!canEdit ? (
             <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border/60 bg-card p-6 text-center text-muted-foreground">
               <Lock className="h-7 w-7 opacity-30" />
-              <p className="text-sm">Inicia sesión con una cuenta para escribir notas en tus fechas.</p>
+              <p className="text-sm">
+                Inicia sesión con una cuenta para escribir notas en tus fechas.
+              </p>
             </div>
           ) : loading ? (
             <div className="flex h-24 items-center justify-center">
@@ -212,16 +229,27 @@ export function DayNotesPanel({ date, dayEvents, canEdit, onClose, onCountChange
                               onClick={() => commitEdit(n.id)}
                               disabled={savingId === n.id || !editValue.trim()}
                             >
-                              {savingId === n.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                              {savingId === n.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Check className="h-3.5 w-3.5" />
+                              )}
                               Guardar
                             </Button>
                           </div>
                         </div>
                       ) : (
                         <div className="flex items-start gap-2">
-                          <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-foreground">{n.body}</p>
+                          <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-sm text-foreground">
+                            {n.body}
+                          </p>
                           <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                            <Button size="icon-sm" variant="ghost" onClick={() => startEdit(n)} title="Editar">
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              onClick={() => startEdit(n)}
+                              title="Editar"
+                            >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
                             <Button
@@ -258,7 +286,11 @@ export function DayNotesPanel({ date, dayEvents, canEdit, onClose, onCountChange
                   disabled={creating || !draft.trim()}
                   className="self-end"
                 >
-                  {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {creating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
                   Añadir nota
                 </Button>
               </div>

@@ -65,11 +65,7 @@ const injectionCheck: GuardrailRule = {
 
 // ── Exported Rules Array ─────────────────────────────────────────────────────
 
-export const INPUT_RULES: GuardrailRule[] = [
-  emptyCheck,
-  lengthCheck,
-  injectionCheck,
-]
+export const INPUT_RULES: GuardrailRule[] = [emptyCheck, lengthCheck, injectionCheck]
 
 /**
  * Run all input guardrails. Returns the first failure, or passed=true.

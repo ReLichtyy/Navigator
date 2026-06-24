@@ -101,6 +101,5 @@ export const ChatRepository = {
       RETURNING id, title, active_model, syllabus_id, created_at
     `
     return rows[0]
-  }
+  },
 }
-

@@ -5,7 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useSyllabus } from "@/context/SyllabusContext"
-import { listSyllabi, fetchGraph, reprocessGraph, type SyllabusUploadAPI, type GraphResponseAPI } from "@/lib/api"
+import {
+  listSyllabi,
+  fetchGraph,
+  reprocessGraph,
+  type SyllabusUploadAPI,
+  type GraphResponseAPI,
+} from "@/lib/api"
 import { Network, Loader2, AlertCircle, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import GraphCanvas from "@/components/GraphCanvas"
@@ -127,8 +133,18 @@ function MapaContent() {
             <>
               {/* view toggle: single course vs cross-course (Sprint 4) */}
               <div className="mb-4 inline-flex gap-1 rounded-xl border border-border bg-card/50 p-1">
-                <ViewTab active={view === "single"} onClick={() => setView("single")} icon={<Network className="h-3.5 w-3.5" />} label="Este curso" />
-                <ViewTab active={view === "cross"} onClick={() => setView("cross")} icon={<Layers className="h-3.5 w-3.5" />} label="Entre cursos" />
+                <ViewTab
+                  active={view === "single"}
+                  onClick={() => setView("single")}
+                  icon={<Network className="h-3.5 w-3.5" />}
+                  label="Este curso"
+                />
+                <ViewTab
+                  active={view === "cross"}
+                  onClick={() => setView("cross")}
+                  icon={<Layers className="h-3.5 w-3.5" />}
+                  label="Entre cursos"
+                />
               </div>
 
               {view === "cross" ? (
@@ -176,7 +192,16 @@ function MapaContent() {
                           onReprocess={() => handleReprocess(courseId)}
                           onSaved={(g) =>
                             setGraph((prev) =>
-                              prev ? { ...prev, nodes: g.nodes.map((n) => ({ ...n, weight_percent: n.weight_percent ?? 0 })), edges: g.edges } : prev,
+                              prev
+                                ? {
+                                    ...prev,
+                                    nodes: g.nodes.map((n) => ({
+                                      ...n,
+                                      weight_percent: n.weight_percent ?? 0,
+                                    })),
+                                    edges: g.edges,
+                                  }
+                                : prev,
                             )
                           }
                         />
@@ -193,7 +218,17 @@ function MapaContent() {
   )
 }
 
-function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+function ViewTab({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+}) {
   return (
     <button
       onClick={onClick}

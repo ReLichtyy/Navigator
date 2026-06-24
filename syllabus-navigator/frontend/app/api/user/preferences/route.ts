@@ -84,7 +84,7 @@ export async function PATCH(request: Request) {
     `
 
     await invalidate(`user:prefs:${userId}`)
-    
+
     const row = (rows as Record<string, unknown>[])[0]
     return NextResponse.json({
       preferences: {
@@ -92,7 +92,7 @@ export async function PATCH(request: Request) {
         defaultModel: row?.default_model ?? "gpt-4o-mini",
         theme: row?.theme ?? "dark",
         language: row?.language ?? "es",
-      }
+      },
     })
   } catch (err) {
     logError("api.user.prefs.patch_error", {

@@ -96,7 +96,8 @@ export function MindMapCanvas({
     setZoom(1)
     setPan({ x: 0, y: 0 })
   }
-  const panStart = (e: React.MouseEvent) => setDrag({ x: e.clientX, y: e.clientY, px: pan.x, py: pan.y })
+  const panStart = (e: React.MouseEvent) =>
+    setDrag({ x: e.clientX, y: e.clientY, px: pan.x, py: pan.y })
   const panMove = (e: React.MouseEvent) => {
     if (!drag) return
     setPan({ x: drag.px + (e.clientX - drag.x), y: drag.py + (e.clientY - drag.y) })
@@ -174,7 +175,10 @@ export function MindMapCanvas({
                 color: active ? "#EEF3F0" : "#9AA39E",
               }}
             >
-              <span className="font-mono text-[10.5px] font-semibold" style={{ color: active ? "#3FBF84" : "#6B756F" }}>
+              <span
+                className="font-mono text-[10.5px] font-semibold"
+                style={{ color: active ? "#3FBF84" : "#6B756F" }}
+              >
                 {c.code}
               </span>
               <span className="text-[12.5px] font-semibold">{c.label}</span>
@@ -202,7 +206,17 @@ export function MindMapCanvas({
       >
         {/* world: edges + nodes */}
         <div style={worldStyle}>
-          <svg width={980} height={540} style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", overflow: "visible" }}>
+          <svg
+            width={980}
+            height={540}
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              pointerEvents: "none",
+              overflow: "visible",
+            }}
+          >
             {branches.map((_, i) => {
               const color = PALETTE[i % 4]
               const id = "b" + i
@@ -245,12 +259,18 @@ export function MindMapCanvas({
               cursor: "pointer",
               background: "linear-gradient(150deg,#1f3328,#13201a)",
               border: `1.5px solid ${centerSel ? "rgba(91,227,154,0.85)" : "rgba(63,191,132,0.5)"}`,
-              boxShadow: centerSel ? "0 0 40px rgba(63,191,132,0.32)" : "0 0 30px rgba(63,191,132,0.14)",
+              boxShadow: centerSel
+                ? "0 0 40px rgba(63,191,132,0.32)"
+                : "0 0 30px rgba(63,191,132,0.14)",
               transition: "all .18s",
             }}
           >
-            <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#6FCB9A]">Tema central</span>
-            <span className="mt-1.5 text-[15px] font-extrabold leading-tight text-[#F2F6F4]">{mindmap.center}</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#6FCB9A]">
+              Tema central
+            </span>
+            <span className="mt-1.5 text-[15px] font-extrabold leading-tight text-[#F2F6F4]">
+              {mindmap.center}
+            </span>
           </div>
 
           {/* branch nodes */}
@@ -277,14 +297,22 @@ export function MindMapCanvas({
                   background: isSel
                     ? `linear-gradient(160deg,${hexA(color, 0.13)},rgba(16,21,18,0.96))`
                     : "rgba(17,22,19,0.94)",
-                  boxShadow: isSel ? `0 0 30px ${hexA(color, 0.25)}` : "0 10px 26px rgba(0,0,0,0.4)",
+                  boxShadow: isSel
+                    ? `0 0 30px ${hexA(color, 0.25)}`
+                    : "0 10px 26px rgba(0,0,0,0.4)",
                   opacity: dim ? 0.4 : 1,
                   backdropFilter: "blur(3px)",
                   transition: "border-color .18s,background .18s,box-shadow .18s,opacity .18s",
                 }}
               >
-                <div onClick={() => toggleNode(id)} className="flex cursor-pointer items-center gap-2.5">
-                  <span className="flex-none" style={{ width: 9, height: 9, borderRadius: 3, background: color }} />
+                <div
+                  onClick={() => toggleNode(id)}
+                  className="flex cursor-pointer items-center gap-2.5"
+                >
+                  <span
+                    className="flex-none"
+                    style={{ width: 9, height: 9, borderRadius: 3, background: color }}
+                  />
                   <span className="flex-1 text-sm font-bold text-[#EEF3F0]">{b.label}</span>
                   <ChevronRight
                     className="inline-flex h-[15px] w-[15px]"
@@ -354,12 +382,19 @@ export function MindMapCanvas({
               <div className="flex items-center gap-2.5">
                 <span
                   className="flex items-center justify-center"
-                  style={{ width: 30, height: 30, borderRadius: 9, background: "rgba(63,191,132,0.14)" }}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 9,
+                    background: "rgba(63,191,132,0.14)",
+                  }}
                 >
                   <Sparkles className="h-[15px] w-[15px] text-[#5BE39A]" />
                 </span>
                 <div>
-                  <div className="text-[14.5px] font-extrabold text-[#F2F6F4]">Regenerar con IA</div>
+                  <div className="text-[14.5px] font-extrabold text-[#F2F6F4]">
+                    Regenerar con IA
+                  </div>
                   <div className="mt-px text-[11px] text-[#7C8983]">
                     {courseCode} · {courseName}
                   </div>
@@ -383,7 +418,9 @@ export function MindMapCanvas({
             <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-[18px]">
               {/* course */}
               <div>
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">Curso del mapa</div>
+                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Curso del mapa
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {courses.map((c) => {
                     const active = c.id === activeCourseId
@@ -398,7 +435,10 @@ export function MindMapCanvas({
                           color: active ? "#EEF3F0" : "#9AA39E",
                         }}
                       >
-                        <span className="font-mono text-[10.5px] font-semibold" style={{ color: active ? "#3FBF84" : "#6B756F" }}>
+                        <span
+                          className="font-mono text-[10.5px] font-semibold"
+                          style={{ color: active ? "#3FBF84" : "#6B756F" }}
+                        >
                           {c.code}
                         </span>
                         <span>{c.label}</span>
@@ -410,7 +450,9 @@ export function MindMapCanvas({
 
               {/* focus topics */}
               <div>
-                <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">Enfócate en temas</div>
+                <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Enfócate en temas
+                </div>
                 <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
                   Selecciona los temas que quieres expandir con más detalle.
                 </div>
@@ -437,7 +479,9 @@ export function MindMapCanvas({
 
               {/* recommendations */}
               <div>
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">Recomendaciones</div>
+                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Recomendaciones
+                </div>
                 <div className="flex flex-col gap-2">
                   {[
                     `Profundiza en ${(branches[0]?.label ?? "el tema").toLowerCase()} con ejemplos.`,
@@ -448,7 +492,10 @@ export function MindMapCanvas({
                       key={t}
                       onClick={() => setEditText(t)}
                       className="flex items-start gap-2.5 rounded-[11px] px-[13px] py-[11px] text-left text-[12.5px] font-medium leading-[1.4] text-[#C9D2CD]"
-                      style={{ border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.015)" }}
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        background: "rgba(255,255,255,0.015)",
+                      }}
                     >
                       <Lightbulb className="mt-px h-3.5 w-3.5 flex-none text-[#7CE0AC]" />
                       <span>{t}</span>
@@ -459,18 +506,26 @@ export function MindMapCanvas({
 
               {/* instructions */}
               <div>
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">Instrucciones</div>
+                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Instrucciones
+                </div>
                 <textarea
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
                   placeholder="Escribe cómo quieres regenerar el mapa… ej. enfatiza las relaciones entre conceptos, usa lenguaje sencillo."
                   className="min-h-[88px] w-full resize-y rounded-xl px-[13px] py-3 text-[13px] leading-[1.5] text-[#E8EDEA] outline-none"
-                  style={{ border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.02)" }}
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    background: "rgba(255,255,255,0.02)",
+                  }}
                 />
               </div>
             </div>
 
-            <div className="flex-none px-5 py-4" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <div
+              className="flex-none px-5 py-4"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+            >
               <button
                 onClick={regenerate}
                 disabled={loading}
@@ -481,7 +536,11 @@ export function MindMapCanvas({
                   boxShadow: "0 6px 20px rgba(63,191,132,0.25)",
                 }}
               >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4" />
+                )}
                 Regenerar mapa
               </button>
             </div>
@@ -492,7 +551,11 @@ export function MindMapCanvas({
         <div className="absolute bottom-[18px] left-[18px] flex flex-col items-center gap-1.5">
           <div
             className="flex flex-col overflow-hidden rounded-xl"
-            style={{ border: "1px solid rgba(255,255,255,0.09)", background: "rgba(12,16,14,0.85)", backdropFilter: "blur(6px)" }}
+            style={{
+              border: "1px solid rgba(255,255,255,0.09)",
+              background: "rgba(12,16,14,0.85)",
+              backdropFilter: "blur(6px)",
+            }}
           >
             <button
               onClick={() => zoomBy(1.2)}
@@ -510,13 +573,22 @@ export function MindMapCanvas({
             >
               <Minus className="h-[17px] w-[17px]" />
             </button>
-            <button onClick={zoomReset} title="Centrar / ajustar" className="flex h-[38px] w-[38px] items-center justify-center text-[#9AA39E]">
+            <button
+              onClick={zoomReset}
+              title="Centrar / ajustar"
+              className="flex h-[38px] w-[38px] items-center justify-center text-[#9AA39E]"
+            >
               <Maximize className="h-4 w-4" />
             </button>
           </div>
           <span
             className="font-mono text-[11px] text-[#7C8983]"
-            style={{ background: "rgba(12,16,14,0.85)", padding: "3px 8px", borderRadius: 7, border: "1px solid rgba(255,255,255,0.07)" }}
+            style={{
+              background: "rgba(12,16,14,0.85)",
+              padding: "3px 8px",
+              borderRadius: 7,
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
           >
             {Math.round(zoom * 100)}%
           </span>
@@ -533,21 +605,43 @@ export function MindMapCanvas({
             boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
           }}
         >
-          <button onClick={() => setTool("select")} title="Seleccionar" style={toolBtn(tool === "select")}>
+          <button
+            onClick={() => setTool("select")}
+            title="Seleccionar"
+            style={toolBtn(tool === "select")}
+          >
             <MousePointer2 className="h-[18px] w-[18px]" />
           </button>
-          <button onClick={() => setTool("add")} title="Añadir nodo" style={toolBtn(tool === "add")}>
+          <button
+            onClick={() => setTool("add")}
+            title="Añadir nodo"
+            style={toolBtn(tool === "add")}
+          >
             <SquarePlus className="h-[18px] w-[18px]" />
           </button>
-          <button onClick={() => setTool("connect")} title="Conectar" style={toolBtn(tool === "connect")}>
+          <button
+            onClick={() => setTool("connect")}
+            title="Conectar"
+            style={toolBtn(tool === "connect")}
+          >
             <Spline className="h-[18px] w-[18px]" />
           </button>
-          <button onClick={() => setTool("text")} title="Texto / nota" style={toolBtn(tool === "text")}>
+          <button
+            onClick={() => setTool("text")}
+            title="Texto / nota"
+            style={toolBtn(tool === "text")}
+          >
             <Type className="h-[18px] w-[18px]" />
           </button>
-          <div style={{ width: 1, height: 26, background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
+          <div
+            style={{ width: 1, height: 26, background: "rgba(255,255,255,0.1)", margin: "0 2px" }}
+          />
           <div className="relative">
-            <button onClick={() => setToolsOpen((o) => !o)} title="Más herramientas" style={toolBtn(toolsOpen)}>
+            <button
+              onClick={() => setToolsOpen((o) => !o)}
+              title="Más herramientas"
+              style={toolBtn(toolsOpen)}
+            >
               <MoreHorizontal className="h-[18px] w-[18px]" />
             </button>
             {toolsOpen && (
@@ -562,11 +656,32 @@ export function MindMapCanvas({
                   animation: "navPop .18s ease both",
                 }}
               >
-                <ToolMenuItem icon={<Palette className="h-4 w-4 text-[#9FEDC4]" />} label="Color de nodo" onClick={() => setTool("color")} />
-                <ToolMenuItem icon={<LayoutGrid className="h-4 w-4 text-[#9FEDC4]" />} label="Auto-organizar" onClick={() => setTool("layout")} />
-                <ToolMenuItem icon={<Lock className="h-4 w-4 text-[#9FEDC4]" />} label="Bloquear lienzo" onClick={() => setTool("lock")} />
-                <ToolMenuItem icon={<Download className="h-4 w-4 text-[#9FEDC4]" />} label="Exportar imagen" onClick={() => setTool("export")} />
-                <ToolMenuItem icon={<Trash2 className="h-4 w-4 text-[#F0A6A6]" />} label="Eliminar nodo" danger onClick={() => setTool("del")} />
+                <ToolMenuItem
+                  icon={<Palette className="h-4 w-4 text-[#9FEDC4]" />}
+                  label="Color de nodo"
+                  onClick={() => setTool("color")}
+                />
+                <ToolMenuItem
+                  icon={<LayoutGrid className="h-4 w-4 text-[#9FEDC4]" />}
+                  label="Auto-organizar"
+                  onClick={() => setTool("layout")}
+                />
+                <ToolMenuItem
+                  icon={<Lock className="h-4 w-4 text-[#9FEDC4]" />}
+                  label="Bloquear lienzo"
+                  onClick={() => setTool("lock")}
+                />
+                <ToolMenuItem
+                  icon={<Download className="h-4 w-4 text-[#9FEDC4]" />}
+                  label="Exportar imagen"
+                  onClick={() => setTool("export")}
+                />
+                <ToolMenuItem
+                  icon={<Trash2 className="h-4 w-4 text-[#F0A6A6]" />}
+                  label="Eliminar nodo"
+                  danger
+                  onClick={() => setTool("del")}
+                />
               </div>
             )}
           </div>
@@ -586,7 +701,18 @@ export function MindMapCanvas({
         >
           <div className="absolute" style={{ inset: 7 }}>
             {mmDots.map((d, i) => (
-              <div key={i} className="absolute" style={{ left: d.x, top: d.y, width: 7, height: 7, borderRadius: 2, background: d.c }} />
+              <div
+                key={i}
+                className="absolute"
+                style={{
+                  left: d.x,
+                  top: d.y,
+                  width: 7,
+                  height: 7,
+                  borderRadius: 2,
+                  background: d.c,
+                }}
+              />
             ))}
             <div
               className="absolute"
@@ -613,7 +739,9 @@ export function MindMapCanvas({
             <Loader2 className="h-[46px] w-[46px] animate-spin text-[#5BE39A]" />
             <div className="text-center">
               <div className="text-[14.5px] font-bold text-[#E8EDEA]">Procesando mapa…</div>
-              <div className="mt-[5px] text-xs text-[#7C8983]">Analizando temas del knowledge base de {courseCode}</div>
+              <div className="mt-[5px] text-xs text-[#7C8983]">
+                Analizando temas del knowledge base de {courseCode}
+              </div>
             </div>
           </div>
         )}

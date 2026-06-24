@@ -144,7 +144,8 @@ export async function extractScheduleFromText(syllabusText: string): Promise<Ext
         description: e.description.trim() || null,
         date: ISO_DATE.test(e.date.trim()) ? e.date.trim() : null,
         weekLabel: e.week_label.trim() || null,
-        weightPercent: Number.isFinite(e.weight_percent) && e.weight_percent > 0 ? e.weight_percent : null,
+        weightPercent:
+          Number.isFinite(e.weight_percent) && e.weight_percent > 0 ? e.weight_percent : null,
       }))
   } catch (err) {
     logError("rag.schedule_gen.error", { error: err instanceof Error ? err.message : String(err) })

@@ -13,8 +13,7 @@ export type LogContext = Record<string, unknown>
 
 const LOG_LEVELS: Record<LogLevel, number> = { info: 0, warn: 1, error: 2 }
 
-const configuredLevel: LogLevel =
-  (process.env.LOG_LEVEL as LogLevel) ?? "info"
+const configuredLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) ?? "info"
 
 function shouldLog(level: LogLevel): boolean {
   return LOG_LEVELS[level] >= LOG_LEVELS[configuredLevel]
@@ -26,11 +25,7 @@ function shouldLog(level: LogLevel): boolean {
  * @example
  * log("info", "llm.call", { provider: "openai", model: "gpt-4o-mini", latencyMs: 342 })
  */
-export function log(
-  level: LogLevel,
-  event: string,
-  data?: LogContext,
-): void {
+export function log(level: LogLevel, event: string, data?: LogContext): void {
   if (!shouldLog(level)) return
 
   // Inyectamos el traceId dinámicamente si está disponible
@@ -74,13 +69,10 @@ export function log(
 }
 
 /** Convenience: log at info level. */
-export const logInfo = (event: string, data?: LogContext) =>
-  log("info", event, data)
+export const logInfo = (event: string, data?: LogContext) => log("info", event, data)
 
 /** Convenience: log at warn level. */
-export const logWarn = (event: string, data?: LogContext) =>
-  log("warn", event, data)
+export const logWarn = (event: string, data?: LogContext) => log("warn", event, data)
 
 /** Convenience: log at error level. */
-export const logError = (event: string, data?: LogContext) =>
-  log("error", event, data)
+export const logError = (event: string, data?: LogContext) => log("error", event, data)

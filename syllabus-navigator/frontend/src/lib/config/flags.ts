@@ -66,7 +66,7 @@ export interface FeatureFlags {
 
 export const flags: FeatureFlags = {
   llmProvider: resolveProvider(process.env.DEFAULT_LLM_PROVIDER),
-  llmModel: (process.env.DEFAULT_LLM_MODEL?.trim() || "gpt-4o-mini"),
+  llmModel: process.env.DEFAULT_LLM_MODEL?.trim() || "gpt-4o-mini",
   vectorBackend: resolveVectorBackend(process.env.VECTOR_BACKEND),
   ragEnabled: resolveBool(process.env.RAG_ENABLED, true),
 }

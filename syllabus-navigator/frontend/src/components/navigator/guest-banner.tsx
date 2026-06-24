@@ -12,7 +12,10 @@ export function GuestBanner() {
   return (
     <div className="bg-accent/10 px-4 py-2 text-center text-sm text-accent-foreground border-b border-accent/20">
       You are using Navigator in <strong>Guest Mode</strong>. Your data is temporary.{" "}
-      <button onClick={() => openAuthModal("signup")} className="font-semibold underline hover:text-accent">
+      <button
+        onClick={() => openAuthModal("signup")}
+        className="font-semibold underline hover:text-accent"
+      >
         Create an account
       </button>{" "}
       to save your progress and upload PDFs.

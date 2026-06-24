@@ -7,7 +7,7 @@
 
 export interface CacheEntry<T = unknown> {
   value: T
-  expiresAt: number  // Unix timestamp in ms
+  expiresAt: number // Unix timestamp in ms
 }
 
 export interface CacheAdapter {

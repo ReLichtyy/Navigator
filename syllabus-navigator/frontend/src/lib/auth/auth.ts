@@ -140,7 +140,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
         isGuest: { type: "hidden" },
-        guestId: { type: "hidden" }
+        guestId: { type: "hidden" },
       },
       async authorize(credentials) {
         const isGuest = credentials?.isGuest as string | undefined
@@ -162,7 +162,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 SELECT id, email, password_hash, display_name, role
                 FROM users
                 WHERE email = ${email} AND role = 'guest'
-              `) as { id: string; email: string; password_hash: string; display_name: string; role: Role }[]
+              `) as {
+                id: string
+                email: string
+                password_hash: string
+                display_name: string
+                role: Role
+              }[]
 
               const row = existing[0]
               if (row && (await bcrypt.compare(provided as string, row.password_hash))) {
@@ -183,7 +189,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               ON CONFLICT (email) DO NOTHING
               RETURNING id, email, display_name, role
             `
-            const user = (rows as { id: string; email: string; display_name: string; role: Role }[])[0]
+            const user = (
+              rows as { id: string; email: string; display_name: string; role: Role }[]
+            )[0]
 
             // ON CONFLICT DO NOTHING returns no row when it raced with another
             // insert for the same email — fall back to reading the existing row.
@@ -194,7 +202,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               const existing = again[0]
               if (!existing) throw new Error("guest insert returned no row")
               logInfo("auth.guest.reused", { userId: existing.id })
-              return { id: existing.id, email: existing.email, name: existing.display_name, role: existing.role }
+              return {
+                id: existing.id,
+                email: existing.email,
+                name: existing.display_name,
+                role: existing.role,
+              }
             }
 
             await sql`
@@ -230,13 +243,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             WHERE email = ${email.toLowerCase().trim()}
           `
 
-          const user = (rows as {
-            id: string
-            email: string
-            password_hash: string
-            display_name: string
-            role: Role
-          }[])[0]
+          const user = (
+            rows as {
+              id: string
+              email: string
+              password_hash: string
+              display_name: string
+              role: Role
+            }[]
+          )[0]
 
           if (!user) {
             logInfo("auth.login.not_found", { email })

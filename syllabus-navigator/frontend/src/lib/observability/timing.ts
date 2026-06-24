@@ -33,10 +33,7 @@ export async function timed<T>(
 /**
  * Synchronous version for non-async operations.
  */
-export function timedSync<T>(
-  name: string,
-  fn: () => T,
-): { result: T; ms: number } {
+export function timedSync<T>(name: string, fn: () => T): { result: T; ms: number } {
   const start = performance.now()
   const result = fn()
   const ms = Math.round(performance.now() - start)
