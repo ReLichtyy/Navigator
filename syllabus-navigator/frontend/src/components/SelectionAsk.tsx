@@ -6,6 +6,8 @@ import { MessageSquarePlus } from "lucide-react"
 interface Props {
   /** Called with the selected text when the user clicks "Preguntar al chat". */
   onAsk: (text: string) => void
+  /** When false, selection is ignored (no floating button). Defaults to true. */
+  enabled?: boolean
   children: ReactNode
 }
 
@@ -14,11 +16,15 @@ interface Props {
  * "Preguntar al chat" button positioned over the selection. Used by the mind
  * map so a student can highlight a topic/term and send it straight to the chat.
  */
-export function SelectionAsk({ onAsk, children }: Props) {
+export function SelectionAsk({ onAsk, enabled = true, children }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [sel, setSel] = useState<{ text: string; x: number; y: number } | null>(null)
 
   useEffect(() => {
+    if (!enabled) {
+      setSel(null)
+      return
+    }
     const update = () => {
       const selection = window.getSelection()
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
@@ -48,7 +54,7 @@ export function SelectionAsk({ onAsk, children }: Props) {
       document.removeEventListener("mouseup", onUp)
       document.removeEventListener("scroll", onScroll, true)
     }
-  }, [])
+  }, [enabled])
 
   return (
     <div ref={wrapRef} className="relative">

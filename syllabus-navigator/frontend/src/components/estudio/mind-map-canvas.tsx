@@ -22,6 +22,8 @@ import {
   Lightbulb,
   ChevronRight,
   Loader2,
+  Expand,
+  Shrink,
 } from "lucide-react"
 
 export type Mindmap = { center: string; branches: { label: string; items: string[] }[] }
@@ -118,6 +120,13 @@ export function MindMapCanvas({
     setExp((e) => ({ ...e, [id]: !e[id] }))
     setSelNode((s) => (exp[id] ? (s === id ? null : s) : id))
   }
+  const expandAll = () =>
+    setExp(Object.fromEntries(branches.map((_, i) => ["b" + i, true] as const)))
+  const collapseAll = () => {
+    setExp({})
+    setSelNode(null)
+  }
+  const anyExpanded = branches.some((_, i) => exp["b" + i])
   const toggleFocus = (t: string) =>
     setFocus((f) => (f.includes(t) ? f.filter((x) => x !== t) : [...f, t]))
 
@@ -298,20 +307,25 @@ export function MindMapCanvas({
                   position: "absolute",
                   left: p.x,
                   top: p.y,
-                  width: 214,
-                  borderRadius: 15,
-                  padding: "12px 14px",
+                  // Expanded nodes grow generously to use the open canvas space.
+                  width: isExp ? 320 : 214,
+                  zIndex: isExp ? 12 : 2,
+                  borderRadius: 16,
+                  padding: isExp ? "14px 16px" : "12px 14px",
                   cursor: "pointer",
-                  border: `1px solid ${isSel ? hexA(color, 0.6) : "rgba(255,255,255,0.09)"}`,
-                  background: isSel
-                    ? `linear-gradient(160deg,${hexA(color, 0.13)},rgba(16,21,18,0.96))`
-                    : "rgba(17,22,19,0.94)",
-                  boxShadow: isSel
-                    ? `0 0 30px ${hexA(color, 0.25)}`
-                    : "0 10px 26px rgba(0,0,0,0.4)",
+                  border: `1px solid ${isSel || isExp ? hexA(color, 0.6) : "rgba(255,255,255,0.09)"}`,
+                  background:
+                    isSel || isExp
+                      ? `linear-gradient(160deg,${hexA(color, 0.13)},rgba(16,21,18,0.97))`
+                      : "rgba(17,22,19,0.94)",
+                  boxShadow:
+                    isSel || isExp
+                      ? `0 0 34px ${hexA(color, 0.25)}`
+                      : "0 10px 26px rgba(0,0,0,0.4)",
                   opacity: dim ? 0.4 : 1,
                   backdropFilter: "blur(3px)",
-                  transition: "border-color .18s,background .18s,box-shadow .18s,opacity .18s",
+                  transition:
+                    "width .2s ease,border-color .18s,background .18s,box-shadow .18s,opacity .18s",
                 }}
               >
                 <div
@@ -325,33 +339,45 @@ export function MindMapCanvas({
                     className="flex-none"
                     style={{ width: 9, height: 9, borderRadius: 3, background: color }}
                   />
-                  <span className="flex-1 text-sm font-bold text-[#EEF3F0]">{b.label}</span>
+                  <span className="flex-1 text-sm font-bold leading-snug text-[#EEF3F0]">
+                    {b.label}
+                  </span>
+                  <span
+                    className="flex-none rounded-md px-1.5 font-mono text-[10px] font-semibold"
+                    style={{ background: hexA(color, 0.14), color: hexA(color, 0.95) }}
+                  >
+                    {b.items.length}
+                  </span>
                   <ChevronRight
                     className="inline-flex h-[15px] w-[15px]"
                     style={{
                       transition: "transform .18s",
                       transform: isExp ? "rotate(90deg)" : "rotate(0deg)",
-                      color: isSel ? hexA(color, 0.95) : "#7C8983",
+                      color: isSel || isExp ? hexA(color, 0.95) : "#7C8983",
                     }}
                   />
                 </div>
+                {/* Expanded: subtopics as a readable, selectable list (highlight → ask the AI). */}
                 {isExp && b.items.length > 0 && (
-                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  <ul
+                    className="mt-3 flex flex-col gap-2 pt-3"
+                    style={{ borderTop: `1px solid ${hexA(color, 0.18)}` }}
+                  >
                     {b.items.map((it, j) => (
-                      <span
+                      <li
                         key={j}
-                        className="text-[11.5px] font-medium text-[#B7C0BB]"
-                        style={{
-                          background: "rgba(255,255,255,0.05)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          padding: "4px 10px",
-                          borderRadius: 7,
-                        }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="flex gap-2.5 text-[12.5px] leading-relaxed text-[#C9D2CD]"
+                        style={{ userSelect: "text", cursor: "text" }}
                       >
-                        {it}
-                      </span>
+                        <span
+                          className="mt-[7px] h-1.5 w-1.5 flex-none rounded-full"
+                          style={{ background: color }}
+                        />
+                        <span className="flex-1">{it}</span>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 )}
                 {isExp && b.items.length === 0 && (
                   <div className="mt-2.5 text-[11px] italic text-[#7C8983]">Sin subtemas.</div>
@@ -360,6 +386,50 @@ export function MindMapCanvas({
             )
           })}
         </div>
+
+        {/* top-left: selection hint + strategic expand/collapse-all */}
+        {n > 0 && (
+          <div className="absolute left-[18px] top-[18px] flex flex-col items-start gap-1.5">
+            <div
+              className="pointer-events-none flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-[#9AA39E]"
+              style={{
+                background: "rgba(12,16,14,0.85)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                backdropFilter: "blur(6px)",
+              }}
+            >
+              <Sparkles className="h-3 w-3 text-[#7CE0AC]" />
+              Subraya un subtema para preguntárselo a la IA
+            </div>
+            <div
+              className="flex items-center overflow-hidden rounded-lg"
+              style={{
+                background: "rgba(12,16,14,0.85)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                backdropFilter: "blur(6px)",
+              }}
+            >
+              <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={expandAll}
+                title="Expandir todos los temas"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-[#9AA39E] transition-colors hover:bg-white/5 hover:text-[#C9D2CD]"
+              >
+                <Expand className="h-3 w-3" /> Expandir
+              </button>
+              <span style={{ width: 1, height: 18, background: "rgba(255,255,255,0.1)" }} />
+              <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={collapseAll}
+                disabled={!anyExpanded}
+                title="Colapsar todos los temas"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold text-[#9AA39E] transition-colors hover:bg-white/5 hover:text-[#C9D2CD] disabled:opacity-40"
+              >
+                <Shrink className="h-3 w-3" /> Colapsar
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* edit button */}
         {onRegenerate && (
@@ -745,7 +815,8 @@ export function MindMapCanvas({
         {!loading && n === 0 && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-8 text-center">
             <p className="max-w-sm text-sm text-[#7C8983]">
-              Aún no hay temas en el mapa. Sube y procesa un sílabo para generar el mapa mental.
+              Aún no hay temas en el mapa. Sube y procesa el programa de tu curso para generar el
+              mapa mental.
             </p>
           </div>
         )}

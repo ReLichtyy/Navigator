@@ -68,11 +68,11 @@ export function TopHeader({
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="rounded-full bg-accent/10">
                 <UserIcon className="h-5 w-5" />
-                <span className="sr-only">Profile menu</span>
+                <span className="sr-only">Menú de perfil</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "User"}</div>
+              <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "Usuario"}</div>
               <DropdownMenuItem onClick={resetIdentity} className="cursor-pointer text-destructive">
                 Cerrar sesión
               </DropdownMenuItem>

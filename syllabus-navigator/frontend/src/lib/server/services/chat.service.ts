@@ -12,6 +12,9 @@ import { ApiErrorResponse } from "../utils/auth-helpers"
 import { RetrievalService, GROUNDED_SYSTEM_PROMPT, NO_CONTEXT_MESSAGE } from "./retrieval.service"
 import type { LLMMessage } from "@/lib/llm"
 import type { CitationAPI } from "@/types/api"
+import { flags } from "@/lib/config/flags"
+import { runToolLoop } from "@/lib/llm/tools-loop"
+import { getToolDefinitions, executeTool } from "@/lib/tools"
 
 const MAX_HISTORY_TURNS = 6
 const MAX_AGENDA_ITEMS = 40
@@ -53,6 +56,52 @@ async function buildScheduleContext(userId: string): Promise<string> {
     `y temas por semana. Para "esta semana", calcula el rango lunes-domingo respecto a hoy. ` +
     `Si un evento solo tiene week_label (sin fecha ISO), trátalo como relativo. No inventes fechas.`
   )
+}
+
+/**
+ * Actions & Tools layer entry for chat. When TOOLS_ENABLED is on, run a
+ * non-streamed tool-calling pass over the prepared messages: the model may call
+ * tools (schedule, recommendations, study set, review), we execute them and
+ * fold the results back as an extra system note so the streamed answer is
+ * grounded in real data. Returns the (possibly) augmented messages + usage.
+ *
+ * Degrades to a no-op (returns input messages unchanged) when the flag is off,
+ * no tools are registered, or the loop errors — the live chat path never breaks.
+ */
+async function resolveToolsIfEnabled(
+  messages: LLMMessage[],
+  config: { provider: "openai" | "openrouter"; model: string },
+  ctx: { userId: string; syllabusId: string | null; chatId: string },
+): Promise<{ messages: LLMMessage[]; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+  const noUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+  if (!flags.toolsEnabled) return { messages, usage: noUsage }
+
+  try {
+    const loop = await runToolLoop(
+      messages,
+      { provider: config.provider, model: config.model },
+      getToolDefinitions(),
+      (name, args) =>
+        executeTool(name, args, {
+          userId: ctx.userId,
+          syllabusId: ctx.syllabusId ?? undefined,
+          chatId: ctx.chatId,
+        }),
+    )
+    if (!loop.transcript) return { messages, usage: loop.usage }
+    // Inject tool results as a trailing system note (kept distinct from the
+    // grounded syllabus context so the model can tell them apart).
+    const augmented: LLMMessage[] = [
+      ...messages,
+      { role: "system", content: `=== RESULTADOS DE HERRAMIENTAS ===\n${loop.transcript}` },
+    ]
+    return { messages: augmented, usage: loop.usage }
+  } catch (err) {
+    logError("chat.tools_resolve.error", {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return { messages, usage: noUsage }
+  }
 }
 
 export const ChatService = {
@@ -148,9 +197,17 @@ export const ChatService = {
       preferredProvider: undefined,
     })
 
+    // 6.5 Actions & Tools layer (gated by TOOLS_ENABLED): let the model call
+    // tools, fold results into the messages before the final completion.
+    const { messages: finalMessages } = await resolveToolsIfEnabled(
+      messages,
+      { provider: routing.provider, model: routing.model },
+      { userId, syllabusId: chat.syllabus_id, chatId },
+    )
+
     // 7. Call LLM
     const { result: llmResponse, ms: llmLatencyMs } = await timed("llm.call", () =>
-      chatCompletion(messages, {
+      chatCompletion(finalMessages, {
         provider: routing.provider,
         model: routing.model,
       }),
@@ -249,9 +306,17 @@ export const ChatService = {
       preferredProvider: undefined,
     })
 
+    // 6.5 Actions & Tools layer (gated by TOOLS_ENABLED): resolve tool calls
+    // (non-streamed) and fold results in before the streamed answer.
+    const { messages: finalMessages } = await resolveToolsIfEnabled(
+      messages,
+      { provider: routing.provider, model: routing.model },
+      { userId, syllabusId: chat.syllabus_id, chatId },
+    )
+
     // 7. Get stream
     const startTime = Date.now()
-    const stream = chatStream(messages, {
+    const stream = chatStream(finalMessages, {
       provider: routing.provider,
       model: routing.model,
     })

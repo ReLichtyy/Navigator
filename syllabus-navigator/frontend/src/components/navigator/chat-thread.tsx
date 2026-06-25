@@ -67,7 +67,7 @@ const prompts = [
   },
   {
     id: "p3",
-    title: "Resume el sílabo completo",
+    title: "Resume todo el programa del curso",
     description: "Genera un resumen ejecutivo del contenido del curso.",
   },
   {
@@ -137,7 +137,7 @@ export function ChatThread({
       <div className="animate-fade-in flex h-full flex-col items-center justify-center gap-6 py-10">
         <div className="flex flex-col items-center text-center">
           <p className="text-sm leading-relaxed text-muted-foreground">
-            Start a conversation or upload a document to get started:
+            Inicia una conversación o sube un documento para empezar:
           </p>
         </div>
 
@@ -207,18 +207,16 @@ function CitationItem({ c }: { c: NonNullable<Message["citations"]>[number] }) {
   const isLink = c.source_type === "link"
   const Icon = isLink ? Link2 : FileText
   const locator =
-    c.page_start != null
-      ? `p.${c.page_start}`
-      : c.char_start != null
-        ? `pos.${c.char_start}`
-        : null
+    c.page_start != null ? `p.${c.page_start}` : c.char_start != null ? `pos.${c.char_start}` : null
   const quote = c.quote.length > 120 ? `${c.quote.slice(0, 120)}…` : c.quote
 
   const inner = (
     <>
       <Icon className="h-3 w-3 shrink-0 mt-0.5 text-accent" />
       <span className="min-w-0">
-        {c.source_name && <span className="font-medium text-foreground/80">{c.source_name} · </span>}
+        {c.source_name && (
+          <span className="font-medium text-foreground/80">{c.source_name} · </span>
+        )}
         {locator && <span className="font-medium">{locator} · </span>}
         &ldquo;{quote}&rdquo;
       </span>
@@ -226,8 +224,7 @@ function CitationItem({ c }: { c: NonNullable<Message["citations"]>[number] }) {
     </>
   )
 
-  const cls =
-    "flex gap-2 rounded-md bg-secondary/50 px-2 py-1.5 text-[11px] text-muted-foreground"
+  const cls = "flex gap-2 rounded-md bg-secondary/50 px-2 py-1.5 text-[11px] text-muted-foreground"
 
   if (href) {
     return (
@@ -245,13 +242,7 @@ function CitationItem({ c }: { c: NonNullable<Message["citations"]>[number] }) {
   return <div className={cls}>{inner}</div>
 }
 
-function MessageBubble({
-  message,
-  onRegenerate,
-}: {
-  message: Message
-  onRegenerate?: () => void
-}) {
+function MessageBubble({ message, onRegenerate }: { message: Message; onRegenerate?: () => void }) {
   const isUser = message.role === "user"
   const [vote, setVote] = useState<"up" | "down" | null>(null)
 
@@ -361,9 +352,7 @@ function MessageBubble({
                   <RefreshCw className="h-3 w-3" /> Reintentar
                 </button>
               )}
-              {vote && (
-                <span className="ml-0.5 text-[11px] text-muted-foreground">Gracias</span>
-              )}
+              {vote && <span className="ml-0.5 text-[11px] text-muted-foreground">Gracias</span>}
             </div>
           </>
         )}

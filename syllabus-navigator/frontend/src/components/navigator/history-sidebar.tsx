@@ -109,7 +109,7 @@ export function HistorySidebar({
             className="group flex w-full items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2 text-sm font-medium text-sidebar-foreground transition-colors hover:border-accent/40 hover:bg-sidebar-accent"
           >
             <Plus className="h-4 w-4 text-muted-foreground transition-colors group-hover:text-accent" />
-            <span>New chat</span>
+            <span>Nuevo chat</span>
           </button>
 
           {searchOpen ? (
@@ -119,7 +119,7 @@ export function HistorySidebar({
                 ref={searchRef}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search chats..."
+                placeholder="Buscar chats…"
                 className="flex-1 bg-transparent text-sm outline-none"
                 autoFocus
               />
@@ -144,7 +144,7 @@ export function HistorySidebar({
               className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
               <Search className="h-4 w-4" />
-              <span>Search</span>
+              <span>Buscar</span>
             </button>
           )}
         </div>
@@ -152,7 +152,7 @@ export function HistorySidebar({
         <div className="px-7 pt-4 pb-2">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             <Clock className="h-3.5 w-3.5" />
-            <span>History</span>
+            <span>Historial</span>
           </div>
         </div>
 

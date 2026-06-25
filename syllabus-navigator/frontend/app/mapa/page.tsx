@@ -4,11 +4,12 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
-import { useSyllabus } from "@/context/SyllabusContext"
 import { listSyllabi, fetchStudySet, type SyllabusUploadAPI, type StudySetAPI } from "@/lib/api"
 import { Network, Loader2, AlertCircle, Layers } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
+import { SelectionAsk } from "@/components/SelectionAsk"
+import { useAskInChat } from "@/hooks/use-ask-in-chat"
 import { MindMapCanvas } from "@/components/estudio/mind-map-canvas"
 import { CrossCourseView } from "@/components/estudio/cross-course-view"
 
@@ -19,15 +20,11 @@ function isReady(d: SyllabusUploadAPI): boolean {
 function MapaContent() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
-  const { setPendingQuery } = useSyllabus()
   const params = useSearchParams()
   const router = useRouter()
 
-  // Send selected mind-map text to the chat: stash the question, then open the chat.
-  const askInChat = (text: string) => {
-    setPendingQuery(`Sobre el mapa mental del curso, explícame: "${text}"`)
-    router.push("/")
-  }
+  // Send selected/double-clicked mind-map text to the chat.
+  const askInChat = useAskInChat("el mapa mental del curso")
 
   const [view, setView] = useState<"single" | "cross">("single")
   const [courses, setCourses] = useState<SyllabusUploadAPI[]>([])
@@ -150,7 +147,9 @@ function MapaContent() {
               </div>
 
               {view === "cross" ? (
-                <CrossCourseView />
+                <SelectionAsk onAsk={askInChat}>
+                  <CrossCourseView />
+                </SelectionAsk>
               ) : (
                 <>
                   <div className="flex flex-wrap gap-2.5">
@@ -176,13 +175,15 @@ function MapaContent() {
                     ) : error ? (
                       <ErrorBox message={error} onRetry={() => courseId && loadSet(courseId)} />
                     ) : studySet && courseId ? (
-                      <MindMapCanvas
-                        mindmap={studySet.mindmap}
-                        courseName={courseName}
-                        loading={regenerating}
-                        onTopicDouble={askInChat}
-                        onRegenerate={({ focus }) => regenerate(courseId, focus)}
-                      />
+                      <SelectionAsk onAsk={askInChat}>
+                        <MindMapCanvas
+                          mindmap={studySet.mindmap}
+                          courseName={courseName}
+                          loading={regenerating}
+                          onTopicDouble={askInChat}
+                          onRegenerate={({ focus }) => regenerate(courseId, focus)}
+                        />
+                      </SelectionAsk>
                     ) : null}
                   </div>
                 </>
@@ -245,7 +246,7 @@ function Empty() {
     <div className="flex h-64 flex-col items-center justify-center rounded-2xl border border-border bg-card text-center text-muted-foreground">
       <Network className="mb-3 h-10 w-10 opacity-20" />
       <p className="mb-1 text-sm font-medium">Aún no hay cursos indexados.</p>
-      <p className="text-xs">Sube un sílabo en Cursos para generar su mapa mental.</p>
+      <p className="text-xs">Sube el programa de tu curso en Cursos para generar su mapa mental.</p>
     </div>
   )
 }

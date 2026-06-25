@@ -151,6 +151,8 @@ describe("UI-13 Streak wiring", () => {
 
 describe("App sidebar (design chrome)", () => {
   const f = src("src/components/navigator/app-sidebar.tsx")
+  // Nav labels + routes were extracted into nav-items.ts; assert against both.
+  const nav = f + src("src/components/navigator/nav-items.ts")
   it("uses Badge primitive for NUEVO chips", () => {
     expect(f).toContain("@/components/ui/badge")
   })
@@ -164,11 +166,11 @@ describe("App sidebar (design chrome)", () => {
       "Mapa mental",
       "Área de Estudio",
     ]) {
-      expect(f).toContain(s)
+      expect(nav).toContain(s)
     }
   })
   it("wires the new routes incl. /mapa", () => {
-    expect(f).toContain('href: "/mapa"')
-    expect(f).toContain('href: "/knowledge"')
+    expect(nav).toContain('href: "/mapa"')
+    expect(nav).toContain('href: "/knowledge"')
   })
 })

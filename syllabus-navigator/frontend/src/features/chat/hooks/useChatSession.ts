@@ -71,7 +71,7 @@ export function useChatSession(activeChatId: string | null) {
         if (err instanceof Error && err.name === "AbortError") return
         console.error("[useChatSession] Error fetching details:", err)
         if (userStatus !== "guest") {
-          toast.error("Failed to load chat history")
+          toast.error("No se pudo cargar el historial")
         }
       } finally {
         if (activeChatIdRef.current === activeChatId) {

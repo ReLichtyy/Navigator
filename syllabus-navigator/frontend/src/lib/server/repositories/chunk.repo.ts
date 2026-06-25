@@ -109,6 +109,32 @@ export const ChunkRepository = {
       .join("\n\n")
   },
 
+  /**
+   * Cheap content fingerprint for a syllabus — changes whenever its chunks change
+   * (re-upload / edit). Used to invalidate the versioned study-set cache without
+   * hashing the full text. Returns "" when the syllabus has no chunks.
+   */
+  async contentFingerprint(syllabusId: string): Promise<string> {
+    const rows = await sql`
+      SELECT count(*)::int AS n, COALESCE(max(created_at)::text, '') AS ts
+      FROM chunks WHERE syllabus_id = ${syllabusId}::uuid
+    `
+    const r = (rows[0] as { n: number; ts: string } | undefined) ?? { n: 0, ts: "" }
+    return `${r.n}:${r.ts}`
+  },
+
+  /** Same as contentFingerprint, aggregated over every document in a course. */
+  async contentFingerprintByCourse(userId: string, courseId: string): Promise<string> {
+    const rows = await sql`
+      SELECT count(*)::int AS n, COALESCE(max(c.created_at)::text, '') AS ts
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId}
+    `
+    const r = (rows[0] as { n: number; ts: string } | undefined) ?? { n: 0, ts: "" }
+    return `${r.n}:${r.ts}`
+  },
+
   /** Retrieval: nearest chunks to a query embedding, scoped to one syllabus. */
   async search(syllabusId: string, queryEmbedding: number[], limit = 8): Promise<RetrievedChunk[]> {
     const qvec = toVectorLiteral(queryEmbedding)
@@ -121,6 +147,80 @@ export const ChunkRepository = {
       JOIN syllabus_uploads su ON su.id = c.syllabus_id
       WHERE c.syllabus_id = ${syllabusId}::uuid AND c.embedding IS NOT NULL
       ORDER BY distance ASC
+      LIMIT ${limit}
+    `
+    return rows as RetrievedChunk[]
+  },
+
+  /**
+   * Step 2 (hybrid): lexical (full-text) candidates for a syllabus via the GIN
+   * tsvector index — catches exact terms / formulas / names the embedding misses.
+   * Ordered by ts_rank. Also computes the vector `distance` for each hit so these
+   * candidates are first-class for the existing relevance gate + hybrid re-rank.
+   */
+  async searchLexical(
+    syllabusId: string,
+    query: string,
+    queryEmbedding: number[],
+    limit = 24,
+  ): Promise<RetrievedChunk[]> {
+    const qvec = toVectorLiteral(queryEmbedding)
+    const rows = await sql`
+      SELECT c.id, c.chunk_index, c.content, c.page_start, c.page_end, c.char_start, c.char_end,
+             c.syllabus_id, su.original_filename AS source_name,
+             su.source_type, su.source_url, su.file_url,
+             c.embedding <=> ${qvec}::vector AS distance
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE c.syllabus_id = ${syllabusId}::uuid
+        AND c.ts @@ plainto_tsquery('spanish', ${query})
+      ORDER BY ts_rank(c.ts, plainto_tsquery('spanish', ${query})) DESC
+      LIMIT ${limit}
+    `
+    return rows as RetrievedChunk[]
+  },
+
+  /** Step 2 (hybrid): dense candidates scoped to every document in a course. */
+  async searchByCourse(
+    userId: string,
+    courseId: string,
+    queryEmbedding: number[],
+    limit = 8,
+  ): Promise<RetrievedChunk[]> {
+    const qvec = toVectorLiteral(queryEmbedding)
+    const rows = await sql`
+      SELECT c.id, c.chunk_index, c.content, c.page_start, c.page_end, c.char_start, c.char_end,
+             c.syllabus_id, su.original_filename AS source_name,
+             su.source_type, su.source_url, su.file_url,
+             c.embedding <=> ${qvec}::vector AS distance
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId} AND c.embedding IS NOT NULL
+      ORDER BY distance ASC
+      LIMIT ${limit}
+    `
+    return rows as RetrievedChunk[]
+  },
+
+  /** Step 2 (hybrid): lexical candidates scoped to every document in a course. */
+  async searchLexicalByCourse(
+    userId: string,
+    courseId: string,
+    query: string,
+    queryEmbedding: number[],
+    limit = 24,
+  ): Promise<RetrievedChunk[]> {
+    const qvec = toVectorLiteral(queryEmbedding)
+    const rows = await sql`
+      SELECT c.id, c.chunk_index, c.content, c.page_start, c.page_end, c.char_start, c.char_end,
+             c.syllabus_id, su.original_filename AS source_name,
+             su.source_type, su.source_url, su.file_url,
+             c.embedding <=> ${qvec}::vector AS distance
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId}
+        AND c.ts @@ plainto_tsquery('spanish', ${query})
+      ORDER BY ts_rank(c.ts, plainto_tsquery('spanish', ${query})) DESC
       LIMIT ${limit}
     `
     return rows as RetrievedChunk[]

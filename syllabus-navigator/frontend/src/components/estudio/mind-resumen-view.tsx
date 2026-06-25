@@ -12,6 +12,7 @@ export function MindView({
   courses,
   activeCourseId,
   onPickCourse,
+  onTopicDouble,
   regenerating = false,
   onRegenerate,
   onBack,
@@ -22,6 +23,7 @@ export function MindView({
   courses: MindCourse[]
   activeCourseId: string
   onPickCourse: (id: string) => void
+  onTopicDouble?: (label: string) => void
   regenerating?: boolean
   onRegenerate?: () => void
   onBack: () => void
@@ -45,6 +47,7 @@ export function MindView({
           courses={courses}
           activeCourseId={activeCourseId}
           onPickCourse={onPickCourse}
+          onTopicDouble={onTopicDouble}
           courseCode={courseCode}
           courseName={courseLabel}
           loading={regenerating}
@@ -92,7 +95,7 @@ export function ResumenView({
           <div>
             <div className="text-lg font-extrabold tracking-tight">{courseName}</div>
             <div className="mt-1 text-xs text-muted-foreground">
-              Generado desde el knowledge base del curso
+              Generado desde la base de conocimiento del curso
             </div>
           </div>
           <button

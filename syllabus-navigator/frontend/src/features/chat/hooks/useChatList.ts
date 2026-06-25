@@ -94,7 +94,7 @@ export function useChatList() {
           toast.error(err.message)
           openAuthModal("signup")
         } else {
-          toast.error("Failed to create chat")
+          toast.error("No se pudo crear el chat")
         }
         return null
       }
@@ -103,14 +103,14 @@ export function useChatList() {
   )
 
   const deleteChat = useCallback(async (id: string) => {
-    if (!confirm("Are you sure you want to delete this chat?")) return false
+    if (!confirm("¿Seguro que quieres eliminar este chat?")) return false
     try {
       await apiDeleteChat(id)
       setChats((prev) => prev.filter((c) => c.id !== id))
-      toast.success("Chat deleted")
+      toast.success("Chat eliminado")
       return true
     } catch (err) {
-      toast.error("Failed to delete chat")
+      toast.error("No se pudo eliminar el chat")
       return false
     }
   }, [])
@@ -120,7 +120,7 @@ export function useChatList() {
       await apiUpdateChat(id, { title })
       setChats((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)))
     } catch (err) {
-      toast.error("Failed to rename chat")
+      toast.error("No se pudo renombrar el chat")
     }
   }, [])
 

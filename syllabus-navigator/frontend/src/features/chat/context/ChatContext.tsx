@@ -178,7 +178,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
       try {
         await updateChat(activeChatId, { active_model: model })
       } catch (err) {
-        toast.error("Failed to change model")
+        toast.error("No se pudo cambiar el modelo")
       }
     },
     [activeChatId, setChats, setActiveChat],
@@ -213,7 +213,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
             await updateChat(activeChatId, { syllabus_id: data.syllabus_id })
           }
         } catch (err) {
-          toast.error("Failed to upload syllabus")
+          toast.error("No se pudo subir el documento")
         }
       }
     },
@@ -249,7 +249,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
       const data = await fetchGraph(id)
       setGraphData(data as any)
     } catch {
-      toast.error("Failed to load knowledge graph")
+      toast.error("No se pudo cargar el mapa de conocimiento")
     }
   }, [])
 
@@ -258,9 +258,9 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     try {
       const data = await reprocessGraph(activeSyllabusId)
       setGraphData(data as any)
-      toast.success("Reprocessing started")
+      toast.success("Reprocesamiento iniciado")
     } catch {
-      toast.error("Failed to reprocess")
+      toast.error("No se pudo reprocesar")
     }
   }, [activeSyllabusId])
 

@@ -5,8 +5,9 @@ import { Plus, Minus, Maximize, ArrowUpRight } from "lucide-react"
 import type { CrossGraphAPI } from "@/lib/api"
 
 const WORLD = { w: 980, h: 540, cx: 490, cy: 270 }
-const COURSE_RADIUS = 195 // distance of each course cluster from canvas center
-const TOPIC_RADIUS = 78 // distance of topic nodes from their course center
+const COURSE_RADIUS = 250 // distance of each course cluster from canvas center
+const TOPIC_RADIUS = 100 // distance of topic nodes from their course center
+const HALO = (TOPIC_RADIUS + 46) * 2 // diameter of the soft cluster disc behind a course
 const MAX_TOPICS = 8 // cap nodes per course so the galaxy stays legible
 
 type Pt = { x: number; y: number }
@@ -25,7 +26,7 @@ export function CrossGalaxy({
   colorOf: Map<string, string>
   onPickCourse: (syllabusId: string) => void
 }) {
-  const [zoom, setZoom] = useState(0.85)
+  const [zoom, setZoom] = useState(0.7)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [drag, setDrag] = useState<{ x: number; y: number; px: number; py: number } | null>(null)
   const [hover, setHover] = useState<string | null>(null)
@@ -87,7 +88,7 @@ export function CrossGalaxy({
 
   const zoomBy = (f: number) => setZoom((z) => Math.min(2.2, Math.max(0.4, +(z * f).toFixed(2))))
   const zoomReset = () => {
-    setZoom(0.85)
+    setZoom(0.7)
     setPan({ x: 0, y: 0 })
   }
   const panStart = (e: React.MouseEvent) =>
@@ -170,8 +171,26 @@ export function CrossGalaxy({
           const p = coursePos.get(c.syllabus_id)!
           const color = colorOf.get(c.syllabus_id) ?? "#888"
           const topics = visibleNodes.get(c.syllabus_id) ?? []
+          const dimmed = dimNode(c.syllabus_id)
           return (
             <div key={c.syllabus_id}>
+              {/* soft cluster disc — visually groups & separates each course */}
+              <div
+                className="absolute"
+                style={{
+                  left: p.x,
+                  top: p.y,
+                  width: HALO,
+                  height: HALO,
+                  transform: "translate(-50%,-50%)",
+                  borderRadius: "50%",
+                  background: `radial-gradient(circle,${color}1f 0%,${color}10 42%,transparent 72%)`,
+                  border: `1px solid ${color}1a`,
+                  opacity: dimmed ? 0.25 : 1,
+                  pointerEvents: "none",
+                  transition: "opacity .18s",
+                }}
+              />
               {/* topic nodes */}
               {topics.map((t) => {
                 const np = nodePos.get(t.id)!

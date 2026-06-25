@@ -62,6 +62,12 @@ export interface FeatureFlags {
   vectorBackend: VectorBackend
   /** Master switch for RAG retrieval. When false, chat answers without grounding. */
   ragEnabled: boolean
+  /**
+   * Master switch for the Actions & Tools layer (LLM tool-calling in chat).
+   * Off by default: enabling it adds a non-streamed tool-resolution pass before
+   * the streamed answer. Turn on with TOOLS_ENABLED=true.
+   */
+  toolsEnabled: boolean
 }
 
 export const flags: FeatureFlags = {
@@ -69,6 +75,7 @@ export const flags: FeatureFlags = {
   llmModel: process.env.DEFAULT_LLM_MODEL?.trim() || "gpt-4o-mini",
   vectorBackend: resolveVectorBackend(process.env.VECTOR_BACKEND),
   ragEnabled: resolveBool(process.env.RAG_ENABLED, true),
+  toolsEnabled: resolveBool(process.env.TOOLS_ENABLED, false),
 }
 
 // Exported for tests so resolution logic can be exercised without mutating env.

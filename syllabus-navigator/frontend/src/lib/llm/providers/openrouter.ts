@@ -31,6 +31,11 @@ function getClient(): OpenAI {
   return _client
 }
 
+/** Shared client accessor for the tool-calling loop (lib/llm/tools-loop.ts). */
+export function getOpenRouterClient(): OpenAI {
+  return getClient()
+}
+
 export const openrouterProvider: LLMProviderAdapter = {
   name: "openrouter",
 

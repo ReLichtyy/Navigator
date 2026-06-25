@@ -108,7 +108,7 @@ export default function GraphCanvas({
         </h3>
         <p className="mb-4 max-w-md text-center text-sm leading-relaxed text-muted-foreground">
           Ocurrió un problema al generar el mapa mental. Suele deberse a límites de uso o a un
-          formato inesperado del sílabo.
+          formato inesperado del documento del curso.
         </p>
         {graphError && (
           <div className="mb-6 w-full max-w-lg rounded-xl border border-destructive/30 bg-destructive/10 p-3">

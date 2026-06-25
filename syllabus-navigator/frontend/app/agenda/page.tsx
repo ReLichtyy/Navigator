@@ -163,7 +163,8 @@ export default function AgendaPage() {
               <CalendarDays className="h-10 w-10 mb-3 opacity-20" />
               <p className="text-sm font-medium mb-1">Aún no hay agenda.</p>
               <p className="text-xs">
-                Sube un sílabo con cronograma en la Knowledge Base y se extraerá automáticamente.
+                Sube el programa de tu curso (con su cronograma) en Cursos y se extraerá
+                automáticamente.
               </p>
             </div>
           ) : (

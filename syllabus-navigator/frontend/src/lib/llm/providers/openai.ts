@@ -21,6 +21,14 @@ function getClient(): OpenAI {
   return _client
 }
 
+/** Shared client accessor for the tool-calling loop (lib/llm/tools-loop.ts). */
+export function getOpenAIClient(): OpenAI {
+  return getClient()
+}
+
+/** Re-export the per-family param builder for the tool-calling loop. */
+export { buildParams as buildOpenAIParams }
+
 /**
  * GPT-5 family + reasoning (o-series) models changed the chat-completions
  * contract: `max_tokens` is rejected (must be `max_completion_tokens`) and

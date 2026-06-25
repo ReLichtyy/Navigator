@@ -113,6 +113,13 @@ CREATE INDEX IF NOT EXISTS idx_chunks_syllabus_id ON chunks(syllabus_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding
   ON chunks USING hnsw (embedding vector_cosine_ops);
 
+-- Step 2 (hybrid search): índice léxico full-text para términos exactos / fórmulas /
+-- nombres que el embedding pierde. Columna generada (siempre en sincronía con
+-- content) + GIN. Se fusiona con el vector vía RRF en lib/server/rag/retrieval/hybrid.
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS ts tsvector
+  GENERATED ALWAYS AS (to_tsvector('spanish', content)) STORED;
+CREATE INDEX IF NOT EXISTS idx_chunks_ts ON chunks USING gin (ts);
+
 -- ---------------------------------------------------------------------------
 -- Future schema: programs / courses / syllabi (Sprint 4)
 -- ---------------------------------------------------------------------------
@@ -373,3 +380,39 @@ CREATE TABLE IF NOT EXISTS course_study_sets (
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- Study Engine — Step 1: versioned cache + persistent item bank
+-- ---------------------------------------------------------------------------
+-- Versioned cache invalidation for the cached bundle sets. A cached set is only
+-- reused when its content_fingerprint (cheap signal of the underlying chunks)
+-- AND schema_version still match — so editing/re-uploading a PDF, or bumping the
+-- generator schema, invalidates it automatically (idempotent ALTERs).
+ALTER TABLE study_sets        ADD COLUMN IF NOT EXISTS content_fingerprint TEXT;
+ALTER TABLE study_sets        ADD COLUMN IF NOT EXISTS schema_version      INT NOT NULL DEFAULT 1;
+ALTER TABLE course_study_sets ADD COLUMN IF NOT EXISTS content_fingerprint TEXT;
+ALTER TABLE course_study_sets ADD COLUMN IF NOT EXISTS schema_version      INT NOT NULL DEFAULT 1;
+
+-- Persistent bank of generated study items (flashcards/quiz/…). Unlike the
+-- replaceable bundle in study_sets.data, the bank ACCUMULATES across refreshes
+-- and is deduped by embedding similarity, so each refresh adds genuinely NEW
+-- items instead of regenerating near-identical ones. Feeds excludeSeen on the
+-- next generation. user_id NULL = sharable; scope_kind+scope_id locate the set.
+CREATE TABLE IF NOT EXISTS study_items (
+  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID        REFERENCES users(id) ON DELETE CASCADE,
+  scope_kind  TEXT        NOT NULL,            -- 'doc' | 'course'
+  scope_id    UUID        NOT NULL,            -- syllabus_uploads.id | user_courses.id
+  type        TEXT        NOT NULL,            -- 'flashcard' | 'quiz' | 'case' | 'cloze' | 'recall'
+  topic_key   TEXT,                            -- normalized topic label (reuses mastery topic_key)
+  difficulty  TEXT        NOT NULL DEFAULT 'medio',
+  payload     JSONB       NOT NULL,            -- the item itself (front/back, question/options/…)
+  dedupe_text TEXT        NOT NULL,            -- normalized text the embedding/dedupe is computed from
+  embedding   vector(1536),                    -- text-embedding-3-small (same space as chunks)
+  source      TEXT        NOT NULL DEFAULT 'study-gen',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_study_items_scope
+  ON study_items (scope_kind, scope_id, type, topic_key);
+CREATE INDEX IF NOT EXISTS idx_study_items_embedding
+  ON study_items USING hnsw (embedding vector_cosine_ops);

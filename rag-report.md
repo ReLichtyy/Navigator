@@ -191,3 +191,170 @@ chat.service.prepareMessages
 
 > Detalle de la arquitectura objetivo y modelos por agente: `bugreport.md` §8 (multi-RAG) y §9
 > (multi-modelo).
+
+---
+
+## 8. Próximos cambios — Plan de ejecución (Study Engine multi-RAG)
+
+> Hoja de ruta viva para llevar el Área de Estudio + RAG a "clase mundial". Norte = arquitectura
+> multi-RAG de `bugreport.md` §8-9. Se construye en **5 pasos**, cada uno desplegable por sí solo,
+> en orden de la causa más citada por el usuario ("se repite") hacia el motor adaptativo completo.
+> Fecha de inicio: 2026-06-25.
+
+### 8.0 Decisiones fijadas (mandan en todos los pasos)
+
+| Decisión | Elegido | Razón |
+|---|---|---|
+| Embeddings | Mantener OpenAI `text-embedding-3-small` 1536d | Cero migración; el índice ya está cableado |
+| Modelos por agente | **Mixto**: calidad `case/inquisitor/verifier/grader`; económico `router/synth/flashcard` | Caro donde el riesgo importa, barato en volumen |
+| Verifier | Familia **distinta** al generador (inquisitor=GPT → verifier=Claude) | Diversidad atrapa errores que la redundancia no |
+| Orquestación | **Runner de grafo propio en TS** (no LangGraph) | Repo abandonó LangChain; fricción serverless |
+| Dónde corre lo pesado | **Worker async** (`jobs` + `cron/process`), no en el request | Generación multi-agente es pesada |
+| Banco `study_items.user_id` | **NULL** (compartido por scope) por ahora | Evita violación FK con invitados (no están en `users`) |
+
+### 8.1 Arquitectura objetivo (5 capas)
+
+```
+REQUEST → encola job, devuelve banco cacheado, UI hace polling/stream progreso
+   WORKER (jobs + cron/process):
+   CAPA 1 ROUTER (híbrido)  → reglas calculan targets+priority por tema;
+       priority = w1·pesoExamen + w2·(1-mastery) + w3·urgenciaCronograma + w4·lapsoSRS
+       LLM barato mapea instrucción libre → temas  ⇒  StudyPlan
+   CAPA 2 ORQUESTACIÓN (runner grafo TS, ~150 LOC, 0 deps)
+       por target: retrieve → [synth|inquisitor|case|flashcard] → verify
+                 → pass→dedupe→persist(study_items) ; fail(≤2)→regenerate ; fail>2→drop+log
+   CAPA 3 MULTI-ÍNDICE   dense pgvector ✅ + léxico tsvector ➕ + estructurado ✅ + banco ítems ➕ ; fusión RRF
+   CAPA 3.5 EVAL GATES   faithfulness, answer-correctness, distractor-quality, difficulty-cal, novelty/dedup, coverage
+   CAPA 4 AGENTES        synth/inquisitor/case/flashcard (núcleo) + verifier/grader/planner (cierran el bucle)
+```
+Entrada de primera clase del Router = **estado del alumno** (mastery EMA, SRS vencidas, cercanía de
+evaluación). Es lo que hoy se escribe y nunca se lee.
+
+### 8.2 Mapeo a las capas que YA existen
+
+```
+app/api/study/[id]/route.ts          handler fino: encola job, devuelve banco   (+ ruta polling ➕)
+lib/server/services/study.service.ts orquesta plan→worker→banco
+lib/server/rag/                       NÚCLEO del cambio:
+  ├─ study-gen.ts        → se PARTE en agents/* (deja de ser mega-llamada)
+  ├─ orchestrator/       ➕ router.ts (C1) + runner.ts (C2) + state.ts
+  ├─ agents/             ➕ synth/inquisitor/case/flashcard/verifier/grader/planner
+  ├─ retrieval/          ➕ hybrid.ts (RRF dense+léxico)  (C3)
+  └─ eval/               ➕ gates.ts  (C3.5)
+lib/server/repositories/  study-items.repo ➕ ; chunk.repo (+léxico) ; study-stats/mastery → LEER ; job.repo (reusar)
+lib/db.ts + schema.sql    study_items ➕ ; chunks.ts tsvector ➕
+lib/llm/agent-models.ts   ➕ mapa rol→modelo (embeddings intacto)
+estudio/page.tsx          separar modos reales (repaso/simulacro) + barra de progreso
+```
+Los agentes/grafo son **subcarpetas nuevas dentro de `lib/server/rag/`**, no una capa nueva. Dos
+repos que hoy solo escriben (`study-stats`, `mastery`) empiezan a **leerse** — eso cierra el bucle.
+
+### 8.3 Pasos de implementación
+
+#### ✅ Paso 1 — Banco de ítems + dedupe + caché versionada (HECHO 2026-06-25)
+Ataca la causa #1: *"se repite"*. Sin tocar embeddings. UI recibe `StudySet` igual.
+
+| Archivo | Cambio |
+|---|---|
+| `schema.sql` | tabla `study_items` (banco + `embedding vector(1536)` + HNSW); cols `content_fingerprint`+`schema_version` en `study_sets`/`course_study_sets` |
+| `study-items.repo.ts` (nuevo) | `insertDeduped` (dedupe coseno `<0.08` ⇔ sim>0.92), `listDedupeTexts` (seen), `listRecent` |
+| `chunk.repo.ts` | `contentFingerprint` / `...ByCourse` (señal barata: `count + max(created_at)`) |
+| `study.repo.ts` | caché **versionada**: devuelve set solo si `fingerprint`+`schema_version` coinciden |
+| `study-gen.ts` | `temperature 0.2→0.7`; `excludeSeen` → directiva "ALREADY COVERED, no repitas"; `STUDY_SCHEMA_VERSION=2` |
+| `study.service.ts` | cierra bucle: seen del banco → genera (excludeSeen) → embebe+dedupe→banco → arma set desde banco creciente |
+
+Mecanismo anti-repetición (3 barreras): temp alta (diversidad) + `excludeSeen` (no regenera visto) +
+dedupe por embedding (mata casi-idénticos). Editar/re-subir PDF cambia fingerprint → invalida caché.
+**Pendiente activar:** `npm run db:migrate` (idempotente). Tests: 29 verdes, typecheck limpio.
+
+#### ✅ Paso 2 — Multi-índice híbrido + recuperación por tema (HECHO 2026-06-25)
+Ataca *"superficial / pierde material / `slice(0,24k)`"*. Cierra la "ironía RAG" en los generadores.
+
+| Archivo | Cambio |
+|---|---|
+| `schema.sql` | `ALTER chunks ADD COLUMN ts tsvector GENERATED ALWAYS AS (to_tsvector('spanish', content)) STORED` + índice GIN `idx_chunks_ts` |
+| `chunk.repo.ts` | `searchLexical` (ts_rank, trae `distance` real para reusar gate/rerank) + `searchByCourse` / `searchLexicalByCourse` (dense+léxico scoped a curso) |
+| `rag/retrieval/hybrid.ts` (nuevo) | `rrfFuse` (RRF `Σ1/(k+rank)`, k=60, dedupe por id, puro) + `buildContextByTopics` (recupera top-K híbrido **por tema**, secciones con encabezado, cap 24k, fallback null) |
+| `study.service.ts` | doc: recupera material por **labels del grafo** (+ focus topic al frente) vía `buildContextByTopics`, fallback a concatenado; course: recupera el focus topic across-curso, fallback concatenado |
+
+Mecanismo: por cada tema → dense (`<=>`) **y** léxico (`tsvector`) → RRF → top-K; unión deduplicada
+cubre todo el temario en vez de `slice(0,24k)`. El léxico rescata términos/fórmulas exactas que el
+embedding pierde. **Pendiente activar:** `npm run db:migrate` (la columna `ts` se llena sola al crearse).
+
+**No incluido en este paso (deliberado):**
+- **Chat sigue igual** (`retrieval.service.ts` intacto): ya tiene rerank híbrido en memoria; migrarlo a
+  tsvector+RRF es cambio aparte (R2/R3 para chat) y rompería sus mocks de test. Pendiente.
+- **Course sin focus topic** sigue usando concatenado: no hay grafo de temas a nivel curso
+  (multi-syllabus). Cubrir cuando exista targeting de curso (§8.5).
+- **Reranker cross-encoder** (Cohere/Voyage) sobre top-N tras RRF: opcional, no hecho.
+
+#### ✅ Paso 3 — Agentes separados + verifier (HECHO 2026-06-25)
+Sube calidad y Bloom alto. Reemplaza la mega-llamada de `study-gen.ts`.
+
+| Archivo | Cambio |
+|---|---|
+| `lib/llm/agent-models.ts` (nuevo) | `AgentRole` → `{provider,model,fallback}`, override por env (`MODEL_ROUTER…`), defaults OpenAI (corre con solo `OPENAI_API_KEY`); ids con `/` → OpenRouter (Claude/Gemini) |
+| `rag/agents/_base.ts` (nuevo) | `runAgent`: OpenAI→json_schema strict; OpenRouter→texto+parse; valida zod; reintenta con fallback 1 vez |
+| `rag/agents/flashcard.ts` | concepto→def + cloze |
+| `rag/agents/inquisitor.ts` | quiz tipo examen, distractores plausibles (preset calidad) |
+| `rag/agents/synth.ts` | summary + mindmap + studyGuide (faithful) |
+| `rag/agents/verifier.ts` | valida respuesta correcta + distractores (familia distinta vía `MODEL_VERIFIER`) |
+
+Cada agente: rol único, entrada anclada a evidencia, salida tipada+validada. Falla suave (`[]`/null).
+
+#### ✅ Paso 4 — Orquestador (grafo) + eval gates (HECHO 2026-06-25)
+| Archivo | Cambio |
+|---|---|
+| `rag/orchestrator/state.ts` (nuevo) | tipos `StudyPlan`, `TopicTarget` |
+| `rag/orchestrator/runner.ts` (nuevo) | `orchestrateStudySet`: agentes en paralelo → gate verify → ensambla `StudySet` (mismo contrato que `generateStudySet`) |
+| `rag/eval/gates.ts` (nuevo) | `verifyQuiz`: corre verifier por pregunta, descarta refutadas, `log` (sin caps silenciosos); fallo de infra no encoge el quiz |
+
+Grafo: `evidence → ┬ flashcard ┬ inquisitor ┬ synth → verifyQuiz → assemble`. **Nota:** corre **inline**
+en el request (igual que antes `generateStudySet`); mover al worker `jobs` + ruta `study/job/[jobId]`
+de progreso queda pendiente (infra, no bloquea funcionalidad).
+
+#### ✅ Paso 5 — Router adaptativo + Planner (HECHO 2026-06-25)
+Ataca *"no es productiva"*. **Lee** mastery/SRS/cronograma (antes solo se escribían).
+
+| Archivo | Cambio |
+|---|---|
+| `rag/orchestrator/router.ts` (nuevo) | `buildStudyPlan` lee `MasteryRepository` + `srsPressure` + `ScheduleRepository`; `scoreTargets` (puro): `priority = .3·peso + .3·(1−mastery) + .25·urgencia + .15·srs`; degrada a orden por peso si falla (guest/sin señales) |
+| `rag/orchestrator/planner.ts` (nuevo) | `getTodaySession`: vencidas (`due_at<=now`) + ítems del banco ordenados por prioridad de tema |
+| `study-stats.repo.ts` | ➕ `srsPressure`, `listDue` (ahora se **lee** el SRS) |
+| `study.service.ts` | usa el Router para ordenar temas (débil/urgente/pesado primero) antes de recuperar |
+| `app/api/study/session/route.ts` (nuevo) | `GET ?syllabusId=` → sesión adaptativa (usuarios reales) |
+
+Tests: `scoreTargets` + `rrfFuse` (`tests/study-engine.test.ts`, 5 verdes). **UI pendiente:** wiring de
+`estudio/page.tsx` a `/api/study/session` y separación real *Repaso*/*Simulacro* (no tocado para no
+chocar con edición en curso del usuario).
+
+### 8.4 Contratos clave (clavados en diseño)
+
+- **`StudyPlan`**: `{ scope, targets[], agents[], budget, difficulty, retrieval, excludeSeen[] }`.
+  `priority = .3·pesoExamen + .3·(1-mastery) + .25·urgencia + .15·lapsoSRS` (normalizado 0..1;
+  `urgencia = clamp(1 - díasAlExamen/14, 0, 1)`). Tema nunca visto → mastery=0 → prioridad alta.
+- **Clave de caché**: `(scope_kind, scope_id, difficulty, topic_key, contentFingerprint, schemaVersion)`.
+- **Dedupe**: cosine sim `>0.92` (distancia `<0.08`) vs banco del mismo `(scope, type)` → descarta.
+- **Bucle verify**: 2 reintentos máx; `fail>2` → drop + log; `coverage` re-encola temas faltantes 1 vez.
+- **Progreso UI**: polling (no SSE) — el worker ya es async; menos código.
+
+### 8.5 Abiertos (decidir al llegar a cada paso)
+
+- Cupo de ítems por sesión: ¿fijo (~20) o adaptativo según tiempo del alumno? (cronograma no da "tiempo libre").
+- Dedupe/banco: ¿per-user o compartido por curso? (hoy compartido por scope, NULL user_id).
+- Course scope hereda bug: genera con `weightedTopics: []` — falta pesos a nivel curso (multi-syllabus).
+- Verifier/grader: configurable por env desde el inicio (`MODEL_VERIFIER`); falta poblar `MODELS`
+  (catálogo/pricing) con los ids OpenRouter para que `estimateCost` no registre $0.
+- `grader` (recuerdo libre) y `case` (worked examples) definidos en el preset pero **sin agente aún**
+  (no hay artefacto de respuesta abierta ni `cases` en el `StudySet`/UI).
+
+### 8.6 Pendiente (infra / UI — no bloquea funcionalidad)
+
+- **Mover orquestación al worker async** (`jobs` + `cron/process`) + ruta `study/job/[jobId]` de
+  progreso. Hoy corre inline en el request (igual que antes); en Vercel la generación multi-agente
+  puede acercarse al timeout en cursos grandes.
+- **UI**: cablear `estudio/page.tsx` a `GET /api/study/session` (sesión adaptativa) y separar de
+  verdad *Repaso* (vencidas) vs *Simulacro* (cronometrado + informe). Backend listo; falta consumo.
+- **Chat híbrido**: migrar `retrieval.service.ts` a tsvector+RRF (hoy rerank léxico en memoria).
+- **Poblar `MODELS`** con ids/precios OpenRouter del preset calidad (Claude/Gemini) para metering.
+- **Reranker** cross-encoder (Cohere/Voyage) tras RRF, opcional.

@@ -497,16 +497,16 @@ export default function KnowledgeBasePage() {
       <main className="flex h-dvh w-full items-center justify-center bg-background text-foreground">
         <div className="flex max-w-md flex-col items-center text-center p-8 border border-border/60 rounded-xl bg-card shadow-sm">
           <Library className="h-12 w-12 text-accent mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Knowledge Base</h2>
+          <h2 className="text-xl font-semibold mb-2">Tus cursos</h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Sign in to create and manage your personal knowledge library. Upload documents to power
-            your AI assistant.
+            Inicia sesión para crear y gestionar la biblioteca de documentos de tus cursos. Súbelos
+            para potenciar tu asistente de IA.
           </p>
           <button
             onClick={() => openAuthModal("signup")}
             className="rounded-full bg-accent px-6 py-2.5 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent/90"
           >
-            Create an Account
+            Crear cuenta
           </button>
         </div>
       </main>
@@ -579,8 +579,8 @@ export default function KnowledgeBasePage() {
       <div className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="mx-auto max-w-5xl">
           <p className="mb-5 max-w-2xl text-sm text-muted-foreground">
-            Cada curso tiene su propia carpeta de knowledge. Los modos de estudio se generan desde
-            estos documentos.
+            Cada curso tiene su propia carpeta de documentos. Los modos de estudio se generan a
+            partir de ellos.
           </p>
 
           <CourseSuggestions uploads={uploads} onChanged={() => fetchUploads(true)} />
@@ -622,7 +622,7 @@ export default function KnowledgeBasePage() {
               <p className="text-xs">
                 {searchQuery
                   ? "Prueba otro término de búsqueda."
-                  : "Sube un PDF de sílabo para empezar."}
+                  : "Sube el programa de tu curso en PDF para empezar."}
               </p>
             </div>
           ) : (

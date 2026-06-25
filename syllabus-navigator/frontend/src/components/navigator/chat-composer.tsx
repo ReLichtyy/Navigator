@@ -205,11 +205,7 @@ export function ChatComposer({
                 <span
                   className={cn(f.status === "error" ? "text-red-500/70" : "text-muted-foreground")}
                 >
-                  {f.status === "uploading"
-                    ? "Uploading..."
-                    : f.status === "error"
-                      ? "Failed"
-                      : f.size}
+                  {f.status === "uploading" ? "Subiendo…" : f.status === "error" ? "Error" : f.size}
                 </span>
                 <button
                   type="button"
@@ -312,7 +308,7 @@ export function ChatComposer({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={isDragging ? "Drop PDFs to attach…" : "Type your message..."}
+            placeholder={isDragging ? "Suelta los PDFs para adjuntar…" : "Escribe tu mensaje…"}
             rows={1}
             disabled={disabled}
             className="min-h-9 max-h-40 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
@@ -328,7 +324,7 @@ export function ChatComposer({
                 ? "bg-accent text-accent-foreground shadow-sm hover:opacity-90"
                 : "bg-secondary text-muted-foreground/70",
             )}
-            aria-label="Send message"
+            aria-label="Enviar mensaje"
           >
             <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
           </button>

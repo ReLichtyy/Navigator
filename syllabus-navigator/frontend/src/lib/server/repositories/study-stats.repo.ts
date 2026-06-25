@@ -47,6 +47,33 @@ export const StudyStatsRepository = {
     `
   },
 
+  /**
+   * Spaced-repetition pressure for a syllabus: how many tracked cards are due now
+   * vs total tracked. Feeds the Router priority + the "today session" planner.
+   * Returns {due:0,total:0} for guests / untracked syllabi.
+   */
+  async srsPressure(userId: string, syllabusId: string): Promise<{ due: number; total: number }> {
+    const rows = await sql`
+      SELECT count(*)::int AS total,
+             count(*) FILTER (WHERE due_at <= now())::int AS due
+      FROM flashcard_reviews
+      WHERE user_id = ${userId}::uuid AND syllabus_id = ${syllabusId}::uuid
+    `
+    const r = (rows[0] as { total?: number; due?: number } | undefined) ?? {}
+    return { due: r.due ?? 0, total: r.total ?? 0 }
+  },
+
+  /** Card keys due for review now, most-overdue first (planner "Modo repaso"). */
+  async listDue(userId: string, syllabusId: string, limit = 30): Promise<string[]> {
+    const rows = await sql`
+      SELECT card_key FROM flashcard_reviews
+      WHERE user_id = ${userId}::uuid AND syllabus_id = ${syllabusId}::uuid AND due_at <= now()
+      ORDER BY due_at ASC
+      LIMIT ${limit}
+    `
+    return (rows as { card_key: string }[]).map((r) => r.card_key)
+  },
+
   /** Study streak (consecutive days) + cards reviewed in the last 7 days. */
   async getStats(userId: string): Promise<StudyStats> {
     const weekRows = await sql`

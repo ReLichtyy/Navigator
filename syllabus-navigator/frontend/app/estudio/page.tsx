@@ -11,12 +11,14 @@ import {
   fetchCourseStudySet,
   fetchSchedule,
   fetchRecommendations,
+  fetchStudyStats,
   type SyllabusUploadAPI,
   type CourseAPI,
   type StudySetAPI,
   type StudyDifficulty,
   type ScheduleEventAPI,
   type WeeklyPlanAPI,
+  type StudyStatsAPI,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
 import { Textarea } from "@/components/ui/textarea"
@@ -38,12 +40,17 @@ import {
   BookText,
   FileText,
   FolderOpen,
+  Flame,
+  MousePointerClick,
+  ChevronDown,
 } from "lucide-react"
 import { FlashcardsView } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
 import { MindView, ResumenView } from "@/components/estudio/mind-resumen-view"
 import type { MindCourse } from "@/components/estudio/mind-map-canvas"
 import { MasteryPanel } from "@/components/estudio/mastery-panel"
+import { SelectionAsk } from "@/components/SelectionAsk"
+import { useAskInChat } from "@/hooks/use-ask-in-chat"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -65,6 +72,8 @@ function EstudioContent() {
   const { openAuthModal } = useAuthModal()
   const params = useSearchParams()
   const router = useRouter()
+  // Highlight any text in the study material → ask the chat to explain it.
+  const askInChat = useAskInChat("tu material de estudio")
 
   const [uploads, setUploads] = useState<SyllabusUploadAPI[]>([])
   const [courses, setCourses] = useState<CourseAPI[]>([])
@@ -75,6 +84,8 @@ function EstudioContent() {
   // Selected scope within the folder. null until the folder resolves a default.
   const [scope, setScope] = useState<Scope | null>(null)
   const [mode, setMode] = useState<Mode>("menu")
+  // Course/scope selector collapse (manual on the menu; auto-hidden inside a mode).
+  const [selectorsOpen, setSelectorsOpen] = useState(true)
 
   const [set, setSet] = useState<StudySetAPI | null>(null)
   const [setLoading, setSetLoading] = useState(false)
@@ -289,6 +300,7 @@ function EstudioContent() {
     if (scope && loadedKey !== scopeKey(scope, difficulty, topic)) {
       await loadSet(scope, { difficulty, topic })
     }
+    setSelectorsOpen(false)
     setMode(m)
   }
 
@@ -324,54 +336,88 @@ function EstudioContent() {
       </header>
 
       <div className="flex-1 overflow-auto p-6 sm:px-10 sm:py-9">
-        <div className="mx-auto max-w-4xl">
+        <div
+          className={`mx-auto transition-[max-width] duration-300 ${
+            mode === "menu" ? "max-w-4xl" : "max-w-3xl"
+          }`}
+        >
           {coursesLoading ? (
             <CenterSpinner />
           ) : groups.length === 0 ? (
             <EmptyCourses />
           ) : (
             <>
-              {/* ── Course folders (horizontal) ── */}
-              <div className="flex flex-wrap gap-2.5">
-                {groups.map((g) => {
-                  const active = g.id === groupId
-                  const count = g.docs.filter(isReady).length
-                  return (
-                    <Button
-                      key={g.id ?? "sin-curso"}
-                      variant={active ? "secondary" : "outline"}
-                      onClick={() => setGroupId(g.id)}
-                      className={
-                        active
-                          ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
-                          : "gap-2 text-muted-foreground"
-                      }
-                    >
-                      <BookText
-                        className="h-4 w-4 text-accent"
-                        style={g.color ? { color: g.color } : undefined}
-                      />
-                      {g.name}
-                      <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums text-muted-foreground">
-                        {count}
-                      </span>
-                    </Button>
-                  )
-                })}
-              </div>
+              {/* ── Course + scope selector — collapsible; hidden inside a study mode so the activity stays centered ── */}
+              {mode === "menu" && (
+                <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/30">
+                  <button
+                    onClick={() => setSelectorsOpen((o) => !o)}
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-secondary/40"
+                  >
+                    <FolderOpen className="h-4 w-4 flex-none text-accent" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                      {selectedGroup?.name ?? "Curso"}
+                      {scopeLabel && (
+                        <span className="font-normal text-muted-foreground"> · {scopeLabel}</span>
+                      )}
+                    </span>
+                    <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
+                      {groups.length} {groups.length === 1 ? "curso" : "cursos"}
+                    </span>
+                    <ChevronDown
+                      className="h-4 w-4 flex-none text-muted-foreground transition-transform"
+                      style={{ transform: selectorsOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                    />
+                  </button>
 
-              {/* ── Scope: Todo el curso / specific PDF (vertical) ── */}
-              {selectedGroup && (
-                <ScopePicker
-                  group={selectedGroup}
-                  readyDocs={readyDocs}
-                  canWholeCourse={canWholeCourse}
-                  scope={scope}
-                  onPickWhole={() =>
-                    selectedGroup.id && setScope({ kind: "course", courseId: selectedGroup.id })
-                  }
-                  onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
-                />
+                  {selectorsOpen && (
+                    <div className="border-t border-border/50 p-4">
+                      {/* Course folders (horizontal) */}
+                      <div className="flex flex-wrap gap-2.5">
+                        {groups.map((g) => {
+                          const active = g.id === groupId
+                          const count = g.docs.filter(isReady).length
+                          return (
+                            <Button
+                              key={g.id ?? "sin-curso"}
+                              variant={active ? "secondary" : "outline"}
+                              onClick={() => setGroupId(g.id)}
+                              className={
+                                active
+                                  ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
+                                  : "gap-2 text-muted-foreground"
+                              }
+                            >
+                              <BookText
+                                className="h-4 w-4 text-accent"
+                                style={g.color ? { color: g.color } : undefined}
+                              />
+                              {g.name}
+                              <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                                {count}
+                              </span>
+                            </Button>
+                          )
+                        })}
+                      </div>
+
+                      {/* Scope: Todo el curso / specific PDF (vertical) */}
+                      {selectedGroup && (
+                        <ScopePicker
+                          group={selectedGroup}
+                          readyDocs={readyDocs}
+                          canWholeCourse={canWholeCourse}
+                          scope={scope}
+                          onPickWhole={() =>
+                            selectedGroup.id &&
+                            setScope({ kind: "course", courseId: selectedGroup.id })
+                          }
+                          onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
               <div className="mt-6">
@@ -380,28 +426,31 @@ function EstudioContent() {
                 ) : setError ? (
                   <SetError message={setError} onRetry={() => scope && loadSet(scope)} />
                 ) : set && scope ? (
-                  <ModeRouter
-                    mode={mode}
-                    set={set}
-                    scope={scope}
-                    syllabusId={activeDocId}
-                    scopeLabel={scopeLabel}
-                    mindCourses={mindCourses}
-                    onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
-                    regenerating={regenerating}
-                    onRegenerate={() =>
-                      scope && loadSet(scope, { refresh: true, difficulty, topic })
-                    }
-                    setMode={setMode}
-                    onLaunch={launchMode}
-                    backToMenu={backToMenu}
-                    difficulty={difficulty}
-                    topic={topic}
-                    weekTopics={weekTopics}
-                    suggestion={suggestion}
-                    onDifficulty={applyDifficulty}
-                    onTopic={applyTopic}
-                  />
+                  <SelectionAsk onAsk={askInChat} enabled={mode !== "menu"}>
+                    <ModeRouter
+                      mode={mode}
+                      set={set}
+                      scope={scope}
+                      syllabusId={activeDocId}
+                      scopeLabel={scopeLabel}
+                      mindCourses={mindCourses}
+                      onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
+                      onAsk={askInChat}
+                      regenerating={regenerating}
+                      onRegenerate={() =>
+                        scope && loadSet(scope, { refresh: true, difficulty, topic })
+                      }
+                      setMode={setMode}
+                      onLaunch={launchMode}
+                      backToMenu={backToMenu}
+                      difficulty={difficulty}
+                      topic={topic}
+                      weekTopics={weekTopics}
+                      suggestion={suggestion}
+                      onDifficulty={applyDifficulty}
+                      onTopic={applyTopic}
+                    />
+                  </SelectionAsk>
                 ) : null}
               </div>
             </>
@@ -509,6 +558,7 @@ function ModeRouter({
   scopeLabel,
   mindCourses,
   onPickDoc,
+  onAsk,
   regenerating,
   onRegenerate,
   setMode,
@@ -529,6 +579,7 @@ function ModeRouter({
   scopeLabel: string
   mindCourses: MindCourse[]
   onPickDoc: (id: string) => void
+  onAsk: (text: string) => void
   regenerating: boolean
   onRegenerate: () => void
   setMode: (m: Mode) => void
@@ -591,6 +642,7 @@ function ModeRouter({
           courses={scope.kind === "doc" ? mindCourses : []}
           activeCourseId={syllabusId ?? ""}
           onPickCourse={onPickDoc}
+          onTopicDouble={onAsk}
           regenerating={regenerating}
           onRegenerate={onRegenerate}
           onBack={backToMenu}
@@ -715,9 +767,11 @@ function Menu({
 }) {
   return (
     <div>
+      <StatsStrip />
+
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-        Material de estudio generado dinámicamente desde el knowledge base. Ajusta la dificultad y,
-        si quieres, enfócalo en un tema; luego elige un modo.
+        Material de estudio generado dinámicamente desde tu base de conocimiento. Ajusta la
+        dificultad y, si quieres, enfócalo en un tema; luego elige un modo.
       </p>
 
       <Card className="mt-5 flex-row items-center gap-3 p-3.5">
@@ -837,6 +891,46 @@ function Menu({
 
 // ---------- small presentational helpers ----------
 
+/** Compact streak / weekly-volume strip + highlight-to-ask hint at the top of the menu. */
+function StatsStrip() {
+  const [stats, setStats] = useState<StudyStatsAPI | null>(null)
+  useEffect(() => {
+    let alive = true
+    fetchStudyStats()
+      .then((s) => alive && setStats(s))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-2.5">
+      <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/40 px-3.5 py-2">
+        <Flame
+          className={`h-4 w-4 ${stats && stats.streakDays > 0 ? "text-orange-400" : "text-muted-foreground"}`}
+        />
+        <span className="text-sm font-bold text-foreground tabular-nums">
+          {stats?.streakDays ?? 0}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {stats?.streakDays === 1 ? "día de racha" : "días de racha"}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/40 px-3.5 py-2">
+        <Layers className="h-4 w-4 text-accent" />
+        <span className="text-sm font-bold text-foreground tabular-nums">
+          {stats?.cardsThisWeek ?? 0}
+        </span>
+        <span className="text-xs text-muted-foreground">repasos esta semana</span>
+      </div>
+      <div className="ml-auto hidden items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.06] px-3.5 py-2 text-[11.5px] font-medium text-muted-foreground sm:flex">
+        <MousePointerClick className="h-3.5 w-3.5 text-accent" />
+        Subraya cualquier texto para preguntárselo a la IA
+      </div>
+    </div>
+  )
+}
+
 function TopicChip({
   label,
   active,
@@ -888,7 +982,7 @@ function EmptyCourses() {
       <GraduationCap className="mb-3 h-10 w-10 opacity-20" />
       <p className="mb-1 text-sm font-medium">Aún no hay cursos indexados.</p>
       <p className="text-xs">
-        Sube un sílabo en la Knowledge Base para generar material de estudio.
+        Sube el programa de tu curso en Cursos para generar material de estudio.
       </p>
     </div>
   )

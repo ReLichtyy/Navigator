@@ -44,6 +44,13 @@ export interface StudyGuideSection {
   points: string[]
 }
 
+/**
+ * Bump when the generator output shape / prompt contract changes meaningfully.
+ * The versioned cache reuses a stored set only when its schema_version matches,
+ * so a bump invalidates every cached set after deploy.
+ */
+export const STUDY_SCHEMA_VERSION = 2
+
 export interface StudySet {
   flashcards: Flashcard[]
   quiz: QuizQuestion[]
@@ -283,6 +290,11 @@ export interface StudyGenOptions {
   topic?: string
   /** Course graph topics + exam weights — bias generation & order the study guide by importance. */
   weightedTopics?: { label: string; weight: number }[]
+  /**
+   * Flashcard fronts / quiz questions ALREADY in the item bank. The model is told
+   * not to repeat them, so every refresh yields genuinely new items (anti-repeat).
+   */
+  excludeSeen?: string[]
 }
 
 const DIFFICULTY_HINT: Record<Difficulty, string> = {
@@ -314,6 +326,15 @@ export function buildDirectives(opts: StudyGenOptions): string {
         list,
     )
   }
+  const seen = (opts.excludeSeen ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 120)
+  if (seen.length > 0) {
+    const list = seen.map((s) => `- ${s}`).join("\n")
+    lines.push(
+      "ALREADY COVERED — do NOT repeat or lightly reword any of these; generate flashcards and quiz " +
+        "questions about DIFFERENT concepts, angles or applications from the material:\n" +
+        list,
+    )
+  }
   return lines.join("\n")
 }
 
@@ -333,8 +354,10 @@ export async function generateStudySet(
   try {
     const completion = await client.chat.completions.create({
       model: DEFAULT_MODEL,
+      // Higher temperature → diverse items across refreshes (anti-repeat). Combined
+      // with excludeSeen + bank dedupe, each refresh yields genuinely new material.
       // GPT-5/o-series reject non-default temperature → omit it for those (BUG-001).
-      ...(isNextGenModel(DEFAULT_MODEL) ? {} : { temperature: 0.2 }),
+      ...(isNextGenModel(DEFAULT_MODEL) ? {} : { temperature: 0.7 }),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {

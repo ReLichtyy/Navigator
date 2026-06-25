@@ -208,7 +208,7 @@ export function AppSidebar() {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={10} className="w-56">
-              <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "User"}</div>
+              <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "Usuario"}</div>
               <DropdownMenuItem onClick={resetIdentity} className="cursor-pointer text-destructive">
                 Cerrar sesión
               </DropdownMenuItem>
