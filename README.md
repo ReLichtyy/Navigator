@@ -4,7 +4,7 @@
     <strong>Tu asistente académico con IA — sube tu sílabo, pregunta lo que quieras, estudia con material generado.</strong>
   </p>
   <p align="center">
-    <a href="#-features">Features</a> · <a href="#-cómo-funciona">Cómo funciona</a> · <a href="#-quick-start">Quick Start</a> · <a href="#-stack-técnico">Stack</a> · <a href="#-deploy">Deploy</a>
+    <a href="#-features">Features</a> · <a href="#-cómo-funciona">Cómo funciona</a> · <a href="#-stack-técnico">Stack</a>
   </p>
 </p>
 
@@ -58,6 +58,23 @@ Chat: pregunta → embed → similitud coseno → rerank híbrido → contexto +
 
 La ingesta es **asíncrona en 2 fases**: el upload responde inmediatamente, una cola de jobs durable (`FOR UPDATE SKIP LOCKED`) procesa embeddings y genera grafo/cronograma en background con reintentos y backoff exponencial.
 
+<p align="center">
+  <img src="./rag-architecture.png" alt="Navigator RAG Architecture" width="900"/>
+</p>
+
+### Capas del pipeline RAG
+
+
+| Capa | Qué hace |
+|---|---|
+| **Ingesta (sync)** | Parseo PDF (`unpdf`), chunking por página (1200 chars / 120 overlap), validación magic bytes, hash SHA-256. Guarda texto en Neon sin embeddings aún. |
+| **Worker async** | Lee chunks pendientes → embeddings batch (`text-embedding-3-small`, 1536d) → pgvector HNSW. Después: genera grafo de temas (structured output + validación de ciclos por DFS) y cronograma de evaluaciones. |
+| **Multi-índice** | Dense (pgvector `<=>`) + léxico híbrido (`tsvector` GIN + RRF) para recuperación por tema. Cubre todo el temario, no solo los primeros 24k chars. |
+| **Retrieval** | Over-fetch K=24 candidatos → gate de relevancia (coseno > 0.9 → sin contexto) → rerank vectorial + léxico → top-8 chunks con citas (página / offset). |
+| **Agentes de estudio** | Router adaptativo (peso examen × dominio × urgencia cronograma) → orquestador en grafo TS → agentes especializados (flashcard, inquisitor, synth) → verifier de familia distinta → banco de ítems con dedupe por embedding. |
+| **Generación (chat)** | Contexto RAG + bloque agenda (todos los cursos) + historial 6 turnos → `GROUNDED_SYSTEM_PROMPT` (mentor) → `chatStream` SSE. Evento final: `title`, `citations`, `provider`, `model`. |
+| **Cola de jobs** | Claim atómico (`FOR UPDATE SKIP LOCKED`), backoff exponencial `2^attempts`, rescate de jobs colgados (> 10 min), fire-and-forget en upload + Cron de respaldo. |
+
 ---
 
 ## 🏗 Stack técnico
@@ -78,79 +95,6 @@ La ingesta es **asíncrona en 2 fases**: el upload responde inmediatamente, una 
 
 ---
 
-## 🚀 Quick Start
-
-```bash
-cd syllabus-navigator/frontend
-cp .env.example .env.local     # Configura al menos OPENAI_API_KEY y las URLs de Neon
-npm install
-npm run db:migrate             # Aplica el schema a Neon (idempotente)
-npm run dev                    # → http://localhost:3000
-```
-
-### Variables de entorno requeridas
-
-| Variable | Descripción |
-|---|---|
-| `AUTH_SECRET` | Secreto de sesión (`npx auth secret`) |
-| `NEXTAUTH_URL` | URL base (ej. `http://localhost:3000`) |
-| `DATABASE_URL` | Neon pooled connection |
-| `DATABASE_URL_DIRECT` | Neon direct connection (migraciones) |
-| `OPENAI_API_KEY` | LLM + embeddings |
-| `CRON_SECRET` | Protege los cron jobs y dispara el worker de ingesta |
-
-> Variables opcionales: `OPENROUTER_API_KEY`, `BLOB_READ_WRITE_TOKEN` (Vercel Blob para PDFs), `UPSTASH_REDIS_REST_URL/TOKEN`, Google OAuth. Ver [`.env.example`](syllabus-navigator/frontend/.env.example).
-
----
-
-## 📦 Deploy
-
-Navigator se despliega como **una sola app en Vercel**:
-
-1. **Neon**: Crear proyecto Postgres, habilitar `pgvector`, correr `npm run db:migrate`.
-2. **Vercel**: New Project → Root Directory = `syllabus-navigator/frontend`. Framework: Next.js.
-3. **Env vars**: Configurar las 6 requeridas + opcionales.
-4. **Smoke test**: `/api/health` → signup → upload PDF → chat con citas → grafo visible.
-
-> Checklist detallado en [`DEPLOY_CHECKLIST.md`](DEPLOY_CHECKLIST.md).
-
----
-
-## 📁 Estructura del proyecto
-
-```
-Navigator/
-  README.md              ← este archivo
-  CLAUDE.md              ← guía de desarrollo (estructura, convenciones, layering)
-  DEPLOY_CHECKLIST.md    ← pre-flight checklist para producción
-  NEXT_STEPS.md          ← log de trabajo + sprints pendientes
-  syllabus-navigator/
-    frontend/            ← LA APP COMPLETA (Next.js full-stack)
-      app/               ← Routes: /, /knowledge, /agenda, /estudio, /mapa, /settings
-      app/api/           ← API routes (chat, upload, graph, schedule, study, auth...)
-      src/lib/           ← Core: LLM, RAG, cache, auth, guardrails, metering
-      src/components/    ← UI: shadcn primitives + feature components
-      tests/             ← Vitest (197 tests, mocks auth + DB)
-```
-
----
-
-## 🧪 Tests y calidad
-
-```bash
-npm test               # 197 tests (Vitest)
-npm run lint           # ESLint (0 errores)
-npm run format:check   # Prettier
-npm run knip           # Código muerto (revisar antes de podar)
-```
-
----
-
-## 📄 Licencia
-
-Proyecto académico. Consulta con el autor antes de uso comercial.
-
----
 
 <p align="center">
   <sub>Built with Next.js, OpenAI, pgvector y muchas noches de café. ☕</sub>
