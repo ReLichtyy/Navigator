@@ -47,6 +47,7 @@ import { MasteryPanel } from "@/components/estudio/mastery-panel"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
+import { MobileNav } from "@/components/navigator/mobile-nav"
 
 type Mode = "menu" | "flash" | "repaso" | "quiz" | "simulacro" | "mind" | "resumen"
 
@@ -313,7 +314,8 @@ function EstudioContent() {
 
   return (
     <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-6">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:px-6">
+        <MobileNav />
         <GraduationCap className="h-5 w-5 text-accent" />
         <h1 className="text-lg font-semibold">Área de Estudio</h1>
         <Badge variant="new" className="ml-1 uppercase">

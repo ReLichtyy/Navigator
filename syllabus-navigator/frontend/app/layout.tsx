@@ -1,6 +1,6 @@
 import { ClerkProvider } from "@clerk/nextjs"
 import { dark } from "@clerk/themes"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
 import ClientProviders from "@/components/ClientProviders"
@@ -21,6 +21,15 @@ export const metadata: Metadata = {
   title: "Navigator — Your AI Assistant",
   description: "A minimalist AI assistant that helps you navigate documents, ideas, and answers.",
   generator: "v0.app",
+}
+
+// Mobile: cover the notch/home-indicator area and let the on-screen keyboard
+// resize the layout so the bottom-pinned chat composer stays above it.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 }
 
 import { AppSidebar } from "@/components/navigator/app-sidebar"

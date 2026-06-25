@@ -43,7 +43,7 @@ function PageContent() {
   }, [ready, status, openAuthModal])
 
   return (
-    <main className="flex h-dvh w-full bg-background text-foreground">
+    <main className="flex h-full w-full bg-background text-foreground">
       <HistorySidebar
         collapsed={ws.sidebarCollapsed}
         chats={ws.chats}
@@ -123,7 +123,7 @@ function PageContent() {
             </div>
 
             {ws.viewMode === "chat" && (
-              <div className="pb-6 pt-2">
+              <div className="pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-2">
                 <ChatComposer
                   attachments={ws.attachments}
                   activeModel={ws.activeChat?.activeModel}
