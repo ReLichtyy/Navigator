@@ -1,20 +1,13 @@
 /**
- * top-header.tsx — Top header with Clerk session integration.
+ * top-header.tsx — mobile chat header (Chat Movil design).
+ * Left: drawer trigger (sidebar with sections + chat history). Center: assistant
+ * brand + status. Right: new-chat. History lives inside the sidebar drawer.
  */
 
 "use client"
 
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { ChevronDown, Compass, MessageSquare, History, User as UserIcon } from "lucide-react"
-import { useUser } from "@/context/UserContext"
-import { useAuthModal } from "@/context/AuthModalContext"
+import { Compass, MessageSquare, History, SquarePen } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 
 import type { AttachedFile, Chat } from "@/components/navigator/types"
@@ -29,103 +22,110 @@ interface TopHeaderProps {
   chats: Chat[]
   activeChatId: string
   onSelectChat: (id: string) => void
+  onNewChat: () => void
 }
 
 export function TopHeader({
-  sidebarCollapsed,
-  onToggleSidebar,
   onOpenMobileHistory,
-  onAttachKnowledge,
-  onSelectKnowledge,
   activeDocumentName,
   chats,
   activeChatId,
   onSelectChat,
+  onNewChat,
 }: TopHeaderProps) {
-  const { displayName, status, resetIdentity } = useUser()
-  const { openAuthModal } = useAuthModal()
-
-  // Collapse anchored on the brand: the 4 most recent chats + "Ver todos".
-  const recentChats = chats.slice(0, 4)
-
-  return (
-    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-background/80 px-4 backdrop-blur-sm md:hidden">
-      <div className="flex items-center gap-1">
-        <MobileNav />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-secondary"
-              aria-label="Chats recientes"
-            >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent-bright">
-                <Compass className="h-4 w-4" />
-              </span>
-              <span className="text-sm font-semibold text-foreground">Asistente</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64">
-            {recentChats.length === 0 ? (
-              <div className="px-2 py-2 text-xs text-muted-foreground">Aún no hay chats.</div>
-            ) : (
-              recentChats.map((chat) => (
-                <DropdownMenuItem
-                  key={chat.id}
-                  onClick={() => onSelectChat(chat.id)}
-                  className="cursor-pointer gap-2"
-                >
-                  <MessageSquare
-                    className={
-                      chat.id === activeChatId
-                        ? "h-3.5 w-3.5 shrink-0 text-accent"
-                        : "h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                    }
-                  />
-                  <span className="truncate">{chat.title}</span>
-                </DropdownMenuItem>
-              ))
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={onOpenMobileHistory}
-              className="cursor-pointer gap-2 font-medium text-accent"
-            >
-              <History className="h-3.5 w-3.5 shrink-0" />
-              Ver todos los chats
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+  // Chat history rendered inside the sidebar drawer (mobile).
+  const drawerHistory = (
+    <>
+      <div className="mb-2 flex items-center justify-between px-1">
+        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          Chats
+        </span>
+        <button
+          type="button"
+          onClick={onNewChat}
+          className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10"
+        >
+          + Nuevo
+        </button>
       </div>
 
-      <div className="flex items-center gap-2">
-        {status === "anonymous" ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="font-medium"
-            onClick={() => openAuthModal("login")}
-          >
-            Sign In
-          </Button>
+      <div className="-mr-1 min-h-0 flex-1 overflow-y-auto pr-1">
+        {chats.length === 0 ? (
+          <p className="px-2 py-3 text-xs text-muted-foreground">Aún no hay chats.</p>
         ) : (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="rounded-full bg-accent/10">
-                <UserIcon className="h-5 w-5" />
-                <span className="sr-only">Menú de perfil</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "Usuario"}</div>
-              <DropdownMenuItem onClick={resetIdentity} className="cursor-pointer text-destructive">
-                Cerrar sesión
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ul className="flex flex-col gap-0.5">
+            {chats.map((chat) => {
+              const active = chat.id === activeChatId
+              return (
+                <li key={chat.id}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectChat(chat.id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+                      active
+                        ? "bg-accent-soft text-sidebar-foreground"
+                        : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    )}
+                  >
+                    <MessageSquare
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0",
+                        active ? "text-accent" : "text-muted-foreground/70",
+                      )}
+                      strokeWidth={2.25}
+                    />
+                    <span className="truncate">{chat.title}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={onOpenMobileHistory}
+        className="mt-2 flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
+      >
+        <History className="h-3.5 w-3.5 shrink-0" />
+        Ver todos los chats
+      </button>
+    </>
+  )
+
+  return (
+    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border/60 bg-background/85 px-3 backdrop-blur-md md:hidden">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <MobileNav>{drawerHistory}</MobileNav>
+
+        <span
+          aria-hidden="true"
+          className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent shadow-[0_0_16px_rgba(63,191,132,0.12)]"
+        >
+          <Compass className="h-[17px] w-[17px]" strokeWidth={1.9} />
+        </span>
+
+        <div className="flex min-w-0 flex-col leading-tight">
+          <span className="truncate text-[15px] font-extrabold tracking-tight text-foreground">
+            Asistente
+          </span>
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+            <span className="truncate">{activeDocumentName ?? "En línea"}</span>
+          </span>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onNewChat}
+        aria-label="Nuevo chat"
+        className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[11px] bg-secondary/60 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      >
+        <SquarePen className="h-[19px] w-[19px]" strokeWidth={1.9} />
+      </button>
     </header>
   )
 }

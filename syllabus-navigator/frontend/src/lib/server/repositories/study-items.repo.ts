@@ -37,6 +37,20 @@ export interface BankItem<T = unknown> {
 // genuine repeats die; legitimate variants of a concept survive.
 const DEDUPE_MAX_DISTANCE = 0.08
 
+/** Cosine distance (1 − cosine similarity) between two equal-length vectors. */
+function cosineDistance(a: number[], b: number[]): number {
+  let dot = 0
+  let na = 0
+  let nb = 0
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i]
+    na += a[i] * a[i]
+    nb += b[i] * b[i]
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb)
+  return denom === 0 ? 1 : 1 - dot / denom
+}
+
 export const StudyItemsRepository = {
   /**
    * Texts already in the bank for a (scope, type), most recent first. Fed to the
@@ -56,33 +70,43 @@ export const StudyItemsRepository = {
   /**
    * Insert items, skipping any whose embedding is within DEDUPE_MAX_DISTANCE of an
    * existing item in the same (scope, type). Returns how many were actually added.
+   *
+   * Two-pass dedup, optimized for latency: (1) drop in-batch near-duplicates in
+   * memory (cheap, avoids one roundtrip per pair), then (2) insert the survivors
+   * concurrently, each as a single "INSERT … WHERE NOT EXISTS(near)" statement so
+   * the existence check and the write are one roundtrip (was two, sequential).
    */
   async insertDeduped(scope: StudyScope, items: NewStudyItem[]): Promise<number> {
-    let inserted = 0
+    // Pass 1 — collapse near-identical items within this batch.
+    const unique: NewStudyItem[] = []
     for (const it of items) {
-      const vec = toVectorLiteral(it.embedding)
-      const near = await sql`
-        SELECT 1 FROM study_items
-        WHERE scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
-          AND type = ${it.type} AND embedding IS NOT NULL
-          AND (embedding <=> ${vec}::vector) < ${DEDUPE_MAX_DISTANCE}
-        LIMIT 1
-      `
-      if (near.length > 0) continue // duplicate → skip
-
-      await sql`
-        INSERT INTO study_items
-          (user_id, scope_kind, scope_id, type, topic_key, difficulty, payload, dedupe_text, embedding, source)
-        VALUES (
-          ${it.userId}::uuid,
-          ${scope.kind}, ${scope.id}::uuid, ${it.type}, ${it.topicKey ?? null},
-          ${it.difficulty}, ${JSON.stringify(it.payload)}::jsonb, ${it.dedupeText},
-          ${vec}::vector, 'study-gen'
-        )
-      `
-      inserted++
+      if (unique.some((u) => cosineDistance(u.embedding, it.embedding) < DEDUPE_MAX_DISTANCE)) continue
+      unique.push(it)
     }
-    return inserted
+
+    // Pass 2 — concurrent insert-if-not-near-an-existing-item.
+    const results = await Promise.all(
+      unique.map((it) => {
+        const vec = toVectorLiteral(it.embedding)
+        return sql`
+          INSERT INTO study_items
+            (user_id, scope_kind, scope_id, type, topic_key, difficulty, payload, dedupe_text, embedding, source)
+          SELECT
+            ${it.userId}::uuid,
+            ${scope.kind}, ${scope.id}::uuid, ${it.type}, ${it.topicKey ?? null},
+            ${it.difficulty}, ${JSON.stringify(it.payload)}::jsonb, ${it.dedupeText},
+            ${vec}::vector, 'study-gen'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM study_items
+            WHERE scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+              AND type = ${it.type} AND embedding IS NOT NULL
+              AND (embedding <=> ${vec}::vector) < ${DEDUPE_MAX_DISTANCE}
+          )
+          RETURNING id
+        `
+      }),
+    )
+    return results.filter((r) => r.length > 0).length
   },
 
   /** Most-recent payloads of a given type from the bank (to assemble a fresh set). */

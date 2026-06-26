@@ -79,6 +79,7 @@ function PageContent() {
           chats={ws.chats}
           activeChatId={ws.activeChat?.id ?? ""}
           onSelectChat={ws.selectChat}
+          onNewChat={ws.handleNewChat}
         />
 
         <section className="relative flex min-h-0 flex-1 flex-col">

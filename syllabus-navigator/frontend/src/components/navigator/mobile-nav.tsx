@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { Compass, Menu, User as UserIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
@@ -18,7 +18,17 @@ import { MAIN_NAV, STUDY_NAV, type NavItem } from "@/components/navigator/nav-it
  * drawer with the same links as the desktop AppSidebar. Drop it into any page
  * header so every screen is reachable on small viewports.
  */
-export function MobileNav({ className }: { className?: string }) {
+export function MobileNav({
+  className,
+  trigger,
+  children,
+}: {
+  className?: string
+  /** Custom trigger element; defaults to a hamburger icon button. */
+  trigger?: ReactNode
+  /** Optional drawer content (e.g. the chat history on the assistant page). */
+  children?: ReactNode
+}) {
   const pathname = usePathname()
   const { displayName, status, resetIdentity } = useUser()
   const { openAuthModal } = useAuthModal()
@@ -57,15 +67,26 @@ export function MobileNav({ className }: { className?: string }) {
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => setOpen(true)}
-        className={cn("md:hidden", className)}
-        aria-label="Abrir menú"
-      >
-        <Menu className="h-5 w-5" />
-      </Button>
+      {trigger ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={cn("md:hidden", className)}
+          aria-label="Abrir menú"
+        >
+          {trigger}
+        </button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setOpen(true)}
+          className={cn("md:hidden", className)}
+          aria-label="Abrir menú"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+      )}
 
       <SheetContent
         side="left"
@@ -109,7 +130,14 @@ export function MobileNav({ className }: { className?: string }) {
           ))}
         </nav>
 
-        <div className="flex-1" />
+        {/* Optional chat history (assistant page injects it here). */}
+        {children ? (
+          <div className="mt-5 flex min-h-0 flex-1 flex-col" onClick={() => setOpen(false)}>
+            {children}
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
 
         {/* Profile / auth */}
         {status === "anonymous" ? (

@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -13,6 +13,7 @@ import {
   fetchRecommendations,
   fetchStudyStats,
   fetchStudySession,
+  fetchQuizStage,
   type SyllabusUploadAPI,
   type CourseAPI,
   type StudySetAPI,
@@ -321,6 +322,27 @@ function EstudioContent() {
       alive = false
     }
   }, [activeDocId])
+
+  // Pre-warm the staged quiz: when a scope settles, kick stage-1 generation in
+  // the background (debounced, once per scope) so the bank is hot by the time the
+  // user opens the Quiz — hides the cold-start latency behind menu browsing.
+  const warmedScopes = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const qs =
+      scope?.kind === "doc"
+        ? ({ kind: "doc", docId: scope.docId } as const)
+        : scope?.kind === "course"
+          ? ({ kind: "course", courseId: scope.courseId } as const)
+          : null
+    if (!qs) return
+    const key = qs.kind === "doc" ? `doc:${qs.docId}` : `course:${qs.courseId}`
+    if (warmedScopes.current.has(key)) return
+    const t = setTimeout(() => {
+      warmedScopes.current.add(key)
+      fetchQuizStage(qs, { stage: 0 }).catch(() => {})
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [scope])
 
   // Weekly plan (today + week range), once — used to rank week-relevant topics.
   useEffect(() => {

@@ -5,7 +5,7 @@
  * agents run in parallel, then an answer-correctness gate over the quiz:
  *
  *   evidence → ┬→ flashcardAgent ┐
- *              ├→ inquisitorAgent ┼→ verifyQuiz (gate) → assemble StudySet
+ *              ├→ inquisitorAgent ┼→ gateQuiz (batched critic) → assemble StudySet
  *              └→ synthAgent     ┘
  *
  * Agents fail soft (return [] / null), so a partial set still serves. Returns

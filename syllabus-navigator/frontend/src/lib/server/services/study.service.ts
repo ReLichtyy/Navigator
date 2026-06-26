@@ -382,14 +382,19 @@ export const StudyService = {
     const excludeIds = (opts.excludeIds ?? []).slice(0, 200)
     const scope: StudyScope = { kind: "doc", id: syllabusId }
 
-    // Mastery base for the hybrid escalation.
-    const mastery = await MasteryRepository.listForSyllabus(userId, syllabusId).catch(() => [])
+    // Independent reads in parallel: mastery (escalation base), the topic graph,
+    // and the Repaso exclusion set.
+    const [mastery, graph, reviewExclude] = await Promise.all([
+      MasteryRepository.listForSyllabus(userId, syllabusId).catch(() => []),
+      GraphRepository.getGraph(syllabusId),
+      QuizReviewRepository.openItemIds(userId, scope).catch(() => []),
+    ])
     const masteryAvg =
       mastery.length > 0 ? mastery.reduce((s, m) => s + m.confidence, 0) / mastery.length : 0
     const difficulty = stageDifficulty(stage, masteryAvg, boost)
 
     // Plan ordering (computed once; reused for generation evidence when needed).
-    const { topics } = await GraphRepository.getGraph(syllabusId)
+    const { topics } = graph
     const weightedTopics = topics
       .filter((t) => (t.weight_percent ?? 0) > 0)
       .map((t) => ({ label: t.label, weight: Number(t.weight_percent) }))
@@ -400,7 +405,6 @@ export const StudyService = {
     const ordered = planLabels.length > 0 ? planLabels : topicLabels
 
     // Failed questions live in Repaso, not the quiz → exclude them from stages.
-    const reviewExclude = await QuizReviewRepository.openItemIds(userId, scope).catch(() => [])
     const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude]))
     const items = await stageItems(scope, difficulty, allExclude, async () => {
       const text =

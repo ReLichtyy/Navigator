@@ -1,34 +1,34 @@
 /**
  * eval/gates.ts — quality gates applied before items are served/persisted.
  *
- * The quiz gate runs the Critic (a different model family than the inquisitor)
- * over each question and keeps only those that are sound AND grounded AND
- * substantive — this is what kills shallow-but-correct ("floja") questions, not
- * just wrong ones. Drops are logged by failing axis (no silent caps). Other gates
- * (novelty/dedup) live in the bank's embedding gate (study-items.repo).
+ * The quiz/flashcard gates run the Critic (a different model family than the
+ * generator) over the whole set in ONE batched call and keep only items that are
+ * sound/accurate AND grounded AND substantive — this kills shallow-but-correct
+ * ("floja") items, not just wrong ones. Drops are logged by failing axis (no
+ * silent caps). Novelty/dedup lives in the bank's embedding gate.
  */
-import { critiqueQuestion, critiqueFlashcard } from "../agents/critic"
+import { critiqueQuiz, critiqueFlashcards } from "../agents/critic"
 import type { QuizQuestion, Flashcard } from "../study-gen"
 import { logInfo } from "@/lib/observability/logger"
 
 /**
  * Three-axis gate: keep a question only when the Critic confirms it is sound,
- * grounded in the material, and substantive. If the Critic itself fails (null),
- * the question is kept — infra failure must not silently shrink the quiz.
+ * grounded and substantive. A null verdict (critic gave none / call failed) keeps
+ * the question — infra failure must not silently shrink the quiz.
  */
 export async function gateQuiz(quiz: QuizQuestion[], evidence: string): Promise<QuizQuestion[]> {
   if (quiz.length === 0) return quiz
-  const critiques = await Promise.all(quiz.map((q) => critiqueQuestion(q, evidence)))
+  const verdicts = await critiqueQuiz(quiz, evidence)
   let unsound = 0
   let ungrounded = 0
   let shallow = 0
   const kept = quiz.filter((_, i) => {
-    const c = critiques[i]
-    if (c === null) return true // critic infra failure → keep
-    if (!c.sound) unsound++
-    else if (!c.grounded) ungrounded++
-    else if (!c.substantive) shallow++
-    return c.sound && c.grounded && c.substantive
+    const v = verdicts[i]
+    if (!v) return true // no verdict → keep
+    if (!v.sound) unsound++
+    else if (!v.grounded) ungrounded++
+    else if (!v.substantive) shallow++
+    return v.sound && v.grounded && v.substantive
   })
   const dropped = quiz.length - kept.length
   if (dropped > 0) {
@@ -39,22 +39,21 @@ export async function gateQuiz(quiz: QuizQuestion[], evidence: string): Promise<
 
 /**
  * Flashcard gate: keep a card only when the Critic confirms it is accurate,
- * grounded and substantive. Same fail-open contract as the quiz gate (critic
- * infra failure → keep). Brings the quiz's quality bar to the flashcards.
+ * grounded and substantive. Same fail-open contract as the quiz gate.
  */
 export async function gateFlashcards(cards: Flashcard[], evidence: string): Promise<Flashcard[]> {
   if (cards.length === 0) return cards
-  const critiques = await Promise.all(cards.map((c) => critiqueFlashcard(c, evidence)))
+  const verdicts = await critiqueFlashcards(cards, evidence)
   let inaccurate = 0
   let ungrounded = 0
   let shallow = 0
   const kept = cards.filter((_, i) => {
-    const c = critiques[i]
-    if (c === null) return true // critic infra failure → keep
-    if (!c.accurate) inaccurate++
-    else if (!c.grounded) ungrounded++
-    else if (!c.substantive) shallow++
-    return c.accurate && c.grounded && c.substantive
+    const v = verdicts[i]
+    if (!v) return true // no verdict → keep
+    if (!v.accurate) inaccurate++
+    else if (!v.grounded) ungrounded++
+    else if (!v.substantive) shallow++
+    return v.accurate && v.grounded && v.substantive
   })
   const dropped = cards.length - kept.length
   if (dropped > 0) {
