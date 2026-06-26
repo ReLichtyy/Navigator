@@ -76,6 +76,9 @@ function PageContent() {
           onAttachKnowledge={ws.addAttachment}
           onSelectKnowledge={ws.selectKnowledge}
           activeDocumentName={ws.activeDocumentName}
+          chats={ws.chats}
+          activeChatId={ws.activeChat?.id ?? ""}
+          onSelectChat={ws.selectChat}
         />
 
         <section className="relative flex min-h-0 flex-1 flex-col">

@@ -1,7 +1,8 @@
 /**
  * agents/inquisitor.ts — Inquisitor agent. Exam-style multiple-choice questions
  * with plausible distractors, grounded in the evidence. Accuracy matters → uses
- * a stronger model preset (see agent-models).
+ * a stronger model preset (see agent-models). `count` lets the staged quiz
+ * request a small batch at a target difficulty instead of one big set.
  */
 import { z } from "zod"
 import { runAgent } from "./_base"
@@ -19,46 +20,67 @@ const Schema = z.object({
   ),
 })
 
-const JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    quiz: {
-      type: "array",
-      description: "6–10 multiple-choice questions. Favor application/analysis over pure recall.",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          question: { type: "string" },
-          options: { type: "array", items: { type: "string" }, description: "3–4 options" },
-          answer: { type: "number", description: "0-based index of the single correct option" },
-          explanation: { type: "string", description: "Why the answer is correct (and others wrong)" },
-          topic: { type: "string", description: "The topic this question assesses (a weighted topic label when provided)" },
+function jsonSchema(count: number): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      quiz: {
+        type: "array",
+        description:
+          `EXACTLY ${count} multiple-choice questions (generate ${count}; never fewer). Spread them ` +
+          "across the topics in the material — do not cluster on one section. Favor application/analysis over pure recall.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            question: {
+              type: "string",
+              description:
+                "A question that hinges on a SPECIFIC fact, definition, relationship, formula or example " +
+                "stated in the material — not something answerable from general knowledge without reading it.",
+            },
+            options: { type: "array", items: { type: "string" }, description: "4 options (one correct, three distractors)" },
+            answer: { type: "number", description: "0-based index of the single correct option" },
+            explanation: {
+              type: "string",
+              description:
+                "Cite the concept/passage from the material that makes the answer correct, and say briefly why each distractor is wrong.",
+            },
+            topic: { type: "string", description: "The topic this question assesses (a weighted topic label when provided)" },
+          },
+          required: ["question", "options", "answer", "explanation", "topic"],
         },
-        required: ["question", "options", "answer", "explanation", "topic"],
       },
     },
-  },
-  required: ["quiz"],
-} as const
+    required: ["quiz"],
+  }
+}
 
-const SYSTEM =
-  "You are the inquisitor agent: you write exam-style multiple-choice questions for a university " +
-  "course. Each question has exactly ONE correct option and plausible, non-ambiguous distractors. " +
-  "Prefer questions that test application and reasoning over rote recall. Ground every question in " +
-  "the supplied material — never invent facts. Preserve the language of the material."
+function system(count: number): string {
+  return (
+    "You are the inquisitor agent: you write exam-style multiple-choice questions for a university " +
+    `course. RULES: (1) Produce EXACTLY ${count} questions. (2) Every question must be answerable ONLY by ` +
+    "someone who read THIS material — anchor each on a specific fact, definition, mechanism, formula, " +
+    "value or example present in the text; reject generic questions answerable from common knowledge. " +
+    "(3) Draw the distractors from the material's OWN concepts (real terms used elsewhere in the text), " +
+    "so they are tempting but wrong — never filler like 'none of the above'. (4) Exactly ONE option is " +
+    "correct and unambiguous. (5) Cover the breadth of the material, weighting heavier exam topics more. " +
+    "(6) Never invent facts, dates or topics not in the material. (7) Preserve the language of the material."
+  )
+}
 
 export async function inquisitorAgent(
   evidence: string,
   opts: StudyGenOptions = {},
+  count = 20,
 ): Promise<QuizQuestion[]> {
   const out = await runAgent({
     role: "inquisitor",
-    system: SYSTEM,
+    system: system(count),
     user: `${buildDirectives(opts)}\n\nCourse material:\n\n${evidence}`,
     schema: Schema,
-    jsonSchema: JSON_SCHEMA as unknown as Record<string, unknown>,
+    jsonSchema: jsonSchema(count),
     schemaName: "quiz",
   })
   if (!out) return []

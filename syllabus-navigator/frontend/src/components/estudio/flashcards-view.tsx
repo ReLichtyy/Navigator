@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, ChevronLeft, ChevronRight, RotateCcw, Check, X, Eye } from "lucide-react"
-import { recordFlashcardReview, type FlashcardAPI } from "@/lib/api"
+import { recordFlashcardReview, flashcardKey, type FlashcardAPI } from "@/lib/api"
 
 interface Props {
   title: string
@@ -11,9 +11,22 @@ interface Props {
   onBack: () => void
   /** When set, "La sé" / "No la sé" record a review (feeds the streak). */
   syllabusId?: string
+  /** SRS keys due today: matching cards are surfaced first (repaso mode). */
+  dueKeys?: string[]
 }
 
-export function FlashcardsView({ title, courseLabel, cards, onBack, syllabusId }: Props) {
+export function FlashcardsView({ title, courseLabel, cards: rawCards, onBack, syllabusId, dueKeys }: Props) {
+  // Order due (spaced-repetition) cards first, preserving relative order otherwise.
+  const cards = useMemo(() => {
+    if (!dueKeys || dueKeys.length === 0) return rawCards
+    const due = new Set(dueKeys)
+    return [...rawCards].sort((a, b) => {
+      const da = due.has(flashcardKey(a.front)) ? 0 : 1
+      const db = due.has(flashcardKey(b.front)) ? 0 : 1
+      return da - db
+    })
+  }, [rawCards, dueKeys])
+
   const [i, setI] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [graded, setGraded] = useState<Record<number, boolean>>({}) // index → known

@@ -481,6 +481,8 @@ export interface QuizQuestionAPI {
   explanation: string
   /** Topic this question assesses — feeds the mastery ledger. Absent on old cached sets. */
   topic?: string
+  /** Bank item id — present for staged-quiz questions (used to exclude served items). */
+  id?: string
 }
 
 export interface StudyGuideSectionAPI {
@@ -551,6 +553,96 @@ export interface StudyStatsAPI {
 /** Study streak + cards reviewed this week (sidebar). */
 export async function fetchStudyStats() {
   return request<StudyStatsAPI>(`/study/stats`, { method: "GET", json: false })
+}
+
+/** One escalating stage of the staged quiz (15 to clear + buffer). */
+export interface QuizStageAPI {
+  stage: number
+  stages: number
+  difficulty: StudyDifficulty
+  questions: QuizQuestionAPI[]
+}
+
+export interface QuizStageOptions {
+  stage: number
+  /** Escalation boost earned by acing prior stages (0..2). */
+  boost?: number
+  /** Bank ids already served this run (excluded so stages/swaps don't repeat). */
+  excludeIds?: string[]
+}
+
+/**
+ * Fetch one stage of the staged quiz. `scope` selects a single PDF or a whole
+ * course. Questions are generated lazily server-side, so the first call for a new
+ * difficulty may take a few seconds; subsequent ones are bank-served.
+ */
+export async function fetchQuizStage(
+  scope: { kind: "doc"; docId: string } | { kind: "course"; courseId: string },
+  opts: QuizStageOptions,
+) {
+  const qs = new URLSearchParams({ stage: String(opts.stage) })
+  if (opts.boost) qs.set("boost", String(opts.boost))
+  if (opts.excludeIds && opts.excludeIds.length > 0) qs.set("exclude", opts.excludeIds.join(","))
+  const base =
+    scope.kind === "doc"
+      ? `/study/${encodeURIComponent(scope.docId)}/quiz-stage`
+      : `/study/course/${encodeURIComponent(scope.courseId)}/quiz-stage`
+  return request<QuizStageAPI>(`${base}?${qs.toString()}`, { method: "GET", json: false })
+}
+
+// ── Repaso: the queue of failed quiz questions ───────────────────────────────
+
+type QuizScope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
+
+const scopeParams = (s: QuizScope) =>
+  s.kind === "doc" ? { kind: "doc" as const, id: s.docId } : { kind: "course" as const, id: s.courseId }
+
+/** Record a wrong quiz answer → it leaves the quiz and enters Repaso (fire-and-forget). */
+export async function recordQuizFail(scope: QuizScope, question: QuizQuestionAPI) {
+  return request<{ success: true }>(`/study/quiz-review`, {
+    method: "POST",
+    body: JSON.stringify({ ...scopeParams(scope), question }),
+  })
+}
+
+/** The user's Repaso queue (failed quiz questions still to re-master) for a scope. */
+export async function fetchQuizReview(scope: QuizScope) {
+  const p = scopeParams(scope)
+  const qs = new URLSearchParams({ kind: p.kind, id: p.id })
+  return request<{ questions: QuizQuestionAPI[] }>(`/study/quiz-review?${qs.toString()}`, {
+    method: "GET",
+    json: false,
+  })
+}
+
+/** Resolve a Repaso question (answered correctly) so it drops out of the queue. */
+export async function resolveQuizReview(scope: QuizScope, question: string) {
+  return request<{ success: true }>(`/study/quiz-review`, {
+    method: "PATCH",
+    body: JSON.stringify({ ...scopeParams(scope), question }),
+  })
+}
+
+/** The adaptive "today session": due SRS cards + plan-ordered bank items. */
+export interface StudySessionAPI {
+  dueCount: number
+  /** Stable keys (flashcardKey) of cards due for review today. */
+  dueCardKeys: string[]
+  flashcards: FlashcardAPI[]
+  quiz: QuizQuestionAPI[]
+  targets: { label: string; priority: number; mastery: number }[]
+}
+
+/**
+ * Adaptive session for one PDF: spaced-repetition due cards + bank items ordered
+ * by the Router's topic priority (weak/urgent/heavy first). Doc scope only — SRS
+ * and mastery are tracked per syllabus.
+ */
+export async function fetchStudySession(syllabusId: string) {
+  return request<StudySessionAPI>(
+    `/study/session?syllabusId=${encodeURIComponent(syllabusId)}`,
+    { method: "GET", json: false },
+  )
 }
 
 /** Stable key for a flashcard, surviving study-set regeneration. */

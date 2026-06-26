@@ -19,15 +19,18 @@ import { StudyRepository } from "../repositories/study.repo"
 import { StudyStatsRepository } from "../repositories/study-stats.repo"
 import { GraphRepository } from "../repositories/graph.repo"
 import { CourseRepository } from "../repositories/course.repo"
-import { topicKey } from "../repositories/mastery.repo"
+import { MasteryRepository, topicKey } from "../repositories/mastery.repo"
 import {
   StudyItemsRepository,
   type StudyScope,
   type NewStudyItem,
 } from "../repositories/study-items.repo"
+import { QuizReviewRepository, type ReviewQuestion } from "../repositories/quiz-review.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
 import { orchestrateStudySet } from "../rag/orchestrator/runner"
+import { inquisitorAgent } from "../rag/agents/inquisitor"
+import { gateQuiz } from "../rag/eval/gates"
 import { buildStudyPlan, orderLabelsByPlan } from "../rag/orchestrator/router"
 import { embedTexts } from "@/lib/llm/embeddings"
 import { logError } from "@/lib/observability/logger"
@@ -41,7 +44,97 @@ import {
 
 // How many bank items to surface in an assembled default set (keeps UI counts sane).
 const SET_FLASHCARDS = 14
-const SET_QUIZ = 10
+const SET_QUIZ = 20
+
+// ── Staged quiz (3 escalating stages of 15) ──────────────────────────────────
+export const STAGE_SIZE = 15 // questions a student must clear per stage
+const STAGE_POOL = 20 // served per stage (15 + buffer so wrong answers can be swapped)
+const STAGES = 3
+const BANK_CAP = 50 // max quiz items generated per scope (anti-runaway)
+const GEN_BATCH = 18 // questions requested per lazy generation (gate drops some)
+const DIFFICULTY_LADDER: Difficulty[] = ["facil", "medio", "dificil"]
+
+/** A staged-quiz question carries its bank id so the client can exclude served items. */
+export interface StageQuestion extends QuizQuestion {
+  id: string
+}
+export interface QuizStage {
+  stage: number
+  stages: number
+  difficulty: Difficulty
+  questions: StageQuestion[]
+}
+
+/**
+ * Hybrid escalation (mastery + score): mastery sets the base rung, the stage index
+ * climbs the ladder, and the client-supplied `boost` (earned by acing prior stages)
+ * accelerates it. Never drops below the base — failing a stage doesn't punish.
+ */
+function stageDifficulty(stage: number, masteryAvg: number, boost: number): Difficulty {
+  const base = masteryAvg >= 0.4 ? 1 : 0
+  const idx = Math.min(DIFFICULTY_LADDER.length - 1, Math.max(0, base + stage + boost))
+  return DIFFICULTY_LADDER[idx]
+}
+
+/** Order bank items by the plan's topic priority (weak/urgent/heavy first); recency otherwise. */
+function orderByPlan<T extends { topicKey: string | null }>(items: T[], orderedKeys: string[]): T[] {
+  if (orderedKeys.length === 0) return items
+  const rank = new Map(orderedKeys.map((k, i) => [k, i]))
+  return [...items].sort((a, b) => {
+    const ra = a.topicKey != null ? (rank.get(a.topicKey) ?? Infinity) : Infinity
+    const rb = b.topicKey != null ? (rank.get(b.topicKey) ?? Infinity) : Infinity
+    return ra - rb
+  })
+}
+
+/**
+ * Ensure the bank holds enough quiz items at `difficulty` for a stage; generate a
+ * gated batch lazily when short (respecting the per-scope cap), then return the
+ * pool (excluding already-served ids). `genEvidence` is only invoked when we must
+ * generate, so a warm bank costs no LLM call.
+ */
+async function stageItems(
+  scope: StudyScope,
+  difficulty: Difficulty,
+  excludeIds: string[],
+  genEvidence: () => Promise<{ text: string; weightedTopics: { label: string; weight: number }[] } | null>,
+): Promise<{ id: string; topicKey: string | null; payload: QuizQuestion }[]> {
+  let pool = await StudyItemsRepository.listForStage<QuizQuestion>(scope, "quiz", difficulty, STAGE_POOL, excludeIds)
+  if (pool.length < STAGE_SIZE) {
+    const total = await StudyItemsRepository.countByType(scope, "quiz")
+    if (total < BANK_CAP) {
+      try {
+        const ev = await genEvidence()
+        if (ev && ev.text.trim().length >= 80) {
+          const excludeSeen = await StudyItemsRepository.listDedupeTexts(scope, "quiz")
+          const raw = await inquisitorAgent(
+            ev.text,
+            { difficulty, weightedTopics: ev.weightedTopics, excludeSeen },
+            GEN_BATCH,
+          )
+          const gated = await gateQuiz(raw, ev.text)
+          if (gated.length > 0) {
+            const embeddings = await embedTexts(gated.map((q) => q.question))
+            const items: NewStudyItem[] = gated.map((q, i) => ({
+              userId: null,
+              type: "quiz",
+              topicKey: q.topic ? topicKey(q.topic) : null,
+              difficulty,
+              payload: q,
+              dedupeText: q.question,
+              embedding: embeddings[i],
+            }))
+            await StudyItemsRepository.insertDeduped(scope, items)
+            pool = await StudyItemsRepository.listForStage<QuizQuestion>(scope, "quiz", difficulty, STAGE_POOL, excludeIds)
+          }
+        }
+      } catch (err) {
+        logError("study.stage.gen_error", { error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+  }
+  return pool.map((p) => ({ id: p.id, topicKey: p.topicKey, payload: p.payload }))
+}
 
 /** Flatten a generated set into bank items (dedupe text + payload + topic). Pure. */
 function decompose(set: StudySet): { dedupeText: string; type: "flashcard" | "quiz"; topicKey: string | null; payload: unknown }[] {
@@ -66,12 +159,17 @@ async function seenTexts(scope: StudyScope): Promise<string[]> {
  * Persist the freshly generated items to the bank (embedded + deduped), then for
  * the default scope return a set assembled from the growing bank. Best-effort:
  * if embedding/persistence fails, fall back to serving the fresh set as-is.
+ *
+ * `orderedKeys` (the Router's topic priority order, weak/urgent/heavy first) is
+ * used to rank the assembled quiz so the served set reflects the plan — without
+ * it the bank would surface items by recency only, discarding the router's work.
  */
 async function bankAndAssemble(
   scope: StudyScope,
   set: StudySet,
   difficulty: Difficulty,
   custom: boolean,
+  orderedKeys: string[] = [],
 ): Promise<StudySet> {
   try {
     const items = decompose(set)
@@ -93,19 +191,41 @@ async function bankAndAssemble(
     // the generic bank. Default sets are assembled from the accumulating bank.
     if (custom) return set
 
+    // Pull a wider window than we serve, then rank by the plan so the surfaced
+    // items are the highest-priority ones (not merely the most recent).
     const [bankFlash, bankQuiz] = await Promise.all([
-      StudyItemsRepository.listRecent<Flashcard>(scope, "flashcard", SET_FLASHCARDS),
-      StudyItemsRepository.listRecent<QuizQuestion>(scope, "quiz", SET_QUIZ),
+      StudyItemsRepository.listRecent<Flashcard>(scope, "flashcard", SET_FLASHCARDS * 2),
+      StudyItemsRepository.listRecent<QuizQuestion>(scope, "quiz", SET_QUIZ * 2),
     ])
+    const rank = new Map(orderedKeys.map((k, i) => [k, i]))
+    const byPlan = (a: { topicKey: string | null }, b: { topicKey: string | null }) => {
+      const ra = a.topicKey != null ? (rank.get(a.topicKey) ?? Infinity) : Infinity
+      const rb = b.topicKey != null ? (rank.get(b.topicKey) ?? Infinity) : Infinity
+      return ra - rb // lower plan index = higher priority = first
+    }
+    const orderedQuiz = rank.size > 0 ? [...bankQuiz].sort(byPlan) : bankQuiz
     return {
       ...set,
-      flashcards: bankFlash.length > 0 ? bankFlash.map((b) => b.payload) : set.flashcards,
-      quiz: bankQuiz.length > 0 ? bankQuiz.map((b) => b.payload) : set.quiz,
+      flashcards:
+        bankFlash.length > 0 ? bankFlash.slice(0, SET_FLASHCARDS).map((b) => b.payload) : set.flashcards,
+      quiz: orderedQuiz.length > 0 ? orderedQuiz.slice(0, SET_QUIZ).map((b) => b.payload) : set.quiz,
     }
   } catch (err) {
     logError("study.bank.error", { error: err instanceof Error ? err.message : String(err) })
     return set // banking failed → still serve the freshly generated set
   }
+}
+
+/** Verify the caller owns the doc/course behind a scope; returns the scope or throws 404. */
+async function assertScopeOwned(userId: string, scope: StudyScope): Promise<StudyScope> {
+  if (scope.kind === "doc") {
+    const doc = await DocumentRepository.findByIdAndUser(scope.id, userId)
+    if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
+    return scope
+  }
+  const course = await CourseRepository.findByIdAndUser(scope.id, userId)
+  if (!course) throw new ApiErrorResponse("Course not found", 404)
+  return scope
 }
 
 export const StudyService = {
@@ -168,12 +288,18 @@ export const StudyService = {
     // Step 3+4: specialized agents (flashcard/inquisitor/synth) + answer-correctness
     // gate, instead of one mega-call.
     const excludeSeen = await seenTexts(scope)
-    const set = await orchestrateStudySet(text, { difficulty, topic, weightedTopics, excludeSeen })
+    const set = await orchestrateStudySet(
+      text,
+      { difficulty, topic, weightedTopics, excludeSeen },
+      { quiz: false }, // quiz is served by the staged endpoint, not the menu set
+    )
     if (!set) {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
     }
 
-    const served = await bankAndAssemble(scope, set, difficulty, custom)
+    // Reconnect the Router → served set: rank the assembled quiz by plan priority.
+    const orderedKeys = plan.targets.map((t) => t.topicKey)
+    const served = await bankAndAssemble(scope, set, difficulty, custom, orderedKeys)
 
     // Only persist the canonical default set.
     if (!custom) await StudyRepository.upsert(syllabusId, served, fingerprint, STUDY_SCHEMA_VERSION)
@@ -221,7 +347,11 @@ export const StudyService = {
     }
 
     const excludeSeen = await seenTexts(scope)
-    const set = await orchestrateStudySet(text, { difficulty, topic, weightedTopics: [], excludeSeen })
+    const set = await orchestrateStudySet(
+      text,
+      { difficulty, topic, weightedTopics: [], excludeSeen },
+      { quiz: false }, // quiz is served by the staged endpoint, not the menu set
+    )
     if (!set) {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
     }
@@ -230,6 +360,117 @@ export const StudyService = {
 
     if (!custom) await StudyRepository.upsertByCourse(courseId, served, fingerprint, STUDY_SCHEMA_VERSION)
     return served
+  },
+
+  /**
+   * One stage of the staged quiz for a syllabus the caller owns. Difficulty
+   * escalates per stage (hybrid mastery + `boost`). Items are drawn from the bank
+   * and generated lazily (gated) only when the bank is short — nothing is created
+   * up front. `excludeIds` are items already served this run (so wrong-answer
+   * swaps and later stages don't repeat). 404 when not owned.
+   */
+  async getQuizStage(
+    userId: string,
+    syllabusId: string,
+    opts: { stage?: number; boost?: number; excludeIds?: string[] } = {},
+  ): Promise<QuizStage> {
+    const doc = await DocumentRepository.findByIdAndUser(syllabusId, userId)
+    if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
+
+    const stage = Math.min(Math.max(Math.trunc(opts.stage ?? 0), 0), STAGES - 1)
+    const boost = Math.min(Math.max(Math.trunc(opts.boost ?? 0), 0), 2)
+    const excludeIds = (opts.excludeIds ?? []).slice(0, 200)
+    const scope: StudyScope = { kind: "doc", id: syllabusId }
+
+    // Mastery base for the hybrid escalation.
+    const mastery = await MasteryRepository.listForSyllabus(userId, syllabusId).catch(() => [])
+    const masteryAvg =
+      mastery.length > 0 ? mastery.reduce((s, m) => s + m.confidence, 0) / mastery.length : 0
+    const difficulty = stageDifficulty(stage, masteryAvg, boost)
+
+    // Plan ordering (computed once; reused for generation evidence when needed).
+    const { topics } = await GraphRepository.getGraph(syllabusId)
+    const weightedTopics = topics
+      .filter((t) => (t.weight_percent ?? 0) > 0)
+      .map((t) => ({ label: t.label, weight: Number(t.weight_percent) }))
+    const plan = await buildStudyPlan(userId, syllabusId, weightedTopics, difficulty)
+    const orderedKeys = plan.targets.map((t) => t.topicKey)
+    const planLabels = orderLabelsByPlan(plan)
+    const topicLabels = topics.map((t) => t.label.trim()).filter(Boolean)
+    const ordered = planLabels.length > 0 ? planLabels : topicLabels
+
+    // Failed questions live in Repaso, not the quiz → exclude them from stages.
+    const reviewExclude = await QuizReviewRepository.openItemIds(userId, scope).catch(() => [])
+    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude]))
+    const items = await stageItems(scope, difficulty, allExclude, async () => {
+      const text =
+        (await buildContextByTopics({ kind: "doc", id: syllabusId }, ordered)) ??
+        (await ChunkRepository.getConcatenatedText(syllabusId))
+      return text ? { text, weightedTopics } : null
+    })
+
+    const orderedItems = orderByPlan(items, orderedKeys).slice(0, STAGE_POOL)
+    return {
+      stage,
+      stages: STAGES,
+      difficulty,
+      questions: orderedItems.map((it) => ({ ...it.payload, id: it.id })),
+    }
+  },
+
+  /**
+   * One stage of the staged quiz for a whole course. No per-syllabus mastery, so
+   * the escalation is base-0 (fácil→medio→difícil) plus `boost`. 404 when not owned.
+   */
+  async getCourseQuizStage(
+    userId: string,
+    courseId: string,
+    opts: { stage?: number; boost?: number; excludeIds?: string[] } = {},
+  ): Promise<QuizStage> {
+    const course = await CourseRepository.findByIdAndUser(courseId, userId)
+    if (!course) throw new ApiErrorResponse("Course not found", 404)
+
+    const stage = Math.min(Math.max(Math.trunc(opts.stage ?? 0), 0), STAGES - 1)
+    const boost = Math.min(Math.max(Math.trunc(opts.boost ?? 0), 0), 2)
+    const excludeIds = (opts.excludeIds ?? []).slice(0, 200)
+    const scope: StudyScope = { kind: "course", id: courseId }
+    const difficulty = stageDifficulty(stage, 0, boost)
+
+    const reviewExclude = await QuizReviewRepository.openItemIds(userId, scope).catch(() => [])
+    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude]))
+    const items = await stageItems(scope, difficulty, allExclude, async () => {
+      const text = await ChunkRepository.getConcatenatedTextByCourse(userId, courseId)
+      return text ? { text, weightedTopics: [] } : null
+    })
+
+    const ordered = orderByPlan(items, []).slice(0, STAGE_POOL)
+    return {
+      stage,
+      stages: STAGES,
+      difficulty,
+      questions: ordered.map((it) => ({ ...it.payload, id: it.id })),
+    }
+  },
+
+  /**
+   * Record a wrong quiz answer: the question leaves the quiz (excluded from future
+   * stages) and enters the user's Repaso queue. Ownership-checked.
+   */
+  async recordQuizFail(userId: string, scope: StudyScope, question: ReviewQuestion): Promise<void> {
+    const s = await assertScopeOwned(userId, scope)
+    await QuizReviewRepository.add(userId, s, question)
+  },
+
+  /** The user's Repaso queue for a scope: quiz questions still to be re-mastered. */
+  async listQuizReview(userId: string, scope: StudyScope): Promise<ReviewQuestion[]> {
+    const s = await assertScopeOwned(userId, scope)
+    return QuizReviewRepository.listOpen(userId, s)
+  },
+
+  /** Resolve a Repaso question (answered correctly) so it drops out of the queue. */
+  async resolveQuizReview(userId: string, scope: StudyScope, question: string): Promise<void> {
+    const s = await assertScopeOwned(userId, scope)
+    await QuizReviewRepository.resolve(userId, s, question)
   },
 
   /**

@@ -416,3 +416,23 @@ CREATE INDEX IF NOT EXISTS idx_study_items_scope
   ON study_items (scope_kind, scope_id, type, topic_key);
 CREATE INDEX IF NOT EXISTS idx_study_items_embedding
   ON study_items USING hnsw (embedding vector_cosine_ops);
+
+-- Per-user "review queue": quiz questions the user answered WRONG. A failed
+-- question leaves the quiz (excluded from future stages by item_id) and lands
+-- here so "Repaso" is exactly the set of questions to re-master. Answering it
+-- right in Repaso sets resolved_at (it then drops out of the queue).
+CREATE TABLE IF NOT EXISTS quiz_review (
+  id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope_kind   TEXT        NOT NULL,            -- 'doc' | 'course'
+  scope_id     UUID        NOT NULL,            -- syllabus_uploads.id | user_courses.id
+  item_id      UUID,                            -- study_items.id when known (drives quiz exclusion)
+  question_key TEXT        NOT NULL,            -- stable hash of the question text (dedupe)
+  topic        TEXT,
+  payload      JSONB       NOT NULL,            -- the QuizQuestion to render in Repaso
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at  TIMESTAMPTZ,
+  UNIQUE (user_id, scope_kind, scope_id, question_key)
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_review_open
+  ON quiz_review (user_id, scope_kind, scope_id) WHERE resolved_at IS NULL;

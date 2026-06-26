@@ -220,90 +220,7 @@ export function ChatComposer({
           </div>
         )}
 
-        <div className="flex items-end gap-2 px-3 py-2.5">
-          <div className="relative" ref={modelRef}>
-            <button
-              type="button"
-              onClick={() => setModelOpen((v) => !v)}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="Select model"
-              disabled={disabled}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
-              <span className="max-w-[120px] truncate">{currentModelLabel}</span>
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.25} />
-            </button>
-            {modelOpen && (
-              <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[160px] rounded-lg border border-border bg-card py-1 shadow-lg">
-                {models.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      onModelChange?.(m.id)
-                      setModelOpen(false)
-                    }}
-                    className={cn(
-                      "flex w-full px-3 py-2 text-left text-xs hover:bg-secondary",
-                      m.id === currentModelId && "font-semibold text-accent",
-                    )}
-                  >
-                    {m.displayName}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="relative" ref={toolsRef}>
-            <button
-              type="button"
-              onClick={() => setToolsOpen((v) => !v)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Herramientas"
-              disabled={disabled}
-            >
-              <Sparkles className="h-4 w-4" />
-            </button>
-            {toolsOpen && (
-              <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[230px] rounded-lg border border-border bg-card py-1 shadow-lg">
-                <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  Herramientas
-                </div>
-                {TOOLS.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => runTool(t.prompt)}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
-                  >
-                    <t.Icon className="h-4 w-4 shrink-0 text-accent" />
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Attach a PDF"
-            disabled={disabled}
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
-
-          <input
-            ref={inputRef}
-            type="file"
-            accept="application/pdf"
-            multiple
-            onChange={onPick}
-            className="sr-only"
-          />
-
+        <div className="flex flex-col gap-2 px-3 py-2.5">
           <textarea
             value={value}
             onChange={(e) => setValue(e.target.value)}
@@ -311,23 +228,108 @@ export function ChatComposer({
             placeholder={isDragging ? "Suelta los PDFs para adjuntar…" : "Escribe tu mensaje…"}
             rows={1}
             disabled={disabled}
-            className="min-h-9 max-h-40 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            className="min-h-9 max-h-40 w-full resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           />
 
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!canSend}
-            className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
-              canSend
-                ? "bg-accent text-accent-foreground shadow-sm hover:opacity-90"
-                : "bg-secondary text-muted-foreground/70",
-            )}
-            aria-label="Enviar mensaje"
-          >
-            <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="relative" ref={modelRef}>
+              <button
+                type="button"
+                onClick={() => setModelOpen((v) => !v)}
+                className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                aria-label="Select model"
+                disabled={disabled}
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+                <span className="max-w-[120px] truncate">{currentModelLabel}</span>
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={2.25} />
+              </button>
+              {modelOpen && (
+                <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[160px] rounded-lg border border-border bg-card py-1 shadow-lg">
+                  {models.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        onModelChange?.(m.id)
+                        setModelOpen(false)
+                      }}
+                      className={cn(
+                        "flex w-full px-3 py-2 text-left text-xs hover:bg-secondary",
+                        m.id === currentModelId && "font-semibold text-accent",
+                      )}
+                    >
+                      {m.displayName}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="relative" ref={toolsRef}>
+              <button
+                type="button"
+                onClick={() => setToolsOpen((v) => !v)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Herramientas"
+                disabled={disabled}
+              >
+                <Sparkles className="h-4 w-4" />
+              </button>
+              {toolsOpen && (
+                <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[230px] rounded-lg border border-border bg-card py-1 shadow-lg">
+                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Herramientas
+                  </div>
+                  {TOOLS.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => runTool(t.prompt)}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary"
+                    >
+                      <t.Icon className="h-4 w-4 shrink-0 text-accent" />
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Attach a PDF"
+              disabled={disabled}
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+
+            <input
+              ref={inputRef}
+              type="file"
+              accept="application/pdf"
+              multiple
+              onChange={onPick}
+              className="sr-only"
+            />
+
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!canSend}
+              className={cn(
+                "ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
+                canSend
+                  ? "bg-accent text-accent-foreground shadow-sm hover:opacity-90"
+                  : "bg-secondary text-muted-foreground/70",
+              )}
+              aria-label="Enviar mensaje"
+            >
+              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
       </div>
 

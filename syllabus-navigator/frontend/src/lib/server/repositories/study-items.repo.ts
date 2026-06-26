@@ -101,4 +101,37 @@ export const StudyItemsRepository = {
       (r) => ({ id: r.id, type: r.type, topicKey: r.topic_key, difficulty: r.difficulty, payload: r.payload }),
     )
   },
+
+  /**
+   * Bank items for one stage: filtered by difficulty, excluding ids already served
+   * this run, most-recent first. Powers the staged quiz (15 per stage drawn lazily).
+   */
+  async listForStage<T = unknown>(
+    scope: StudyScope,
+    type: StudyItemType,
+    difficulty: string,
+    limit: number,
+    excludeIds: string[] = [],
+  ): Promise<BankItem<T>[]> {
+    const rows = await sql`
+      SELECT id, type, topic_key, difficulty, payload FROM study_items
+      WHERE scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+        AND type = ${type} AND difficulty = ${difficulty}
+        AND id <> ALL(${excludeIds}::uuid[])
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `
+    return (rows as { id: string; type: StudyItemType; topic_key: string | null; difficulty: string; payload: T }[]).map(
+      (r) => ({ id: r.id, type: r.type, topicKey: r.topic_key, difficulty: r.difficulty, payload: r.payload }),
+    )
+  },
+
+  /** How many items of a type exist for a scope (used to enforce the bank cap). */
+  async countByType(scope: StudyScope, type: StudyItemType): Promise<number> {
+    const rows = await sql`
+      SELECT count(*)::int AS n FROM study_items
+      WHERE scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid AND type = ${type}
+    `
+    return (rows as { n: number }[])[0]?.n ?? 0
+  },
 }

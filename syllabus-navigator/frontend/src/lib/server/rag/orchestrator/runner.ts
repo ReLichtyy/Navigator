@@ -14,25 +14,36 @@
 import { flashcardAgent } from "../agents/flashcard"
 import { inquisitorAgent } from "../agents/inquisitor"
 import { synthAgent } from "../agents/synth"
-import { verifyQuiz } from "../eval/gates"
+import { gateQuiz, gateFlashcards } from "../eval/gates"
 import type { StudySet, StudyGenOptions } from "../study-gen"
+
+export interface OrchestrateParts {
+  /** Generate + gate the quiz. Off for the menu set (quiz is served by the staged endpoint). */
+  quiz?: boolean
+}
 
 export async function orchestrateStudySet(
   evidence: string,
   opts: StudyGenOptions = {},
+  parts: OrchestrateParts = {},
 ): Promise<StudySet | null> {
   const text = evidence.trim()
   if (text.length < 80) return null
+  const withQuiz = parts.quiz ?? true
 
-  // Generate the three artifact families in parallel.
-  const [flashcards, rawQuiz, synth] = await Promise.all([
+  // Generate the artifact families in parallel (quiz only when requested).
+  const [rawFlash, rawQuiz, synth] = await Promise.all([
     flashcardAgent(text, opts),
-    inquisitorAgent(text, opts),
+    withQuiz ? inquisitorAgent(text, opts) : Promise.resolve([]),
     synthAgent(text, opts),
   ])
 
-  // Answer-correctness gate over the quiz (cross-family verification).
-  const quiz = await verifyQuiz(rawQuiz, text)
+  // Quality gates: flashcards (grounded + substantive + accurate) and, when built,
+  // the quiz (sound + grounded + substantive). Both drop "floja" items at the root.
+  const [flashcards, quiz] = await Promise.all([
+    gateFlashcards(rawFlash, text),
+    withQuiz ? gateQuiz(rawQuiz, text) : Promise.resolve([]),
+  ])
 
   const summary = synth?.summary ?? { intro: "", points: [] }
   const mindmap = synth?.mindmap ?? { center: "", branches: [] }

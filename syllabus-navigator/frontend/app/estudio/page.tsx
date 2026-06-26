@@ -12,6 +12,7 @@ import {
   fetchSchedule,
   fetchRecommendations,
   fetchStudyStats,
+  fetchStudySession,
   type SyllabusUploadAPI,
   type CourseAPI,
   type StudySetAPI,
@@ -21,6 +22,7 @@ import {
   type StudyStatsAPI,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
+import { combineStudySets, type NamedStudySet } from "@/lib/ui/combine-study"
 import { Textarea } from "@/components/ui/textarea"
 import { pickWeekTopics } from "@/lib/ui/week-topics"
 import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
@@ -44,8 +46,9 @@ import {
   MousePointerClick,
   ChevronDown,
 } from "lucide-react"
-import { FlashcardsView } from "@/components/estudio/flashcards-view"
+import { FlashcardsView, EmptyMode } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
+import { QuizReviewView } from "@/components/estudio/review-view"
 import { MindView, ResumenView } from "@/components/estudio/mind-resumen-view"
 import type { MindCourse } from "@/components/estudio/mind-map-canvas"
 import { MasteryPanel } from "@/components/estudio/mastery-panel"
@@ -58,14 +61,23 @@ import { MobileNav } from "@/components/navigator/mobile-nav"
 
 type Mode = "menu" | "flash" | "repaso" | "quiz" | "simulacro" | "mind" | "resumen"
 
-/** Study scope: the whole course (aggregated) or one specific PDF. */
-type Scope = { kind: "course"; courseId: string } | { kind: "doc"; docId: string }
+/**
+ * Study scope: the whole course (aggregated), one specific PDF, or several
+ * course folders combined into one set (`combo`, keyed by folder keys).
+ */
+type Scope =
+  | { kind: "course"; courseId: string }
+  | { kind: "doc"; docId: string }
+  | { kind: "combo"; groupKeys: string[] }
 
 function isReady(d: SyllabusUploadAPI): boolean {
   return d.status === "processed"
 }
 
 const cleanName = (f: string) => f.replace(/\.pdf$/i, "")
+
+// Stable key for a course folder (the "Sin curso" bucket has a null id).
+const folderKey = (g: RealCourseGroup) => g.id ?? "__none__"
 
 function EstudioContent() {
   const { status, ready } = useUser()
@@ -79,8 +91,9 @@ function EstudioContent() {
   const [courses, setCourses] = useState<CourseAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
 
-  // Selected course folder (a user_courses id, or null = "Sin curso" bucket).
-  const [groupId, setGroupId] = useState<string | null>(null)
+  // Selected course folders (multi-select). One folder → its own scope picker;
+  // several folders → their study material is combined into one set.
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   // Selected scope within the folder. null until the folder resolves a default.
   const [scope, setScope] = useState<Scope | null>(null)
   const [mode, setMode] = useState<Mode>("menu")
@@ -100,9 +113,13 @@ function EstudioContent() {
   // The selected scope's cronograma events + the user's weekly plan (for week-topic chips).
   const [courseEvents, setCourseEvents] = useState<ScheduleEventAPI[]>([])
   const [plan, setPlan] = useState<WeeklyPlanAPI | null>(null)
+  // Spaced-repetition cards due today for the active PDF (drives repaso ordering).
+  const [dueCardKeys, setDueCardKeys] = useState<string[]>([])
 
+  const scopeTarget = (s: Scope) =>
+    s.kind === "course" ? s.courseId : s.kind === "doc" ? s.docId : s.groupKeys.slice().sort().join(",")
   const scopeKey = (s: Scope | null, d: StudyDifficulty, t: string | null) =>
-    `${s ? `${s.kind}:${s.kind === "course" ? s.courseId : s.docId}` : "none"}::${d}::${t ?? ""}`
+    `${s ? `${s.kind}:${scopeTarget(s)}` : "none"}::${d}::${t ?? ""}`
 
   // ── Group uploads into real course folders; keep only folders with ≥1 ready doc.
   const realCourses = useMemo<RealCourse[]>(
@@ -113,10 +130,14 @@ function EstudioContent() {
     () => groupByRealCourse(uploads, realCourses).filter((g) => g.docs.some(isReady)),
     [uploads, realCourses],
   )
-  const selectedGroup = useMemo(
-    () => groups.find((g) => g.id === groupId) ?? null,
-    [groups, groupId],
+  // Folders currently selected; one → single mode, several → combined mode.
+  const selectedGroups = useMemo(
+    () => groups.filter((g) => selectedKeys.includes(folderKey(g))),
+    [groups, selectedKeys],
   )
+  const multi = selectedGroups.length > 1
+  const selectedGroup = multi ? null : (selectedGroups[0] ?? null)
+  const selKey = selectedGroups.map(folderKey).sort().join("|")
   const readyDocs = useMemo(
     () => (selectedGroup ? selectedGroup.docs.filter(isReady) : []),
     [selectedGroup],
@@ -128,11 +149,13 @@ function EstudioContent() {
   const activeDocId = scope?.kind === "doc" ? scope.docId : null
   const activeDoc = activeDocId ? (readyDocs.find((d) => d.id === activeDocId) ?? null) : null
   const scopeLabel =
-    scope?.kind === "course"
-      ? (selectedGroup?.name ?? "Curso")
-      : activeDoc
-        ? cleanName(activeDoc.original_filename)
-        : ""
+    scope?.kind === "combo"
+      ? `${selectedGroups.length} cursos combinados`
+      : scope?.kind === "course"
+        ? (selectedGroup?.name ?? "Curso")
+        : activeDoc
+          ? cleanName(activeDoc.original_filename)
+          : ""
   // Mind-map switcher pills = the ready PDFs of the current folder.
   const mindCourses = useMemo<MindCourse[]>(
     () =>
@@ -168,26 +191,41 @@ function EstudioContent() {
 
   // Pick an initial folder once groups are available (honoring ?course=<docId|courseId>).
   useEffect(() => {
-    if (groupId !== null || groups.length === 0) return
+    if (selectedKeys.length > 0 || groups.length === 0) return
     const wanted = params.get("course")
     // ?course may be a document id (from the "Estudiar" link) or a course id.
     const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted))
     const byCourse = groups.find((g) => g.id === wanted)
     const pick = byDoc ?? byCourse ?? groups[0]
-    if (pick) setGroupId(pick.id)
+    if (pick) setSelectedKeys([folderKey(pick)])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
 
-  // When the folder changes, default the scope (whole course if possible, else first PDF).
+  // When the folder changes, default the scope. Prefer a specific PDF so the
+  // adaptive engine runs (per-PDF mastery panel, review/SRS recording, the Router
+  // topic plan) — whole-course scope has none of that. Honor ?course=<docId> when
+  // it points at a ready doc; else first ready PDF; else whole course as a fallback.
   useEffect(() => {
+    // Several folders selected → combined whole-course set (no per-PDF scope).
+    if (multi) {
+      setScope({ kind: "combo", groupKeys: selectedGroups.map(folderKey) })
+      setMode("menu")
+      setDifficulty("medio")
+      setTopic(null)
+      return
+    }
     if (!selectedGroup) {
       setScope(null)
       return
     }
-    if (canWholeCourse && selectedGroup.id) {
-      setScope({ kind: "course", courseId: selectedGroup.id })
+    const wanted = params.get("course")
+    const wantedDoc = readyDocs.find((d) => d.id === wanted)
+    if (wantedDoc) {
+      setScope({ kind: "doc", docId: wantedDoc.id })
     } else if (readyDocs[0]) {
       setScope({ kind: "doc", docId: readyDocs[0].id })
+    } else if (canWholeCourse && selectedGroup.id) {
+      setScope({ kind: "course", courseId: selectedGroup.id })
     } else {
       setScope(null)
     }
@@ -195,7 +233,7 @@ function EstudioContent() {
     setDifficulty("medio")
     setTopic(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId])
+  }, [selKey])
 
   // Load (or regenerate) the study set for the active scope, honoring difficulty/topic.
   const loadSet = useCallback(
@@ -211,19 +249,25 @@ function EstudioContent() {
         setSet(null)
       }
       setSetError(null)
+      const fetchOpts = { refresh: opts.refresh, difficulty: d, topic: t ?? undefined }
+      // Fetch a single folder's whole-course set (or its first PDF for "Sin curso").
+      const fetchFolder = (g: RealCourseGroup) =>
+        g.id
+          ? fetchCourseStudySet(g.id, fetchOpts)
+          : fetchStudySet(g.docs.filter(isReady)[0].id, fetchOpts)
       try {
-        const data =
-          s.kind === "course"
-            ? await fetchCourseStudySet(s.courseId, {
-                refresh: opts.refresh,
-                difficulty: d,
-                topic: t ?? undefined,
-              })
-            : await fetchStudySet(s.docId, {
-                refresh: opts.refresh,
-                difficulty: d,
-                topic: t ?? undefined,
-              })
+        let data: StudySetAPI
+        if (s.kind === "combo") {
+          const gs = groups.filter((g) => s.groupKeys.includes(folderKey(g)))
+          const named: NamedStudySet[] = await Promise.all(
+            gs.map(async (g) => ({ name: g.name, set: await fetchFolder(g) })),
+          )
+          data = combineStudySets(named)
+        } else if (s.kind === "course") {
+          data = await fetchCourseStudySet(s.courseId, fetchOpts)
+        } else {
+          data = await fetchStudySet(s.docId, fetchOpts)
+        }
         setSet(data)
         setLoadedKey(scopeKey(s, d, t))
       } catch (e) {
@@ -233,7 +277,8 @@ function EstudioContent() {
         setRegenerating(false)
       }
     },
-    [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [groups],
   )
 
   // Base set for the menu (medium). Reloads whenever the active scope changes.
@@ -258,7 +303,24 @@ function EstudioContent() {
       alive = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDocId, groupId])
+  }, [activeDocId, selKey])
+
+  // Adaptive session for the active PDF: which cards are due today (SRS). Doc
+  // scope only — closes the learning loop on the repaso side. Whole-course has no
+  // per-card tracking, so it clears.
+  useEffect(() => {
+    if (!activeDocId) {
+      setDueCardKeys([])
+      return
+    }
+    let alive = true
+    fetchStudySession(activeDocId)
+      .then((s) => alive && setDueCardKeys(s.dueCardKeys))
+      .catch(() => alive && setDueCardKeys([]))
+    return () => {
+      alive = false
+    }
+  }, [activeDocId])
 
   // Weekly plan (today + week range), once — used to rank week-relevant topics.
   useEffect(() => {
@@ -319,6 +381,14 @@ function EstudioContent() {
 
   const backToMenu = () => setMode("menu")
 
+  // Toggle a folder in/out of the multi-selection; never let it become empty.
+  const toggleFolder = (g: RealCourseGroup) => {
+    const k = folderKey(g)
+    setSelectedKeys((prev) =>
+      prev.includes(k) ? (prev.length > 1 ? prev.filter((x) => x !== k) : prev) : [...prev, k],
+    )
+  }
+
   // ---------- gates ----------
   if (ready && (status === "anonymous" || status === "guest")) {
     return <Gate onSignup={() => openAuthModal("signup")} />
@@ -356,13 +426,14 @@ function EstudioContent() {
                   >
                     <FolderOpen className="h-4 w-4 flex-none text-accent" />
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-                      {selectedGroup?.name ?? "Curso"}
-                      {scopeLabel && (
+                      {multi ? `${selectedGroups.length} cursos combinados` : (selectedGroup?.name ?? "Curso")}
+                      {!multi && scopeLabel && (
                         <span className="font-normal text-muted-foreground"> · {scopeLabel}</span>
                       )}
                     </span>
                     <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
-                      {groups.length} {groups.length === 1 ? "curso" : "cursos"}
+                      {selectedGroups.length} de {groups.length}{" "}
+                      {groups.length === 1 ? "curso" : "cursos"}
                     </span>
                     <ChevronDown
                       className="h-4 w-4 flex-none text-muted-foreground transition-transform"
@@ -372,22 +443,32 @@ function EstudioContent() {
 
                   {selectorsOpen && (
                     <div className="border-t border-border/50 p-4">
-                      {/* Course folders (horizontal) */}
+                      <div className="mb-2.5 text-[11px] font-medium text-muted-foreground">
+                        Elige un curso, o varios para combinar su material de estudio.
+                      </div>
+                      {/* Course folders (horizontal, multi-select) */}
                       <div className="flex flex-wrap gap-2.5">
                         {groups.map((g) => {
-                          const active = g.id === groupId
+                          const active = selectedKeys.includes(folderKey(g))
                           const count = g.docs.filter(isReady).length
                           return (
                             <Button
-                              key={g.id ?? "sin-curso"}
+                              key={folderKey(g)}
                               variant={active ? "secondary" : "outline"}
-                              onClick={() => setGroupId(g.id)}
+                              onClick={() => toggleFolder(g)}
                               className={
                                 active
                                   ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
                                   : "gap-2 text-muted-foreground"
                               }
                             >
+                              <span
+                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                  active ? "border-accent bg-accent/20" : "border-border"
+                                }`}
+                              >
+                                {active && <span className="h-2 w-2 rounded-sm bg-accent" />}
+                              </span>
                               <BookText
                                 className="h-4 w-4 text-accent"
                                 style={g.color ? { color: g.color } : undefined}
@@ -401,7 +482,7 @@ function EstudioContent() {
                         })}
                       </div>
 
-                      {/* Scope: Todo el curso / specific PDF (vertical) */}
+                      {/* Scope: Todo el curso / specific PDF (vertical) — single folder only */}
                       {selectedGroup && (
                         <ScopePicker
                           group={selectedGroup}
@@ -432,6 +513,7 @@ function EstudioContent() {
                       set={set}
                       scope={scope}
                       syllabusId={activeDocId}
+                      dueKeys={dueCardKeys}
                       scopeLabel={scopeLabel}
                       mindCourses={mindCourses}
                       onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
@@ -555,6 +637,7 @@ function ModeRouter({
   set,
   scope,
   syllabusId,
+  dueKeys,
   scopeLabel,
   mindCourses,
   onPickDoc,
@@ -576,6 +659,8 @@ function ModeRouter({
   scope: Scope
   /** The PDF id when scope is a single doc; null for whole-course (no per-doc tracking). */
   syllabusId: string | null
+  /** SRS card keys due today (repaso ordering). Empty for whole-course scope. */
+  dueKeys: string[]
   scopeLabel: string
   mindCourses: MindCourse[]
   onPickDoc: (id: string) => void
@@ -592,6 +677,21 @@ function ModeRouter({
   onDifficulty: (d: StudyDifficulty) => void
   onTopic: (t: string | null) => void
 }) {
+  // Staged quiz / Repaso run per single PDF or per whole course. Combined
+  // multi-course scope has no per-scope endpoint → ask the user to narrow it.
+  const quizScope =
+    scope.kind === "doc"
+      ? ({ kind: "doc", docId: scope.docId } as const)
+      : scope.kind === "course"
+        ? ({ kind: "course", courseId: scope.courseId } as const)
+        : null
+  const narrowScopeNotice = (
+    <EmptyMode
+      onBack={backToMenu}
+      label="No disponible para varios cursos combinados. Elige un curso o un PDF específico."
+    />
+  )
+
   switch (mode) {
     case "flash":
       return (
@@ -601,38 +701,32 @@ function ModeRouter({
           cards={set.flashcards}
           onBack={backToMenu}
           syllabusId={syllabusId ?? undefined}
+          dueKeys={dueKeys}
         />
       )
     case "repaso":
+      if (!quizScope) return narrowScopeNotice
       return (
-        <FlashcardsView
-          title="Modo repaso"
+        <QuizReviewView
           courseLabel={scopeLabel}
-          cards={set.flashcards}
-          onBack={backToMenu}
+          scope={quizScope}
           syllabusId={syllabusId ?? undefined}
+          onBack={backToMenu}
         />
       )
     case "quiz":
+    case "simulacro": {
+      if (!quizScope) return narrowScopeNotice
       return (
         <QuizView
-          title="Quiz dinámico"
+          title={mode === "simulacro" ? "Simulacro · Prueba corta" : "Quiz dinámico"}
           courseLabel={scopeLabel}
-          questions={set.quiz}
+          scope={quizScope}
           syllabusId={syllabusId ?? undefined}
           onBack={backToMenu}
         />
       )
-    case "simulacro":
-      return (
-        <QuizView
-          title="Simulacro · Prueba corta"
-          courseLabel={scopeLabel}
-          questions={set.quiz}
-          syllabusId={syllabusId ?? undefined}
-          onBack={backToMenu}
-        />
-      )
+    }
     case "mind":
       return (
         <MindView
@@ -667,7 +761,13 @@ function ModeRouter({
           set={set}
           syllabusId={syllabusId}
           scopeLabel={scopeLabel}
-          wholeCourse={scope.kind === "course"}
+          scopeNote={
+            scope.kind === "doc"
+              ? "PDF específico"
+              : scope.kind === "combo"
+                ? "cursos combinados"
+                : "todo el curso"
+          }
           onLaunch={onLaunch}
           difficulty={difficulty}
           topic={topic}
@@ -690,9 +790,9 @@ const MODES: {
   {
     key: "quiz",
     title: "Quiz dinámico",
-    desc: "Preguntas de opción múltiple generadas de tus documentos.",
+    desc: "3 etapas que suben de dificultad (15 c/u), generadas de tu material.",
     Icon: HelpCircle,
-    meta: (s) => `${s.quiz.length} preg.`,
+    meta: () => "3 etapas · 45",
   },
   {
     key: "flash",
@@ -704,9 +804,9 @@ const MODES: {
   {
     key: "repaso",
     title: "Modo repaso",
-    desc: "Repasa las tarjetas del curso, una a una.",
+    desc: "Repasa solo las preguntas que fallaste en el quiz, hasta dominarlas.",
     Icon: RotateCcw,
-    meta: () => "SRS",
+    meta: () => "fallos",
   },
   {
     key: "simulacro",
@@ -744,7 +844,7 @@ function Menu({
   set,
   syllabusId,
   scopeLabel,
-  wholeCourse,
+  scopeNote,
   onLaunch,
   difficulty,
   topic,
@@ -756,7 +856,7 @@ function Menu({
   set: StudySetAPI
   syllabusId: string | null
   scopeLabel: string
-  wholeCourse: boolean
+  scopeNote: string
   onLaunch: (m: Mode) => void
   difficulty: StudyDifficulty
   topic: string | null
@@ -780,7 +880,7 @@ function Menu({
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm text-foreground">
-            <b>{scopeLabel}</b> · {wholeCourse ? "todo el curso" : "PDF específico"}
+            <b>{scopeLabel}</b> · {scopeNote}
           </div>
         </div>
         <Badge variant="accent" className="flex-none">
