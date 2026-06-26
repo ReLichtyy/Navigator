@@ -228,7 +228,9 @@ export function ChatComposer({
             placeholder={isDragging ? "Suelta los PDFs para adjuntar…" : "Escribe tu mensaje…"}
             rows={1}
             disabled={disabled}
-            className="min-h-9 max-h-40 w-full resize-none bg-transparent px-1 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+            // 16px font on mobile (text-base) stops iOS Safari auto-zoom on focus;
+            // drops back to 14px (text-sm) on sm+ where zoom isn't a concern.
+            className="min-h-9 max-h-40 w-full resize-none bg-transparent px-1 py-2 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
           />
 
           <div className="flex items-center gap-2">
