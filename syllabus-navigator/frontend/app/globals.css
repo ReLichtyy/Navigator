@@ -1,5 +1,5 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
+@import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -212,4 +212,54 @@
 
 .animate-dot-pulse {
   animation: nav-dot-pulse 1.2s ease-in-out infinite both;
+}
+
+/* ── Sign-in brand panel decorations ── */
+@keyframes signin-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+@keyframes signin-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(14px, -18px);
+  }
+}
+@keyframes signin-float-slow {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-16px, 12px);
+  }
+}
+@keyframes signin-drift {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.signin-glow-a {
+  animation:
+    signin-glow 7s ease-in-out infinite,
+    signin-float 16s ease-in-out infinite;
+}
+.signin-glow-b {
+  animation:
+    signin-glow 9s ease-in-out infinite,
+    signin-float-slow 20s ease-in-out infinite;
+}
+.signin-drift {
+  animation: signin-drift 48s linear infinite;
 }
