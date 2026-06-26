@@ -120,6 +120,9 @@ export default function KnowledgeBasePage() {
   const [textTitle, setTextTitle] = useState("")
   const [textBody, setTextBody] = useState("")
   const [isAdding, setIsAdding] = useState(false)
+  // When set, sources added via the dialog go straight into this course (no
+  // inference/suggestion step). null = header button → unassigned.
+  const [addCourseId, setAddCourseId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   // BUG FIX #4: Use ref for interval to prevent stale closure race condition
@@ -190,10 +193,25 @@ export default function KnowledgeBasePage() {
 
   const handleUploadClick = () => fileInputRef.current?.click()
 
+  // Assign a freshly-created source to a course, skipping the inference flow.
+  // No-op when courseId is null (header upload → stays unassigned).
+  const assignToCourse = async (syllabusId: string, courseId: string | null) => {
+    if (!courseId) return
+    try {
+      await setDocumentCourse(syllabusId, { action: "confirm", course_id: courseId })
+    } catch {
+      toast.error("Subido, pero no se pudo asignar al curso.")
+    }
+  }
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
     if (files.length === 0) return
     if (fileInputRef.current) fileInputRef.current.value = ""
+
+    // Snapshot the target now; reset so later header uploads stay unassigned.
+    const targetCourseId = addCourseId
+    setAddCourseId(null)
 
     const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB — must match document.service.ts
 
@@ -220,12 +238,14 @@ export default function KnowledgeBasePage() {
         status: "pending",
         graph_status: "pending",
         created_at: new Date().toISOString(),
+        course_id: targetCourseId,
         _optimistic: true,
       }
       setUploads((prev) => [optimisticRow as any, ...prev])
 
       try {
-        await uploadSyllabus(file)
+        const res = await uploadSyllabus(file)
+        await assignToCourse(res.syllabus_id, targetCourseId)
         toast.success(`${file.name} uploaded successfully.`)
       } catch (err: any) {
         toast.error(err?.message ?? `Failed to upload ${file.name}.`)
@@ -243,11 +263,14 @@ export default function KnowledgeBasePage() {
   const handleAddLink = async () => {
     const url = linkUrl.trim()
     if (!url) return
+    const targetCourseId = addCourseId
     setIsAdding(true)
     try {
-      await addLink(url)
+      const res = await addLink(url)
+      await assignToCourse(res.syllabus_id, targetCourseId)
       toast.success("Enlace añadido.")
       setLinkUrl("")
+      setAddCourseId(null)
       setAddOpen(false)
       await fetchUploads(true)
     } catch (err: any) {
@@ -260,12 +283,15 @@ export default function KnowledgeBasePage() {
   const handleAddText = async () => {
     const body = textBody.trim()
     if (!body) return
+    const targetCourseId = addCourseId
     setIsAdding(true)
     try {
-      await addTextSource(body, textTitle.trim() || undefined)
+      const res = await addTextSource(body, textTitle.trim() || undefined)
+      await assignToCourse(res.syllabus_id, targetCourseId)
       toast.success("Texto añadido.")
       setTextTitle("")
       setTextBody("")
+      setAddCourseId(null)
       setAddOpen(false)
       await fetchUploads(true)
     } catch (err: any) {
@@ -551,6 +577,7 @@ export default function KnowledgeBasePage() {
           </Button>
           <Button
             onClick={() => {
+              setAddCourseId(null)
               setAddTab("pdf")
               setAddOpen(true)
             }}
@@ -890,6 +917,23 @@ export default function KnowledgeBasePage() {
                           )
                         })}
                       </ul>
+                      {course.id && (
+                        <div className="border-t border-border/40 px-3 py-2 sm:px-4">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 text-muted-foreground hover:text-accent"
+                            onClick={() => {
+                              setAddCourseId(course.id!)
+                              setAddTab("pdf")
+                              setAddOpen(true)
+                            }}
+                          >
+                            <Plus className="h-4 w-4" />
+                            Añadir fuente
+                          </Button>
+                        </div>
+                      )}
                     </AccordionContent>
                   </AccordionItem>
                 )
@@ -968,9 +1012,15 @@ export default function KnowledgeBasePage() {
       <Dialog open={addOpen} onOpenChange={(open) => !isAdding && setAddOpen(open)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Añadir fuente</DialogTitle>
+            <DialogTitle>
+              {addCourseId
+                ? `Añadir fuente a ${courses.find((c) => c.id === addCourseId)?.name ?? "curso"}`
+                : "Añadir fuente"}
+            </DialogTitle>
             <DialogDescription>
-              Sube un PDF, pega un enlace o escribe texto. Todo se indexa para el chat.
+              {addCourseId
+                ? "Sube un PDF, pega un enlace o escribe texto. Se asignará directamente a este curso."
+                : "Sube un PDF, pega un enlace o escribe texto. Todo se indexa para el chat."}
             </DialogDescription>
           </DialogHeader>
 
