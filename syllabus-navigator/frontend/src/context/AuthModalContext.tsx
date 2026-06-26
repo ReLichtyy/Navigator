@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, ReactNode } from "react"
-import { useClerk } from "@clerk/nextjs"
+import { useRouter } from "next/navigation"
 
 type AuthModalView = "welcome" | "login" | "signup"
 
@@ -18,16 +18,15 @@ const AuthModalContext = createContext<AuthModalContextType>({
 })
 
 /**
- * Thin shim over Clerk's hosted modals so existing callers keep using
- * `openAuthModal("login" | "signup")`. "signup"/"welcome" open the sign-up flow,
- * "login" opens sign-in. There is no custom modal anymore.
+ * Routes auth requests to our own custom pages instead of Clerk's hosted modals.
+ * "signup" opens the sign-up page; "login"/"welcome" land on the custom sign-in
+ * design (which itself links to sign-up).
  */
 export function AuthModalProvider({ children }: { children: ReactNode }) {
-  const { openSignIn, openSignUp } = useClerk()
+  const router = useRouter()
 
   const openAuthModal = (view: AuthModalView = "welcome") => {
-    if (view === "login") openSignIn({})
-    else openSignUp({})
+    router.push(view === "signup" ? "/sign-up" : "/sign-in")
   }
 
   return (
