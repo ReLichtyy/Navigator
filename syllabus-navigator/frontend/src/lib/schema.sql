@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS chunks (
   syllabus_id  UUID          NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
   chunk_index  INT           NOT NULL,
   content      TEXT          NOT NULL,
-  embedding    vector(1536),               -- text-embedding-3-small
+  embedding    vector(2000),               -- text-embedding-3-large (dim truncated; HNSW caps at 2000)
   page_start   INT,                        -- locator de página (fuentes 'pdf')
   page_end     INT,
   char_start   INT,                        -- locator por offset de carácter (fuentes 'link'/'text')
@@ -408,7 +408,7 @@ CREATE TABLE IF NOT EXISTS study_items (
   difficulty  TEXT        NOT NULL DEFAULT 'medio',
   payload     JSONB       NOT NULL,            -- the item itself (front/back, question/options/…)
   dedupe_text TEXT        NOT NULL,            -- normalized text the embedding/dedupe is computed from
-  embedding   vector(1536),                    -- text-embedding-3-small (same space as chunks)
+  embedding   vector(2000),                    -- text-embedding-3-large (same space as chunks)
   source      TEXT        NOT NULL DEFAULT 'study-gen',
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

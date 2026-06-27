@@ -8,8 +8,8 @@
 import OpenAI from "openai"
 import { logError } from "@/lib/observability/logger"
 
-export const EMBEDDING_MODEL = "text-embedding-3-small"
-export const EMBEDDING_DIM = 1536
+export const EMBEDDING_MODEL = "text-embedding-3-large"
+export const EMBEDDING_DIM = 2000 // truncated via Matryoshka; pgvector HNSW caps at 2000
 const BATCH_SIZE = 96
 
 let _client: OpenAI | null = null
@@ -32,7 +32,7 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   try {
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE)
-      const resp = await client.embeddings.create({ model: EMBEDDING_MODEL, input: batch })
+      const resp = await client.embeddings.create({ model: EMBEDDING_MODEL, input: batch, dimensions: EMBEDDING_DIM })
       // OpenAI does not contractually guarantee `data` order matches `input`; each
       // item carries an `index`. Sort by it so every embedding maps to the right
       // chunk — otherwise retrieval silently cites the wrong text (BUG-002).
