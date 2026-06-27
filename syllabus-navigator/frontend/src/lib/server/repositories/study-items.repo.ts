@@ -158,4 +158,22 @@ export const StudyItemsRepository = {
     `
     return (rows as { n: number }[])[0]?.n ?? 0
   },
+
+  /**
+   * How many items of a type exist for a scope AT a difficulty. The staged quiz
+   * caps per-difficulty (not globally) so a bank full of `medio` items can never
+   * starve the `dificil` bucket.
+   */
+  async countByTypeDifficulty(
+    scope: StudyScope,
+    type: StudyItemType,
+    difficulty: string,
+  ): Promise<number> {
+    const rows = await sql`
+      SELECT count(*)::int AS n FROM study_items
+      WHERE scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+        AND type = ${type} AND difficulty = ${difficulty}
+    `
+    return (rows as { n: number }[])[0]?.n ?? 0
+  },
 }

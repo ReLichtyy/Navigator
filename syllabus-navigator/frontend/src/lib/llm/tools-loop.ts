@@ -18,6 +18,7 @@ import type { LLMConfig, LLMMessage } from "./types"
 import type { OpenAIToolDef } from "@/lib/tools/types"
 import { getOpenAIClient, buildOpenAIParams } from "./providers/openai"
 import { getOpenRouterClient } from "./providers/openrouter"
+import { getDeepSeekClient } from "./providers/deepseek"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 import type OpenAI from "openai"
 
@@ -54,7 +55,9 @@ const EMPTY: ToolLoopResult = {
 
 function pickClient(config: LLMConfig): OpenAI | null {
   try {
-    return config.provider === "openrouter" ? getOpenRouterClient() : getOpenAIClient()
+    if (config.provider === "openrouter") return getOpenRouterClient()
+    if (config.provider === "deepseek") return getDeepSeekClient()
+    return getOpenAIClient()
   } catch {
     return null
   }

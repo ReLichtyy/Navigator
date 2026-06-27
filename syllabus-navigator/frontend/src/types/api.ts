@@ -12,7 +12,7 @@ export interface CitationAPI {
   char_end?: number | null
   quote: string
   /** Source kind, for building a navigable link in the UI. */
-  source_type?: "pdf" | "link" | "text" | null
+  source_type?: "pdf" | "link" | "text" | "docx" | "pptx" | "xlsx" | null
   /** Original URL for 'link' sources. */
   source_url?: string | null
   /** Blob URL of the PDF for 'pdf' sources (accounts only). */
@@ -50,8 +50,8 @@ export interface SyllabusUploadAPI {
   original_filename: string
   status: "pending" | "processed" | "error" | "needs_ocr"
   graph_status: "pending" | "processing" | "ready" | "failed"
-  /** Source kind: uploaded PDF, fetched web link, or pasted text. */
-  source_type?: "pdf" | "link" | "text"
+  /** Source kind: uploaded file (PDF/Word/PowerPoint/Excel), fetched web link, or pasted text. */
+  source_type?: "pdf" | "link" | "text" | "docx" | "pptx" | "xlsx"
   /** Original URL for 'link' sources. */
   source_url?: string | null
   error_message?: string | null

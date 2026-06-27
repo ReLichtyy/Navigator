@@ -1,17 +1,27 @@
 /**
  * llm/agent-models.ts — role → model map for the multi-agent Study Engine.
  *
- * "Best model for each job": cheap+fast for high-volume/low-risk roles, stronger
- * models for reasoning/verification. Each role is overridable per-deploy via env
- * (no code change) and carries a fallback. Defaults are OpenAI ids so the engine
- * runs with just OPENAI_API_KEY; point a role at an OpenRouter id (contains "/")
- * to use Claude/Gemini etc. — e.g. MODEL_VERIFIER=anthropic/claude-sonnet-4.x
- * for cross-family verification (see rag-report §9.4).
+ * The whole backend Study Engine runs on the BLUESMIND gateway (OpenAI-compatible:
+ * one BLUESMIND_API_KEY + BLUESMIND_BASE_URL serves every vendor id). "Best model
+ * for each job": a cheap/fast model for high-volume roles, a creative model for
+ * generation, a reasoning model for verification/grading. Each role's model is
+ * overridable per-deploy via env (no code change).
  *
- * Embeddings are NOT here — they stay on OpenAI in llm/embeddings.ts (OpenRouter
- * has no /embeddings endpoint).
+ * Preset (all via the Bluesmind gateway):
+ *   - creative engine (inquisitor, case)  → gpt-5.4
+ *   - volume processors (synth, flashcard)→ gemini-3.1-flash-lite-preview
+ *   - router                              → gpt-5-nano
+ *   - verifier / grader (reasoning)       → deepseek/deepseek-reasoner
+ *
+ * Every role falls back to gpt-5.4 (the consistently-up Bluesmind model) so a model
+ * the gateway hasn't fully enabled yet (deepseek/* pricing, flaky gemini/nano
+ * upstream) never empties a study set. Embeddings stay on OpenAI; the chat assistant
+ * is separate (llm/selectModel) and runs on the direct DeepSeek provider.
  */
 import type { LLMProvider } from "./types"
+
+/** Study Engine providers: the base LLM providers plus the Bluesmind gateway. */
+export type AgentProvider = LLMProvider | "bluesmind"
 
 export type AgentRole =
   | "router"
@@ -23,9 +33,11 @@ export type AgentRole =
   | "grader"
 
 export interface RoleModel {
-  provider: LLMProvider
+  provider: AgentProvider
   model: string
   fallback?: string
+  /** Provider for the fallback model (defaults to `provider` when omitted). */
+  fallbackProvider?: AgentProvider
 }
 
 function env(name: string, def: string): string {
@@ -33,26 +45,23 @@ function env(name: string, def: string): string {
   return v && v.trim() ? v.trim() : def
 }
 
-/** OpenRouter ids are namespaced ("vendor/model"); bare ids are OpenAI. */
-function providerOf(model: string): LLMProvider {
-  return model.includes("/") ? "openrouter" : "openai"
-}
+const BS: AgentProvider = "bluesmind" // every Study Engine role runs on the gateway
+const SAFE = "gpt-5.4" // the consistently-up Bluesmind model → universal fallback
 
-// Quality preset within OpenAI defaults (gpt-4o for reasoning/verification, mini
-// for high-volume). Override via env to the §9.4 OpenRouter preset when desired.
-const RAW: Record<AgentRole, { model: string; fallback?: string }> = {
-  router: { model: env("MODEL_ROUTER", "gpt-4o-mini") },
-  synth: { model: env("MODEL_SYNTH", "gpt-4o-mini") },
-  flashcard: { model: env("MODEL_FLASHCARD", "gpt-4o-mini") },
-  inquisitor: { model: env("MODEL_INQUISITOR", "gpt-4o"), fallback: "gpt-4o-mini" },
-  case: { model: env("MODEL_CASE", "gpt-4o"), fallback: "gpt-4o-mini" },
-  verifier: { model: env("MODEL_VERIFIER", "gpt-4o"), fallback: "gpt-4o-mini" },
-  grader: { model: env("MODEL_GRADER", "gpt-4o"), fallback: "gpt-4o-mini" },
+const RAW: Record<AgentRole, { provider: AgentProvider; model: string; fallback?: string; fallbackProvider?: AgentProvider }> = {
+  // Each role falls back to gpt-5.4 (same provider) when its model errors / isn't enabled.
+  router: { provider: BS, model: env("MODEL_ROUTER", "gpt-5-nano"), fallback: SAFE },
+  synth: { provider: BS, model: env("MODEL_SYNTH", "gemini-3.1-flash-lite-preview"), fallback: SAFE },
+  flashcard: { provider: BS, model: env("MODEL_FLASHCARD", "gemini-3.1-flash-lite-preview"), fallback: SAFE },
+  inquisitor: { provider: BS, model: env("MODEL_INQUISITOR", "gpt-5.4") },
+  case: { provider: BS, model: env("MODEL_CASE", "gpt-5.4") },
+  verifier: { provider: BS, model: env("MODEL_VERIFIER", "deepseek/deepseek-reasoner"), fallback: SAFE },
+  grader: { provider: BS, model: env("MODEL_GRADER", "deepseek/deepseek-reasoner"), fallback: SAFE },
 }
 
 export function resolveAgentModel(role: AgentRole): RoleModel {
   const r = RAW[role]
-  return { provider: providerOf(r.model), model: r.model, fallback: r.fallback }
+  return { provider: r.provider, model: r.model, fallback: r.fallback, fallbackProvider: r.fallbackProvider }
 }
 
 export const AGENT_MODELS = RAW

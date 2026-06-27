@@ -8,6 +8,7 @@
 import type { LLMConfig, LLMMessage, LLMProvider, LLMResponse, LLMStreamChunk } from "./types"
 import { openaiProvider } from "./providers/openai"
 import { openrouterProvider } from "./providers/openrouter"
+import { deepseekProvider } from "./providers/deepseek"
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./config"
 import { timed } from "@/lib/observability/timing"
 import { logError, logInfo, logWarn } from "@/lib/observability/logger"
@@ -17,6 +18,7 @@ import { logError, logInfo, logWarn } from "@/lib/observability/logger"
 const providers: Record<LLMProvider, typeof openaiProvider> = {
   openai: openaiProvider,
   openrouter: openrouterProvider,
+  deepseek: deepseekProvider,
 }
 
 // ── Main entry point ─────────────────────────────────────────────────────────

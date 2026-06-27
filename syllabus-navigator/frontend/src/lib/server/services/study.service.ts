@@ -26,6 +26,7 @@ import {
   type NewStudyItem,
 } from "../repositories/study-items.repo"
 import { QuizReviewRepository, type ReviewQuestion } from "../repositories/quiz-review.repo"
+import { QuizSeenRepository } from "../repositories/quiz-seen.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
 import { webSearchContext, appendWebContext } from "../rag/web-search"
@@ -51,7 +52,10 @@ const SET_QUIZ = 20
 export const STAGE_SIZE = 15 // questions a student must clear per stage
 const STAGE_POOL = 20 // served per stage (15 + buffer so wrong answers can be swapped)
 const STAGES = 3
-const BANK_CAP = 50 // max quiz items generated per scope (anti-runaway)
+// Max quiz items generated per scope PER DIFFICULTY (anti-runaway). Per-difficulty
+// so a bank full of `medio` never starves the `dificil` bucket; 40×3 difficulties
+// = up to 120 distinct questions per scope.
+const BANK_CAP_PER_DIFFICULTY = 40
 const GEN_BATCH = 18 // questions requested per lazy generation (gate drops some)
 const DIFFICULTY_LADDER: Difficulty[] = ["facil", "medio", "dificil"]
 
@@ -104,8 +108,8 @@ async function stageItems(
 ): Promise<{ id: string; topicKey: string | null; payload: QuizQuestion }[]> {
   let pool = await StudyItemsRepository.listForStage<QuizQuestion>(scope, "quiz", difficulty, STAGE_POOL, excludeIds)
   if (pool.length < STAGE_SIZE) {
-    const total = await StudyItemsRepository.countByType(scope, "quiz")
-    if (total < BANK_CAP) {
+    const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
+    if (total < BANK_CAP_PER_DIFFICULTY) {
       try {
         const ev = await genEvidence()
         if (ev && ev.text.trim().length >= 80) {
@@ -403,11 +407,13 @@ export const StudyService = {
     const scope: StudyScope = { kind: "doc", id: syllabusId }
 
     // Independent reads in parallel: mastery (escalation base), the topic graph,
-    // and the Repaso exclusion set.
-    const [mastery, graph, reviewExclude] = await Promise.all([
+    // the Repaso exclusion set, and the per-user "already seen" set (no repeats
+    // across sessions).
+    const [mastery, graph, reviewExclude, seenExclude] = await Promise.all([
       MasteryRepository.listForSyllabus(userId, syllabusId).catch(() => []),
       GraphRepository.getGraph(syllabusId),
       QuizReviewRepository.openItemIds(userId, scope).catch(() => []),
+      QuizSeenRepository.seenItemIds(userId, scope).catch(() => []),
     ])
     const masteryAvg =
       mastery.length > 0 ? mastery.reduce((s, m) => s + m.confidence, 0) / mastery.length : 0
@@ -424,8 +430,9 @@ export const StudyService = {
     const topicLabels = topics.map((t) => t.label.trim()).filter(Boolean)
     const ordered = planLabels.length > 0 ? planLabels : topicLabels
 
-    // Failed questions live in Repaso, not the quiz → exclude them from stages.
-    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude]))
+    // Failed questions live in Repaso, and already-seen ones must not repeat →
+    // exclude both from stages.
+    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude, ...seenExclude]))
     const items = await stageItems(scope, difficulty, allExclude, async () => {
       const text =
         (await buildContextByTopics({ kind: "doc", id: syllabusId }, ordered)) ??
@@ -460,8 +467,11 @@ export const StudyService = {
     const scope: StudyScope = { kind: "course", id: courseId }
     const difficulty = stageDifficulty(stage, 0, boost)
 
-    const reviewExclude = await QuizReviewRepository.openItemIds(userId, scope).catch(() => [])
-    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude]))
+    const [reviewExclude, seenExclude] = await Promise.all([
+      QuizReviewRepository.openItemIds(userId, scope).catch(() => []),
+      QuizSeenRepository.seenItemIds(userId, scope).catch(() => []),
+    ])
+    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude, ...seenExclude]))
     const items = await stageItems(scope, difficulty, allExclude, async () => {
       const text = await ChunkRepository.getConcatenatedTextByCourse(userId, courseId)
       return text ? { text, weightedTopics: [] } : null
@@ -483,6 +493,15 @@ export const StudyService = {
   async recordQuizFail(userId: string, scope: StudyScope, question: ReviewQuestion): Promise<void> {
     const s = await assertScopeOwned(userId, scope)
     await QuizReviewRepository.add(userId, s, question)
+  },
+
+  /**
+   * Mark quiz bank items as served to this user, so future sessions never repeat
+   * them. Best-effort, ownership-checked. Called by the client at stage/quiz end.
+   */
+  async recordQuizSeen(userId: string, scope: StudyScope, itemIds: string[]): Promise<void> {
+    const s = await assertScopeOwned(userId, scope)
+    await QuizSeenRepository.markSeen(userId, s, itemIds)
   },
 
   /** The user's Repaso queue for a scope: quiz questions still to be re-mastered. */

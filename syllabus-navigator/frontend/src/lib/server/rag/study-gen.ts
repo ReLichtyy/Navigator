@@ -197,12 +197,36 @@ const STUDY_JSON_SCHEMA = {
   required: ["flashcards", "quiz", "summary", "mindmap", "studyGuide"],
 } as const
 
+/**
+ * Shared content policy for EVERY study-generation agent (flashcard, inquisitor,
+ * synth) and the Critic that gates them. THE key rule: teach the course's SUBJECT,
+ * not the syllabus document.
+ *
+ * The uploaded material is frequently just an outline (topic titles, schedule, exam
+ * weights). The only things "literally in it" are then administrative, so anchoring
+ * strictly to the verbatim text yields useless meta-questions ("in which week is X
+ * taught?", "what % is the midterm worth?"). Instead, develop the established
+ * academic content of the topics the course names, so the student is taught and
+ * tested on the actual subject. Keep generator and critic wording in sync via this
+ * one constant — if they diverge, the gate quietly undoes the generator.
+ */
+export const SUBJECT_GROUNDING_POLICY =
+  "GROUND IN THE SUBJECT, NOT THE DOCUMENT. The material may be full course notes OR just a " +
+  "syllabus/outline (topic titles, schedule, weights). Build every item from the ACADEMIC CONTENT of " +
+  "the course's topics: when the material explains a concept, use that explanation; when it only NAMES " +
+  "a topic, develop that topic's standard, well-established subject content yourself (definitions, " +
+  "principles, methods, worked reasoning, examples) so the student learns and is tested on the actual " +
+  "subject. NEVER write items about the document's administrative or structural metadata — schedule, " +
+  "dates, weeks/session numbers, exam or assignment weights/percentages, grading policy, instructor, " +
+  "bibliography entries, or 'what the syllabus/program says'. Stay strictly ON the course's topics: do " +
+  "not drift to unrelated subjects, and do not fabricate course-specific particulars (made-up figures, " +
+  "fake citations, invented data presented as if from the material). Preserve the language of the material."
+
 const SYSTEM_PROMPT =
-  "You are a study-material generator for a university course. From the provided course material " +
-  "(syllabus + notes) produce study aids: flashcards, a multiple-choice quiz, a short summary, and " +
-  "a mind map. Ground every item ONLY in the supplied material — never invent facts, dates or topics " +
-  "that are not present. Preserve the original language of the material. Each quiz question must have " +
-  "exactly one correct option and a brief explanation."
+  "You are a study-material generator for a university course. From the course's topics produce study " +
+  "aids: flashcards, a multiple-choice quiz, a short summary, and a mind map. " +
+  SUBJECT_GROUNDING_POLICY +
+  " Each quiz question must have exactly one correct option and a brief explanation."
 
 /**
  * Validate + normalize a raw model object into a safe StudySet.

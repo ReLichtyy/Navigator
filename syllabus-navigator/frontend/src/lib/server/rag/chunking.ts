@@ -6,6 +6,10 @@
  */
 
 import { extractText, getDocumentProxy } from "unpdf"
+import { parseOfficeAsync } from "officeparser"
+import { tmpdir } from "os"
+import { mkdtemp, rm } from "fs/promises"
+import { join } from "path"
 
 export interface TextChunk {
   text: string
@@ -89,6 +93,49 @@ export async function pdfToPageChunks(
       out.push({ text: piece, pageStart: pageNum, pageEnd: pageNum })
     }
   })
+  return out
+}
+
+/**
+ * Extract text from an Office Open XML file (docx / pptx / xlsx) and split into
+ * chunk dicts with char locators (no pages — these formats have no stable page
+ * model). Uses officeparser (pure JS, in-process; no native deps).
+ */
+export async function officeToChunks(
+  bytes: Uint8Array,
+  maxLen = 1200,
+  overlap = 120,
+): Promise<TextChunk[]> {
+  // officeparser unzips to disk. The default location is relative to cwd (read-only
+  // on serverless) AND it cleans up a shared subdir after each parse, which races
+  // when two uploads run on the same instance. Give every parse its own temp dir
+  // under the OS temp (writable on Vercel: /tmp) and remove it when done.
+  const dir = await mkdtemp(join(tmpdir(), "officeparse-"))
+  try {
+    const text = await parseOfficeAsync(Buffer.from(bytes), {
+      tempFilesLocation: dir,
+      outputErrorToConsole: false,
+    })
+    return textToChunks((text ?? "").trim(), maxLen, overlap)
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+/**
+ * Cap a chunk list to a cumulative character budget, keeping whole chunks from
+ * the start (document order). Bounds embedding count and the concatenated text
+ * fed to the graph/schedule LLMs, so ingest time stays flat no matter how large
+ * the source file is. Returns the original list when already under budget.
+ */
+export function capChunks(chunks: TextChunk[], maxChars: number): TextChunk[] {
+  let total = 0
+  const out: TextChunk[] = []
+  for (const c of chunks) {
+    if (total >= maxChars) break
+    out.push(c)
+    total += c.text.length
+  }
   return out
 }
 

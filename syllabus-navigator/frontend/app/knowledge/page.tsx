@@ -6,7 +6,7 @@ import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import {
   listSyllabi,
-  uploadSyllabus,
+  uploadSyllabusViaBlob,
   addLink,
   addTextSource,
   deleteSyllabus,
@@ -95,6 +95,7 @@ export default function KnowledgeBasePage() {
     id: string
     name: string
     fileUrl: string | null
+    sourceType?: string
   } | null>(null)
   const [previewMode, setPreviewMode] = useState<"pdf" | "graph">("pdf")
   const [previewGraph, setPreviewGraph] = useState<GraphResponseAPI | null>(null)
@@ -102,6 +103,8 @@ export default function KnowledgeBasePage() {
   // Rename state: { [docId]: draftName }
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const [renameExt, setRenameExt] = useState("")
+  const [fileDragActive, setFileDragActive] = useState(false)
   const [isSavingRename, setIsSavingRename] = useState(false)
 
   // Course (folder) rename state — independent of the document rename above.
@@ -191,6 +194,26 @@ export default function KnowledgeBasePage() {
     }
   }, [ready, status, fetchUploads])
 
+  // Stop the browser from navigating to / opening a file when an external file
+  // drag is dropped anywhere outside the dropzone (a missed drop). Only guards
+  // file drags, so internal document drag-and-drop is untouched.
+  useEffect(() => {
+    const isFileDrag = (e: DragEvent) =>
+      Boolean(e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files"))
+    const onDragOver = (e: DragEvent) => {
+      if (isFileDrag(e)) e.preventDefault()
+    }
+    const onDrop = (e: DragEvent) => {
+      if (isFileDrag(e)) e.preventDefault()
+    }
+    window.addEventListener("dragover", onDragOver)
+    window.addEventListener("drop", onDrop)
+    return () => {
+      window.removeEventListener("dragover", onDragOver)
+      window.removeEventListener("drop", onDrop)
+    }
+  }, [])
+
   const handleUploadClick = () => fileInputRef.current?.click()
 
   // Assign a freshly-created source to a course, skipping the inference flow.
@@ -204,21 +227,19 @@ export default function KnowledgeBasePage() {
     }
   }
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? [])
+  // Shared upload path for both the file picker and drag-and-drop. Validates
+  // each file client-side, shows an optimistic row, uploads sequentially.
+  const uploadFiles = async (files: File[], targetCourseId: string | null) => {
     if (files.length === 0) return
-    if (fileInputRef.current) fileInputRef.current.value = ""
 
-    // Snapshot the target now; reset so later header uploads stay unassigned.
-    const targetCourseId = addCourseId
-    setAddCourseId(null)
-
-    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5MB — must match document.service.ts
+    const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB — must match document.service.ts
+    const ACCEPTED_EXT = /\.(pdf|docx|pptx|xlsx)$/i
 
     setIsUploading(true)
-    for (const file of files) {
-      if (file.type !== "application/pdf") {
-        toast.error(`${file.name} is not a PDF.`)
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      if (!ACCEPTED_EXT.test(file.name)) {
+        toast.error(`${file.name}: solo PDF, Word, PowerPoint o Excel.`)
         continue
       }
       if (file.size === 0) {
@@ -226,12 +247,13 @@ export default function KnowledgeBasePage() {
         continue
       }
       if (file.size > MAX_FILE_SIZE) {
-        toast.error(`${file.name} exceeds the 5MB limit.`)
+        toast.error(`${file.name} exceeds the 25MB limit.`)
         continue
       }
 
-      // BUG FIX #3 + Feature: Add optimistic row immediately
-      const tempId = `optimistic-${Date.now()}`
+      // Optimistic row. Unique id per file (Date.now() alone collides when
+      // several files are added within the same millisecond).
+      const tempId = `optimistic-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`
       const optimisticRow: SyllabusUploadAPI & { _optimistic?: boolean } = {
         id: tempId,
         original_filename: file.name,
@@ -244,7 +266,8 @@ export default function KnowledgeBasePage() {
       setUploads((prev) => [optimisticRow as any, ...prev])
 
       try {
-        const res = await uploadSyllabus(file)
+        // Upload straight to Blob (bypasses the ~4.5MB serverless body limit).
+        const res = await uploadSyllabusViaBlob(file)
         await assignToCourse(res.syllabus_id, targetCourseId)
         toast.success(`${file.name} uploaded successfully.`)
       } catch (err: any) {
@@ -256,8 +279,36 @@ export default function KnowledgeBasePage() {
     }
 
     setIsUploading(false)
-    // BUG FIX #3: Controlled refresh with loading state
     await fetchUploads(true)
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
+    if (fileInputRef.current) fileInputRef.current.value = ""
+
+    // Snapshot the target now; reset so later header uploads stay unassigned.
+    const targetCourseId = addCourseId
+    setAddCourseId(null)
+
+    await uploadFiles(files, targetCourseId)
+  }
+
+  // Drag-and-drop from the OS file explorer onto the "Añadir fuente" dropzone.
+  const handleFileDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setFileDragActive(false)
+
+    // Only react to real files dragged from outside (ignore internal doc drags).
+    const files = Array.from(e.dataTransfer.files ?? [])
+    if (files.length === 0) return
+
+    const targetCourseId = addCourseId
+    setAddCourseId(null)
+    setAddOpen(false)
+
+    await uploadFiles(files, targetCourseId)
   }
 
   const handleAddLink = async () => {
@@ -321,11 +372,13 @@ export default function KnowledgeBasePage() {
 
   const handlePreview = (doc: SyllabusUploadAPI) => {
     const fileUrl = doc.file_url ?? null
-    setPreviewDoc({ id: doc.id, name: doc.original_filename, fileUrl })
+    const sourceType = doc.source_type
+    setPreviewDoc({ id: doc.id, name: doc.original_filename, fileUrl, sourceType })
     setPreviewGraph(null)
-    // Default to the PDF when we have one; otherwise jump straight to the graph.
-    setPreviewMode(fileUrl ? "pdf" : "graph")
-    if (!fileUrl) loadGraphPreview(doc.id)
+    // Inline preview only works for PDFs; for other files jump straight to the graph.
+    const inlineViewable = Boolean(fileUrl) && (!sourceType || sourceType === "pdf")
+    setPreviewMode(inlineViewable ? "pdf" : "graph")
+    if (!inlineViewable) loadGraphPreview(doc.id)
   }
 
   const loadGraphPreview = async (id: string) => {
@@ -492,7 +545,8 @@ export default function KnowledgeBasePage() {
 
   const startRename = (doc: SyllabusUploadAPI) => {
     setRenamingId(doc.id)
-    setRenameValue(doc.original_filename.replace(/\.pdf$/i, ""))
+    setRenameValue(doc.original_filename.replace(/\.(pdf|docx|pptx|xlsx)$/i, ""))
+    setRenameExt(doc.original_filename.match(/\.(pdf|docx|pptx|xlsx)$/i)?.[0] ?? "")
   }
 
   const commitRename = async (id: string) => {
@@ -502,7 +556,11 @@ export default function KnowledgeBasePage() {
       return
     }
 
-    const newName = trimmed.endsWith(".pdf") ? trimmed : `${trimmed}.pdf`
+    // Preserve the source file's real extension (renames keep the format).
+    const newName =
+      renameExt && trimmed.toLowerCase().endsWith(renameExt.toLowerCase())
+        ? trimmed
+        : `${trimmed}${renameExt}`
     setIsSavingRename(true)
     try {
       await renameDocument(id, newName)
@@ -596,7 +654,7 @@ export default function KnowledgeBasePage() {
         <input
           type="file"
           ref={fileInputRef}
-          accept="application/pdf"
+          accept=".pdf,.docx,.pptx,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="hidden"
           multiple
           onChange={handleFileChange}
@@ -1009,7 +1067,14 @@ export default function KnowledgeBasePage() {
       </Dialog>
 
       {/* Add Source Dialog (PDF / Link / Text) */}
-      <Dialog open={addOpen} onOpenChange={(open) => !isAdding && setAddOpen(open)}>
+      <Dialog
+        open={addOpen}
+        onOpenChange={(open) => {
+          if (isAdding) return
+          if (!open) setFileDragActive(false)
+          setAddOpen(open)
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
@@ -1019,14 +1084,14 @@ export default function KnowledgeBasePage() {
             </DialogTitle>
             <DialogDescription>
               {addCourseId
-                ? "Sube un PDF, pega un enlace o escribe texto. Se asignará directamente a este curso."
-                : "Sube un PDF, pega un enlace o escribe texto. Todo se indexa para el chat."}
+                ? "Sube un archivo (PDF, Word, PowerPoint, Excel), pega un enlace o escribe texto. Se asignará directamente a este curso."
+                : "Sube un archivo (PDF, Word, PowerPoint, Excel), pega un enlace o escribe texto. Todo se indexa para el chat."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="mb-3 inline-flex gap-1 rounded-lg border border-border bg-card/50 p-0.5">
             {[
-              { id: "pdf" as const, label: "PDF", Icon: FileIcon },
+              { id: "pdf" as const, label: "Archivo", Icon: FileIcon },
               { id: "link" as const, label: "Enlace", Icon: Link2 },
               { id: "text" as const, label: "Texto", Icon: Type },
             ].map((t) => (
@@ -1045,10 +1110,31 @@ export default function KnowledgeBasePage() {
           </div>
 
           {addTab === "pdf" && (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border/70 p-6 text-center">
-              <FileIcon className="h-8 w-8 text-muted-foreground/40" />
+            <div
+              onDragOver={(e) => {
+                if (!Array.from(e.dataTransfer.types).includes("Files")) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = "copy"
+                if (!fileDragActive) setFileDragActive(true)
+              }}
+              onDragLeave={(e) => {
+                // Ignore leave events bubbling from children inside the zone.
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return
+                setFileDragActive(false)
+              }}
+              onDrop={handleFileDrop}
+              className={`flex flex-col items-center gap-3 rounded-lg border border-dashed p-6 text-center transition-colors ${
+                fileDragActive
+                  ? "border-accent bg-accent/10"
+                  : "border-border/70"
+              }`}
+            >
+              <FileIcon
+                className={`h-8 w-8 ${fileDragActive ? "text-accent" : "text-muted-foreground/40"}`}
+              />
               <p className="text-sm text-muted-foreground">
-                Selecciona uno o más PDFs (máx. 5MB cada uno).
+                Arrastra aquí tus archivos o selecciónalos. PDF, Word, PowerPoint o Excel (máx. 25MB
+                cada uno).
               </p>
               <Button
                 variant="accent"
@@ -1058,7 +1144,7 @@ export default function KnowledgeBasePage() {
                   handleUploadClick()
                 }}
               >
-                <Plus className="h-4 w-4" /> Elegir PDF
+                <Plus className="h-4 w-4" /> Elegir archivo
               </Button>
             </div>
           )}
@@ -1187,16 +1273,29 @@ export default function KnowledgeBasePage() {
           )}
           <div className="relative min-h-0 flex-1 bg-background/50">
             {previewMode === "pdf" ? (
-              previewDoc?.fileUrl ? (
+              previewDoc?.fileUrl && (!previewDoc.sourceType || previewDoc.sourceType === "pdf") ? (
                 <iframe
                   src={previewDoc.fileUrl}
                   title={previewDoc.name}
                   className="absolute inset-0 h-full w-full border-0"
                 />
+              ) : previewDoc?.fileUrl ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+                  <FileIcon className="h-10 w-10 opacity-20" />
+                  <p>Este formato no se puede previsualizar aquí.</p>
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={previewDoc.fileUrl} target="_blank" rel="noopener noreferrer">
+                      <FileIcon className="h-3.5 w-3.5" /> Descargar archivo
+                    </a>
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={showGraphPreview}>
+                    <NetworkIcon className="h-3.5 w-3.5" /> Ver el mapa
+                  </Button>
+                </div>
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
                   <FileIcon className="h-10 w-10 opacity-20" />
-                  <p>El PDF no está disponible para este documento.</p>
+                  <p>El archivo no está disponible para este documento.</p>
                   <Button variant="outline" size="sm" onClick={showGraphPreview}>
                     <NetworkIcon className="h-3.5 w-3.5" /> Ver el mapa
                   </Button>
@@ -1212,7 +1311,7 @@ export default function KnowledgeBasePage() {
                 edges={previewGraph.edges}
                 graphStatus={previewGraph.graph_status}
                 graphError={previewGraph.graph_error}
-                centerTitle={previewDoc.name.replace(/\.pdf$/i, "")}
+                centerTitle={previewDoc.name.replace(/\.(pdf|docx|pptx|xlsx)$/i, "")}
                 onReprocess={handleReprocess}
                 editable
                 syllabusId={previewDoc.id}

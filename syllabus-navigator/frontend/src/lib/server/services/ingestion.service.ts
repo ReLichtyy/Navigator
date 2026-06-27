@@ -35,9 +35,17 @@ export const IngestionService = {
       const pending = await ChunkRepository.listPendingEmbeddings(syllabusId)
       if (pending.length > 0) {
         const vectors = await embedTexts(pending.map((c) => c.content))
-        for (let i = 0; i < pending.length; i++) {
-          await ChunkRepository.setEmbedding(pending[i].id, vectors[i])
+        // Hard invariant: one vector per chunk, in order. A mismatch means the
+        // embedding/chunk alignment is broken — fail loudly rather than persist
+        // vectors against the wrong chunks (which would silently corrupt retrieval).
+        if (vectors.length !== pending.length) {
+          throw new Error(
+            `Embedding count mismatch: ${vectors.length} vectors for ${pending.length} chunks`,
+          )
         }
+        await ChunkRepository.setEmbeddings(
+          pending.map((c, i) => ({ id: c.id, embedding: vectors[i] })),
+        )
         embedded = pending.length
       }
       await DocumentRepository.setStatus(syllabusId, "processed")

@@ -233,6 +233,39 @@ export async function uploadSyllabus(file: File) {
   })
 }
 
+// Extension → canonical MIME, so the Blob token route (allowedContentTypes) and
+// the server-side type detection both see a definite type even when the browser
+// reports an empty/generic file.type.
+const EXT_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+/**
+ * Upload via Vercel Blob client upload: the file goes straight from the browser
+ * to Blob (no ~4.5MB serverless body limit), then we hand the URL to the server
+ * to ingest. Accounts only (the token route rejects guests). Lazy-imports the
+ * blob client so it isn't in the bundle for guests / the multipart path.
+ */
+export async function uploadSyllabusViaBlob(file: File) {
+  const { upload } = await import("@vercel/blob/client")
+  const ext = file.name.toLowerCase().split(".").pop() ?? ""
+  const contentType = EXT_MIME[ext] ?? file.type ?? "application/octet-stream"
+
+  const blob = await upload(file.name, file, {
+    access: "public",
+    handleUploadUrl: `${API_BASE}/upload/blob`,
+    contentType,
+  })
+
+  return request<{ syllabus_id: string; status: string; message: string }>("/upload/from-blob", {
+    method: "POST",
+    body: JSON.stringify({ url: blob.url, filename: file.name, contentType }),
+  })
+}
+
 export async function addLink(url: string) {
   return request<{ syllabus_id: string; status: string; message: string }>("/upload/link", {
     method: "POST",
@@ -606,6 +639,18 @@ export async function recordQuizFail(scope: QuizScope, question: QuizQuestionAPI
   return request<{ success: true }>(`/study/quiz-review`, {
     method: "POST",
     body: JSON.stringify({ ...scopeParams(scope), question }),
+  })
+}
+
+/**
+ * Mark quiz bank items as served to the user so a later session never repeats
+ * them (fire-and-forget). Called at stage/quiz end with the answered ids.
+ */
+export async function markQuizSeen(scope: QuizScope, itemIds: string[]) {
+  if (itemIds.length === 0) return
+  return request<{ success: true }>(`/study/quiz-seen`, {
+    method: "POST",
+    body: JSON.stringify({ ...scopeParams(scope), itemIds }),
   })
 }
 

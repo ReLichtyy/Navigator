@@ -21,10 +21,7 @@ import { cn } from "@/lib/utils"
 import type { AttachedFile } from "@/components/navigator/types"
 import { fetchChatModels, type ChatModelAPI } from "@/lib/api"
 
-const DEFAULT_MODELS: ChatModelAPI[] = [
-  { id: "gpt-4o-mini", displayName: "GPT-4o Mini" },
-  { id: "gpt-4.1-mini", displayName: "GPT-4.1 Mini" },
-]
+const DEFAULT_MODELS: ChatModelAPI[] = [{ id: "deepseek-v4-pro", displayName: "GPT-5.5" }]
 
 // Quick-action tools: each sends a ready-made prompt to the assistant.
 const TOOLS: { id: string; label: string; prompt: string; Icon: typeof CalendarDays }[] = [
@@ -95,9 +92,13 @@ export function ChatComposer({
   const toolsRef = useRef<HTMLDivElement>(null)
 
   const hasText = value.trim().length > 0
-  const currentModelId = activeModel ?? models[0]?.id ?? "gpt-4o-mini"
+  const currentModelId = activeModel ?? models[0]?.id ?? "deepseek-v4-pro"
+  // Fall back to the (single) catalog model's name so chats created on an older
+  // model id still read "GPT-5.5" instead of a raw id.
   const currentModelLabel =
-    models.find((m) => m.id === currentModelId)?.displayName ?? currentModelId
+    models.find((m) => m.id === currentModelId)?.displayName ??
+    models[0]?.displayName ??
+    currentModelId
   const canSend = hasText && !disabled
 
   useEffect(() => {

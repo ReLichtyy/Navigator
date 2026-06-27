@@ -6,7 +6,12 @@
  */
 import { z } from "zod"
 import { runAgent } from "./_base"
-import { buildDirectives, type QuizQuestion, type StudyGenOptions } from "../study-gen"
+import {
+  buildDirectives,
+  SUBJECT_GROUNDING_POLICY,
+  type QuizQuestion,
+  type StudyGenOptions,
+} from "../study-gen"
 
 const Schema = z.object({
   quiz: z.array(
@@ -37,15 +42,16 @@ function jsonSchema(count: number): Record<string, unknown> {
             question: {
               type: "string",
               description:
-                "A question that hinges on a SPECIFIC fact, definition, relationship, formula or example " +
-                "stated in the material — not something answerable from general knowledge without reading it.",
+                "A question that tests understanding or application of a SPECIFIC concept, definition, " +
+                "relationship, formula or example from one of the course's topics — NOT a question about the " +
+                "document's schedule, dates, weights or other administrative metadata.",
             },
             options: { type: "array", items: { type: "string" }, description: "4 options (one correct, three distractors)" },
             answer: { type: "number", description: "0-based index of the single correct option" },
             explanation: {
               type: "string",
               description:
-                "Cite the concept/passage from the material that makes the answer correct, and say briefly why each distractor is wrong.",
+                "Explain the subject concept that makes the answer correct, and say briefly why each distractor is wrong.",
             },
             topic: { type: "string", description: "The topic this question assesses (a weighted topic label when provided)" },
           },
@@ -60,13 +66,13 @@ function jsonSchema(count: number): Record<string, unknown> {
 function system(count: number): string {
   return (
     "You are the inquisitor agent: you write exam-style multiple-choice questions for a university " +
-    `course. RULES: (1) Produce EXACTLY ${count} questions. (2) Every question must be answerable ONLY by ` +
-    "someone who read THIS material — anchor each on a specific fact, definition, mechanism, formula, " +
-    "value or example present in the text; reject generic questions answerable from common knowledge. " +
-    "(3) Draw the distractors from the material's OWN concepts (real terms used elsewhere in the text), " +
-    "so they are tempting but wrong — never filler like 'none of the above'. (4) Exactly ONE option is " +
-    "correct and unambiguous. (5) Cover the breadth of the material, weighting heavier exam topics more. " +
-    "(6) Never invent facts, dates or topics not in the material. (7) Preserve the language of the material."
+    `course. ${SUBJECT_GROUNDING_POLICY} RULES: (1) Produce EXACTLY ${count} questions. (2) Each question ` +
+    "must test genuine understanding or application of the subject — a concept, definition, mechanism, " +
+    "formula, relationship or worked example from one of the course's topics; reject trivia and anything " +
+    "about the document's metadata (schedule, dates, weights). (3) Draw the distractors from real, related " +
+    "concepts of the subject so they are tempting but wrong — never filler like 'none of the above'. " +
+    "(4) Exactly ONE option is correct and unambiguous. (5) Cover the breadth of the course's topics, " +
+    "weighting heavier exam topics more."
   )
 }
 

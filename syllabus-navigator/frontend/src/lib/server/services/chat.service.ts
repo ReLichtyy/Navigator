@@ -10,7 +10,7 @@ import { ChatRepository } from "../repositories/chat.repo"
 import { ScheduleRepository, type ScheduleEvent } from "../repositories/schedule.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { RetrievalService, GROUNDED_SYSTEM_PROMPT, NO_CONTEXT_MESSAGE } from "./retrieval.service"
-import type { LLMMessage } from "@/lib/llm"
+import type { LLMMessage, LLMProvider } from "@/lib/llm"
 import type { CitationAPI } from "@/types/api"
 import { flags } from "@/lib/config/flags"
 import { runToolLoop } from "@/lib/llm/tools-loop"
@@ -70,7 +70,7 @@ async function buildScheduleContext(userId: string): Promise<string> {
  */
 async function resolveToolsIfEnabled(
   messages: LLMMessage[],
-  config: { provider: "openai" | "openrouter"; model: string },
+  config: { provider: LLMProvider; model: string },
   ctx: { userId: string; syllabusId: string | null; chatId: string },
 ): Promise<{ messages: LLMMessage[]; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
   const noUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
@@ -230,7 +230,10 @@ export const ChatService = {
             { role: "system", content: titlePrompt.system },
             { role: "user", content: titlePrompt.userMessage ?? question },
           ],
-          { provider: routing.provider, model: routing.model, maxTokens: 20 },
+          // Higher cap so reasoning models (e.g. deepseek-v4-pro) have room to
+          // emit an actual title after their hidden reasoning tokens; cheaper
+          // models still stop early at the end-of-title.
+          { provider: routing.provider, model: routing.model, maxTokens: 512 },
         )
         title = titleResp.content.trim().replace(/^["']|["']$/g, "") || question.slice(0, 48)
         await ChatRepository.updateTitle(chatId, title)
@@ -332,7 +335,10 @@ export const ChatService = {
               { role: "system", content: titlePrompt.system },
               { role: "user", content: titlePrompt.userMessage ?? question },
             ],
-            { provider: routing.provider, model: routing.model, maxTokens: 20 },
+            // Higher cap so reasoning models (e.g. deepseek-v4-pro) have room to
+            // emit an actual title after their hidden reasoning tokens; cheaper
+            // models still stop early at the end-of-title.
+            { provider: routing.provider, model: routing.model, maxTokens: 512 },
           )
           const title =
             titleResp.content.trim().replace(/^["']|["']$/g, "") || question.slice(0, 48)

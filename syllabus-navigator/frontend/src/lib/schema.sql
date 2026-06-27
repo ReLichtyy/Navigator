@@ -436,3 +436,19 @@ CREATE TABLE IF NOT EXISTS quiz_review (
 );
 CREATE INDEX IF NOT EXISTS idx_quiz_review_open
   ON quiz_review (user_id, scope_kind, scope_id) WHERE resolved_at IS NULL;
+
+-- Per-user ledger of quiz bank items already SERVED to a user, so a later session
+-- never repeats them. Failed items also live in quiz_review (re-surfaced via
+-- Repaso); this table is the broader "already seen, don't serve again" set. The
+-- bank (study_items) is shared per scope; this makes consumption per-user.
+CREATE TABLE IF NOT EXISTS quiz_seen (
+  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope_kind  TEXT        NOT NULL,            -- 'doc' | 'course'
+  scope_id    UUID        NOT NULL,            -- syllabus_uploads.id | user_courses.id
+  item_id     UUID        NOT NULL,            -- study_items.id served to this user
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, scope_kind, scope_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_seen_scope
+  ON quiz_seen (user_id, scope_kind, scope_id);

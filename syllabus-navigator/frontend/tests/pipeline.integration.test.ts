@@ -104,6 +104,8 @@ vi.mock("@/lib/server/rag/chunking", () => ({
   meaningfulTextLength: vi.fn(() => 9999),
   textToChunks: vi.fn((t: string) => [{ text: t, pageStart: null, pageEnd: null }]),
   fetchUrlText: vi.fn(async () => ({ title: "Doc", text: "x" })),
+  // Pass-through: identity under the test's small fixtures (always within budget).
+  capChunks: vi.fn((chunks: unknown[]) => chunks),
 }))
 
 vi.mock("@/lib/server/storage/blob", () => ({
@@ -180,6 +182,13 @@ vi.mock("@/lib/server/repositories/chunk.repo", () => ({
     setEmbedding: vi.fn(async (chunkId: string, embedding: number[]) => {
       const c = store.chunks.find((x) => x.id === chunkId)
       if (c) c.embedding = embedding
+    }),
+    setEmbeddings: vi.fn(async (items: { id: string; embedding: number[] }[]) => {
+      for (const it of items) {
+        const c = store.chunks.find((x) => x.id === it.id)
+        if (c) c.embedding = it.embedding
+      }
+      return items.length
     }),
     getConcatenatedText: vi.fn(async (syllabusId: string) =>
       store.chunks

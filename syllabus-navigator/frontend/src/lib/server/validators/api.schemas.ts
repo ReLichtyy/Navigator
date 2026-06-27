@@ -17,8 +17,17 @@ export const UploadTextSchema = z.object({
     .max(200_000, "El texto excede el límite (200k caracteres)"),
 })
 
+// Client→Blob direct upload: after the browser uploads to Vercel Blob, it sends
+// the resulting URL here for ingestion. The URL host is re-validated server-side.
+export const UploadFromBlobSchema = z.object({
+  url: z.string().url("URL inválida").max(2048, "URL demasiado larga"),
+  filename: z.string().trim().min(1, "Nombre de archivo requerido").max(512),
+  contentType: z.string().max(255).optional(),
+})
+
 export type UploadLinkInput = z.infer<typeof UploadLinkSchema>
 export type UploadTextInput = z.infer<typeof UploadTextSchema>
+export type UploadFromBlobInput = z.infer<typeof UploadFromBlobSchema>
 
 export const CreateChatSchema = z.object({
   syllabus_id: z.string().uuid("Invalid syllabus ID").optional(),

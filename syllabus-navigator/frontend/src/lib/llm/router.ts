@@ -9,6 +9,7 @@ import type { LLMProvider } from "./types"
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, getModelDef, MODELS } from "./config"
 import { openaiProvider } from "./providers/openai"
 import { openrouterProvider } from "./providers/openrouter"
+import { deepseekProvider } from "./providers/deepseek"
 import { logWarn } from "@/lib/observability/logger"
 
 export interface RoutingContext {
@@ -103,12 +104,21 @@ export function selectModel(ctx: RoutingContext): RoutingDecision {
           reason: "User model preference",
         }
       }
+      if (provider === "deepseek" && deepseekProvider.isConfigured()) {
+        return { provider: "deepseek", model: ctx.preferredModel, reason: "User model preference" }
+      }
     }
   }
 
-  // Default routing
+  // Default routing — honor the configured DEFAULT_PROVIDER first.
+  if (DEFAULT_PROVIDER === "deepseek" && deepseekProvider.isConfigured()) {
+    return { provider: "deepseek", model: DEFAULT_MODEL, reason: "Default (DeepSeek)" }
+  }
   if (openaiProvider.isConfigured()) {
     return { provider: "openai", model: DEFAULT_MODEL, reason: "Default (OpenAI)" }
+  }
+  if (deepseekProvider.isConfigured()) {
+    return { provider: "deepseek", model: DEFAULT_MODEL, reason: "Default fallback (DeepSeek)" }
   }
 
   if (openrouterProvider.isConfigured()) {
@@ -140,6 +150,7 @@ export function getAvailableModels(userTier: "guest" | "free" | "pro" | "admin")
     // Provider availability check
     if (model.provider === "openai" && !openaiProvider.isConfigured()) continue
     if (model.provider === "openrouter" && !openrouterProvider.isConfigured()) continue
+    if (model.provider === "deepseek" && !deepseekProvider.isConfigured()) continue
 
     available.push(model.id)
   }

@@ -2,7 +2,7 @@
  * llm/types.ts — Shared types for the LLM provider abstraction.
  */
 
-export type LLMProvider = "openai" | "openrouter"
+export type LLMProvider = "openai" | "openrouter" | "deepseek"
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant"

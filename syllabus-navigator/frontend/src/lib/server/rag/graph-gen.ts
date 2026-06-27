@@ -106,7 +106,9 @@ export async function extractGraphFromText(syllabusText: string): Promise<GraphN
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Extract the topic graph from the following syllabus text:\n\n${syllabusText}`,
+          // Cap the prompt so a large document doesn't make this call slow/costly.
+          // ~15k tokens covers a syllabus' structure; the graph is an overview map.
+          content: `Extract the topic graph from the following syllabus text:\n\n${syllabusText.slice(0, 60_000)}`,
         },
       ],
       response_format: {

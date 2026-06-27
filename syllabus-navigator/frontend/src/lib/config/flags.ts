@@ -14,7 +14,7 @@ import type { LLMProvider } from "@/lib/llm/types"
 /** Vector store backends the retrieval layer knows how to talk to. */
 export type VectorBackend = "pgvector"
 
-const KNOWN_PROVIDERS: readonly LLMProvider[] = ["openai", "openrouter"]
+const KNOWN_PROVIDERS: readonly LLMProvider[] = ["openai", "openrouter", "deepseek"]
 const KNOWN_VECTOR_BACKENDS: readonly VectorBackend[] = ["pgvector"]
 
 function warn(message: string): void {

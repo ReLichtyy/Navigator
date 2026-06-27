@@ -4,7 +4,12 @@
  */
 import { z } from "zod"
 import { runAgent } from "./_base"
-import { buildDirectives, type Flashcard, type StudyGenOptions } from "../study-gen"
+import {
+  buildDirectives,
+  SUBJECT_GROUNDING_POLICY,
+  type Flashcard,
+  type StudyGenOptions,
+} from "../study-gen"
 
 const Schema = z.object({
   flashcards: z.array(z.object({ front: z.string(), back: z.string() })),
@@ -32,10 +37,11 @@ const JSON_SCHEMA = {
 } as const
 
 const SYSTEM =
-  "You are the flashcard agent for a university course. From the supplied course material produce " +
-  "study flashcards: mostly concept→definition, plus a few cloze (fill-in-the-blank) cards. Stay " +
-  "grounded in the material — you may rephrase, combine and create fresh angles, but never invent " +
-  "facts, dates or topics that are not present. Preserve the language of the material."
+  "You are the flashcard agent for a university course. " +
+  SUBJECT_GROUNDING_POLICY +
+  " Produce study flashcards that teach the subject: mostly concept→definition, plus a few cloze " +
+  "(fill-in-the-blank) cards. You may rephrase, combine and create fresh angles. Never make cards " +
+  "about the document's schedule, dates or weights."
 
 export async function flashcardAgent(
   evidence: string,

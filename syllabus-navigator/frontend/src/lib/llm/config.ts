@@ -22,62 +22,19 @@ export interface ModelDefinition {
 export const DEFAULT_PROVIDER: LLMProvider = flags.llmProvider
 export const DEFAULT_MODEL = flags.llmModel
 
+// Single user-facing model. Shown as "GPT-5.5" in the assistant picker, but the
+// `id` is the real model sent to the provider (deepseek-v4-pro on DeepSeek) — the
+// label is cosmetic.
 export const MODELS: ModelDefinition[] = [
   {
-    id: "gpt-5.5",
-    provider: "openai",
+    id: "deepseek-v4-pro",
+    provider: "deepseek",
     displayName: "GPT-5.5",
-    contextWindow: 400_000,
-    // Pricing is an estimate — adjust to the real OpenAI rate when published.
-    costPer1kPrompt: 0.005,
-    costPer1kCompletion: 0.015,
-    tier: "pro",
-  },
-  {
-    id: "gpt-4o-mini",
-    provider: "openai",
-    displayName: "GPT-4o Mini",
     contextWindow: 128_000,
-    costPer1kPrompt: 0.00015,
-    costPer1kCompletion: 0.0006,
+    // Pricing is an estimate — adjust to the real DeepSeek rate when published.
+    costPer1kPrompt: 0.0003,
+    costPer1kCompletion: 0.0011,
     tier: "free",
-  },
-  {
-    id: "gpt-4o",
-    provider: "openai",
-    displayName: "GPT-4o",
-    contextWindow: 128_000,
-    costPer1kPrompt: 0.0025,
-    costPer1kCompletion: 0.01,
-    tier: "pro",
-  },
-  {
-    id: "gpt-4.1-mini",
-    provider: "openai",
-    displayName: "GPT-4.1 Mini",
-    contextWindow: 1_000_000,
-    costPer1kPrompt: 0.0004,
-    costPer1kCompletion: 0.0016,
-    tier: "free",
-  },
-  // OpenRouter models (accessible when OPENROUTER_API_KEY is set)
-  {
-    id: "openai/gpt-4o-mini",
-    provider: "openrouter",
-    displayName: "GPT-4o Mini (via OpenRouter)",
-    contextWindow: 128_000,
-    costPer1kPrompt: 0.00015,
-    costPer1kCompletion: 0.0006,
-    tier: "pro",
-  },
-  {
-    id: "anthropic/claude-3-haiku",
-    provider: "openrouter",
-    displayName: "Claude 3 Haiku (via OpenRouter)",
-    contextWindow: 200_000,
-    costPer1kPrompt: 0.00025,
-    costPer1kCompletion: 0.00125,
-    tier: "pro",
   },
 ]
 
@@ -90,6 +47,15 @@ export const MODELS: ModelDefinition[] = [
  */
 export function isNextGenModel(modelId: string): boolean {
   return /^(gpt-5|o[134])/.test(modelId)
+}
+
+/**
+ * Models that reject a custom `temperature` (and other sampling params): the
+ * GPT-5/o-series next-gen families plus reasoning models like DeepSeek-Reasoner.
+ * Callers omit temperature for these to avoid 400s.
+ */
+export function isReasoningModel(modelId: string): boolean {
+  return isNextGenModel(modelId) || /(reasoner|reasoning|deepseek-r|[-/]r1\b)/i.test(modelId)
 }
 
 // Warn (once per unknown id) when metering can't price a model, so a misconfigured

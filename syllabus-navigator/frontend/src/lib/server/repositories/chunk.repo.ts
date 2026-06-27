@@ -72,6 +72,35 @@ export const ChunkRepository = {
     await sql`UPDATE chunks SET embedding = ${vec}::vector WHERE id = ${chunkId}::uuid`
   },
 
+  /**
+   * Phase 2 (worker): write many embeddings in one round-trip per slice via a
+   * single `UPDATE ... FROM (VALUES ...)`. Replaces the per-chunk UPDATE loop,
+   * which cost one serverless DB round-trip per chunk. Sliced to stay well under
+   * Postgres' parameter cap (2 params/row).
+   */
+  async setEmbeddings(items: { id: string; embedding: number[] }[]): Promise<number> {
+    if (items.length === 0) return 0
+    const SLICE = 500
+    for (let i = 0; i < items.length; i += SLICE) {
+      const slice = items.slice(i, i + SLICE)
+      const values: string[] = []
+      const params: unknown[] = []
+      let p = 1
+      for (const it of slice) {
+        values.push(`($${p++}::uuid, $${p++}::vector)`)
+        params.push(it.id, toVectorLiteral(it.embedding))
+      }
+      const text = `
+        UPDATE chunks AS c
+        SET embedding = v.embedding
+        FROM (VALUES ${values.join(", ")}) AS v(id, embedding)
+        WHERE c.id = v.id
+      `
+      await sql.query(text, params)
+    }
+    return items.length
+  },
+
   /** Full text of a syllabus (ordered) — used for graph generation. */
   async getConcatenatedText(syllabusId: string): Promise<string> {
     const rows = await sql`
@@ -105,7 +134,10 @@ export const ChunkRepository = {
       byDoc.set(r.original_filename, arr)
     }
     return [...byDoc.entries()]
-      .map(([name, parts]) => `## ${name.replace(/\.pdf$/i, "")}\n\n${parts.join("\n\n")}`)
+      .map(
+        ([name, parts]) =>
+          `## ${name.replace(/\.(pdf|docx|pptx|xlsx)$/i, "")}\n\n${parts.join("\n\n")}`,
+      )
       .join("\n\n")
   },
 

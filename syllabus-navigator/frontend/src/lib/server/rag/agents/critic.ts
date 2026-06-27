@@ -38,16 +38,18 @@ const QUIZ_JSON_SCHEMA = {
           index: { type: "number", description: "The question's index as given" },
           sound: {
             type: "boolean",
-            description: "exactly one option is correct per the material AND the marked answer is that option",
+            description: "exactly one option is correct for the subject AND the marked answer is that option",
           },
           grounded: {
             type: "boolean",
             description:
-              "answering REQUIRES this material — anchored to a specific fact/definition/value/mechanism/example in the text, not general knowledge",
+              "on-subject — the question tests a concept/definition/method/example from one of the course's " +
+              "topics (the subject the material covers), NOT the document's administrative metadata (schedule, " +
+              "dates, weights) and NOT an unrelated subject. Mark false for meta/document or off-topic questions.",
           },
           substantive: {
             type: "boolean",
-            description: "tests real understanding/application, not trivia/tautology/filler",
+            description: "tests real understanding/application of the subject, not trivia/tautology/filler",
           },
         },
         required: ["index", "sound", "grounded", "substantive"],
@@ -58,12 +60,15 @@ const QUIZ_JSON_SCHEMA = {
 } as const
 
 const QUIZ_SYSTEM =
-  "You are a strict exam-question critic. Given the source material and a numbered list of " +
-  "multiple-choice questions, judge EACH question on three axes: (1) sound — exactly one option is " +
-  "correct per the material and the marked answer is that option; (2) grounded — answering requires " +
-  "having read THIS material (anchored to a specific fact/definition/value/mechanism/example), not " +
-  "general knowledge; (3) substantive — it tests understanding/application, not trivia or filler. Be " +
-  "skeptical: when in doubt on an axis, mark it false. Return one verdict per question index."
+  "You are a strict exam-question critic. The source material is the course's topics (often only an " +
+  "outline — titles, schedule, weights); a good question develops the academic SUBJECT of those topics, " +
+  "it does NOT quiz the document. Given the material and a numbered list of multiple-choice questions, " +
+  "judge EACH on three axes: (1) sound — exactly one option is correct for the subject and the marked " +
+  "answer is that option; (2) grounded — the question is ON the course's subject (a concept/definition/" +
+  "method/example from a topic the material covers) and NOT about the document's metadata (schedule, " +
+  "dates, weights) nor an unrelated subject — mark false for document/meta or off-topic questions; " +
+  "(3) substantive — it tests understanding/application, not trivia or filler. Be skeptical: when in " +
+  "doubt on an axis, mark it false. Return one verdict per question index."
 
 export interface QuizVerdict {
   sound: boolean
@@ -132,8 +137,13 @@ const CARD_JSON_SCHEMA = {
         additionalProperties: false,
         properties: {
           index: { type: "number", description: "The card's index as given" },
-          accurate: { type: "boolean", description: "the back correctly defines/answers the front per the material" },
-          grounded: { type: "boolean", description: "both sides come from THIS material, not generic outside knowledge" },
+          accurate: { type: "boolean", description: "the back correctly defines/answers the front for the subject" },
+          grounded: {
+            type: "boolean",
+            description:
+              "on-subject — both sides concern the course's actual subject (a topic the material covers), not " +
+              "the document's metadata (schedule, dates, weights) and not an unrelated subject",
+          },
           substantive: { type: "boolean", description: "teaches something worth knowing, not trivia/tautology" },
         },
         required: ["index", "accurate", "grounded", "substantive"],
@@ -144,11 +154,14 @@ const CARD_JSON_SCHEMA = {
 } as const
 
 const CARD_SYSTEM =
-  "You are a strict flashcard critic. Given the source material and a numbered list of concept→" +
-  "definition (or cloze) cards, judge EACH on three axes: (1) accurate — the back correctly defines/" +
-  "answers the front per the material, no factual error; (2) grounded — both sides come from THIS " +
-  "material, not generic outside knowledge; (3) substantive — teaches something worth knowing, not " +
-  "trivia or a tautology. Be skeptical: when in doubt on an axis, mark it false. One verdict per index."
+  "You are a strict flashcard critic. The source material is the course's topics (often only an outline); " +
+  "a good card teaches the academic SUBJECT of those topics, it does NOT quiz the document. Given the " +
+  "material and a numbered list of concept→definition (or cloze) cards, judge EACH on three axes: " +
+  "(1) accurate — the back correctly defines/answers the front for the subject, no factual error; " +
+  "(2) grounded — both sides concern the course's actual subject (a topic the material covers), not the " +
+  "document's metadata (schedule, dates, weights) and not an unrelated subject; (3) substantive — teaches " +
+  "something worth knowing, not trivia or a tautology. Be skeptical: when in doubt on an axis, mark it " +
+  "false. One verdict per index."
 
 export interface CardVerdict {
   accurate: boolean

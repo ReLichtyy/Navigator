@@ -6,6 +6,7 @@ import { z } from "zod"
 import { runAgent } from "./_base"
 import {
   buildDirectives,
+  SUBJECT_GROUNDING_POLICY,
   type StudyGenOptions,
   type SummaryPoint,
   type MindBranch,
@@ -88,9 +89,10 @@ const JSON_SCHEMA = {
 } as const
 
 const SYSTEM =
-  "You are the synthesizer agent: from the supplied course material produce a faithful summary, a " +
-  "mind map, and a weight-ordered study guide. Ground everything ONLY in the material — never invent " +
-  "facts. Preserve the language of the material."
+  "You are the synthesizer agent: produce a summary, a mind map, and a weight-ordered study guide that " +
+  "capture the SUBJECT of the course (the actual academic content of its topics, not the document's " +
+  "schedule/weights). " +
+  SUBJECT_GROUNDING_POLICY
 
 export interface SynthResult {
   summary: { intro: string; points: SummaryPoint[] }

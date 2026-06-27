@@ -121,7 +121,9 @@ export async function extractScheduleFromText(syllabusText: string): Promise<Ext
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: `Extract the schedule from this syllabus text:\n\n${syllabusText}`,
+          // Cap the prompt so a large document doesn't make this call slow/costly.
+          // Schedule items (dates, exams) cluster near the top of a syllabus.
+          content: `Extract the schedule from this syllabus text:\n\n${syllabusText.slice(0, 60_000)}`,
         },
       ],
       response_format: {
