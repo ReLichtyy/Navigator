@@ -42,7 +42,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   const [pos, setPos] = useState(0)
   const [stage, setStage] = useState(0)
   const [stages, setStages] = useState(3)
-  const [difficulty, setDifficulty] = useState<StudyDifficulty>("facil")
+  const [difficulty, setDifficulty] = useState<StudyDifficulty>("medio")
 
   const [selected, setSelected] = useState<number | null>(null)
   const [answered, setAnswered] = useState(false)

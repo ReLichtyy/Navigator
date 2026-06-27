@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ChevronDown,
   FileText,
+  Globe,
   Paperclip,
   Plus,
   X,
@@ -62,6 +63,8 @@ export function ChatComposer({
   onRemoveAttachment,
   onSend,
   onModelChange,
+  webSearch,
+  onWebSearchChange,
 }: {
   attachments: AttachedFile[]
   activeModel?: string
@@ -71,9 +74,19 @@ export function ChatComposer({
   onRemoveAttachment: (id: string) => void
   onSend: (text: string) => void | Promise<boolean>
   onModelChange?: (model: string) => void
+  webSearch?: boolean
+  onWebSearchChange?: (on: boolean) => void
 }) {
   const [value, setValue] = useState("")
   const [isDragging, setIsDragging] = useState(false)
+  // Self-managed when uncontrolled; mirrors `webSearch` prop when provided.
+  const [webSearchInner, setWebSearchInner] = useState(false)
+  const webSearchOn = webSearch ?? webSearchInner
+  const toggleWebSearch = () => {
+    const nextOn = !webSearchOn
+    setWebSearchInner(nextOn)
+    onWebSearchChange?.(nextOn)
+  }
   const [models, setModels] = useState<ChatModelAPI[]>(DEFAULT_MODELS)
   const [modelOpen, setModelOpen] = useState(false)
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -235,6 +248,21 @@ export function ChatComposer({
           >
             <Plus className="h-[18px] w-[18px]" />
           </button>
+          <button
+            type="button"
+            onClick={toggleWebSearch}
+            aria-pressed={webSearchOn}
+            disabled={disabled}
+            aria-label="Buscar en la web"
+            className={cn(
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors disabled:opacity-50",
+              webSearchOn
+                ? "border-accent/40 bg-accent/[0.06] text-accent"
+                : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+            )}
+          >
+            <Globe className="h-[18px] w-[18px]" />
+          </button>
           <textarea
             value={value}
             onChange={(e) => setValue(e.target.value)}
@@ -392,6 +420,23 @@ export function ChatComposer({
                 </div>
               )}
             </div>
+
+            <button
+              type="button"
+              onClick={toggleWebSearch}
+              aria-pressed={webSearchOn}
+              disabled={disabled}
+              title="Buscar en la web"
+              className={cn(
+                "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                webSearchOn
+                  ? "border-accent/40 bg-accent/[0.06] text-accent"
+                  : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
+              )}
+            >
+              <Globe className="h-4 w-4" strokeWidth={2.25} />
+              <span className="hidden sm:inline">Web</span>
+            </button>
 
             <button
               type="button"

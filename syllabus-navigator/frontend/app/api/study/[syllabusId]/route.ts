@@ -19,8 +19,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ syllabus
     const d = sp.get("difficulty")
     const difficulty = d === "facil" || d === "medio" || d === "dificil" ? d : undefined
     const topic = sp.get("topic")?.slice(0, 160) || undefined
+    const web = sp.get("web") === "1"
 
-    const data = await StudyService.getStudySet(userId, syllabusId, { refresh, difficulty, topic })
+    const data = await StudyService.getStudySet(userId, syllabusId, {
+      refresh,
+      difficulty,
+      topic,
+      web,
+    })
     return NextResponse.json({ syllabus_id: syllabusId, ...data })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {

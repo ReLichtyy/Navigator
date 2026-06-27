@@ -2,6 +2,7 @@
 
 import {
   ArrowUpRight,
+  ChevronDown,
   Compass,
   FileText,
   Link2,
@@ -242,6 +243,37 @@ function CitationItem({ c }: { c: NonNullable<Message["citations"]>[number] }) {
   return <div className={cls}>{inner}</div>
 }
 
+/** Collapsible "Fuentes" block. Collapsed by default to keep answers compact. */
+function CitationList({ citations }: { citations: NonNullable<Message["citations"]> }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-3 border-t border-border/60 pt-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 transition-transform", open ? "rotate-0" : "-rotate-90")}
+        />
+        Fuentes
+        <span className="font-normal normal-case tracking-normal text-muted-foreground/70">
+          ({citations.length})
+        </span>
+      </button>
+      {open && (
+        <ul className="mt-1.5 flex flex-col gap-1.5">
+          {citations.map((c, i) => (
+            <li key={`${c.chunk_id}-${i}`}>
+              <CitationItem c={c} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function MessageBubble({ message, onRegenerate }: { message: Message; onRegenerate?: () => void }) {
   const isUser = message.role === "user"
   const [vote, setVote] = useState<"up" | "down" | null>(null)
@@ -292,18 +324,7 @@ function MessageBubble({ message, onRegenerate }: { message: Message; onRegenera
               <Markdown content={message.content} />
             </div>
             {message.citations && message.citations.length > 0 && (
-              <div className="mt-3 border-t border-border/60 pt-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
-                  Fuentes
-                </p>
-                <ul className="flex flex-col gap-1.5">
-                  {message.citations.map((c, i) => (
-                    <li key={`${c.chunk_id}-${i}`}>
-                      <CitationItem c={c} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <CitationList citations={message.citations} />
             )}
 
             {/* Feedback loop: record the vote, confirm visually, and offer a

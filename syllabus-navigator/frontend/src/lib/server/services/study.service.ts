@@ -28,6 +28,7 @@ import {
 import { QuizReviewRepository, type ReviewQuestion } from "../repositories/quiz-review.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
+import { webSearchContext, appendWebContext } from "../rag/web-search"
 import { orchestrateStudySet } from "../rag/orchestrator/runner"
 import { inquisitorAgent } from "../rag/agents/inquisitor"
 import { gateQuiz } from "../rag/eval/gates"
@@ -69,10 +70,12 @@ export interface QuizStage {
  * Hybrid escalation (mastery + score): mastery sets the base rung, the stage index
  * climbs the ladder, and the client-supplied `boost` (earned by acing prior stages)
  * accelerates it. Never drops below the base — failing a stage doesn't punish.
+ * Floor is `medio` (idx 1): the quiz always starts from medium and climbs — strong
+ * mastery starts at difícil. Difficulty is fully automatic; there's no manual picker.
  */
 function stageDifficulty(stage: number, masteryAvg: number, boost: number): Difficulty {
-  const base = masteryAvg >= 0.4 ? 1 : 0
-  const idx = Math.min(DIFFICULTY_LADDER.length - 1, Math.max(0, base + stage + boost))
+  const base = masteryAvg >= 0.6 ? 2 : 1
+  const idx = Math.min(DIFFICULTY_LADDER.length - 1, Math.max(1, base + stage + boost))
   return DIFFICULTY_LADDER[idx]
 }
 
@@ -240,14 +243,16 @@ export const StudyService = {
   async getStudySet(
     userId: string,
     syllabusId: string,
-    opts: { refresh?: boolean; difficulty?: Difficulty; topic?: string } = {},
+    opts: { refresh?: boolean; difficulty?: Difficulty; topic?: string; web?: boolean } = {},
   ): Promise<StudySet> {
     const doc = await DocumentRepository.findByIdAndUser(syllabusId, userId)
     if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
 
     const topic = opts.topic?.trim() || undefined
     const difficulty = opts.difficulty ?? "medio"
-    const custom = !!topic || difficulty !== "medio"
+    // Web-augmented sets pull live external context → always fresh, never cached
+    // (so they can't clobber the canonical doc-only default set).
+    const custom = !!topic || difficulty !== "medio" || !!opts.web
     const scope: StudyScope = { kind: "doc", id: syllabusId }
     const fingerprint = await ChunkRepository.contentFingerprint(syllabusId)
 
@@ -275,7 +280,7 @@ export const StudyService = {
     // syllabus is covered, not just the first 24k chars. A focus topic, if given,
     // leads the retrieval. Falls back to the full concatenated text.
     const labels = topic ? [topic, ...ordered] : ordered
-    const text =
+    let text =
       (await buildContextByTopics({ kind: "doc", id: syllabusId }, labels)) ??
       (await ChunkRepository.getConcatenatedText(syllabusId))
     if (!text || text.trim().length < 80) {
@@ -283,6 +288,14 @@ export const StudyService = {
         "This course doesn't have enough indexed material yet. Try again once processing finishes.",
         409,
       )
+    }
+
+    // Web augmentation: run a live web search (focus topic, else the document's
+    // subject) and append the grounded notes as supplementary source material.
+    if (opts.web) {
+      const query = topic ?? doc.original_filename.replace(/\.pdf$/i, "")
+      const web = await webSearchContext(query)
+      if (web) text = appendWebContext(text, web)
     }
 
     // Step 3+4: specialized agents (flashcard/inquisitor/synth) + answer-correctness
@@ -316,14 +329,15 @@ export const StudyService = {
   async getCourseStudySet(
     userId: string,
     courseId: string,
-    opts: { refresh?: boolean; difficulty?: Difficulty; topic?: string } = {},
+    opts: { refresh?: boolean; difficulty?: Difficulty; topic?: string; web?: boolean } = {},
   ): Promise<StudySet> {
     const course = await CourseRepository.findByIdAndUser(courseId, userId)
     if (!course) throw new ApiErrorResponse("Course not found", 404)
 
     const topic = opts.topic?.trim() || undefined
     const difficulty = opts.difficulty ?? "medio"
-    const custom = !!topic || difficulty !== "medio"
+    // Web-augmented sets are always fresh (see getStudySet).
+    const custom = !!topic || difficulty !== "medio" || !!opts.web
     const scope: StudyScope = { kind: "course", id: courseId }
     const fingerprint = await ChunkRepository.contentFingerprintByCourse(userId, courseId)
 
@@ -336,7 +350,7 @@ export const StudyService = {
     // (hybrid). Otherwise use the full concatenated text (no course-level topic
     // graph yet — see rag-report §8.5).
     const focusLabels = topic ? [topic] : []
-    const text =
+    let text =
       (await buildContextByTopics({ kind: "course", id: courseId, userId }, focusLabels)) ??
       (await ChunkRepository.getConcatenatedTextByCourse(userId, courseId))
     if (!text || text.trim().length < 80) {
@@ -344,6 +358,12 @@ export const StudyService = {
         "This course doesn't have enough indexed material yet. Add or finish processing documents first.",
         409,
       )
+    }
+
+    // Web augmentation: live search on the focus topic (else the course name).
+    if (opts.web) {
+      const web = await webSearchContext(topic ?? course.name)
+      if (web) text = appendWebContext(text, web)
     }
 
     const excludeSeen = await seenTexts(scope)

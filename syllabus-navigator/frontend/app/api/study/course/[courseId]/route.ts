@@ -21,11 +21,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ courseId
     const d = sp.get("difficulty")
     const difficulty = d === "facil" || d === "medio" || d === "dificil" ? d : undefined
     const topic = sp.get("topic")?.slice(0, 160) || undefined
+    const web = sp.get("web") === "1"
 
     const data = await StudyService.getCourseStudySet(userId, courseId, {
       refresh,
       difficulty,
       topic,
+      web,
     })
     return NextResponse.json({ course_id: courseId, ...data })
   } catch (err) {

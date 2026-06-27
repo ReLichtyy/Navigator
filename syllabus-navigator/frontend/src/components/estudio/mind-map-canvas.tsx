@@ -1,6 +1,6 @@
 "use client"
 
-import { CSSProperties, useState } from "react"
+import { CSSProperties, useRef, useState } from "react"
 import {
   Plus,
   Minus,
@@ -81,6 +81,9 @@ export function MindMapCanvas({
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [drag, setDrag] = useState<{ x: number; y: number; px: number; py: number } | null>(null)
+  // Did the pointer actually pan? Distinguishes a real drag from a click so a
+  // click on the empty canvas can deselect without a pan being mistaken for one.
+  const moved = useRef(false)
   // selection / expansion
   const [selNode, setSelNode] = useState<string | null>(null)
   const [exp, setExp] = useState<Record<string, boolean>>({})
@@ -108,13 +111,29 @@ export function MindMapCanvas({
     setZoom(1)
     setPan({ x: 0, y: 0 })
   }
-  const panStart = (e: React.MouseEvent) =>
+  const panStart = (e: React.MouseEvent) => {
+    moved.current = false
     setDrag({ x: e.clientX, y: e.clientY, px: pan.x, py: pan.y })
+  }
   const panMove = (e: React.MouseEvent) => {
     if (!drag) return
-    setPan({ x: drag.px + (e.clientX - drag.x), y: drag.py + (e.clientY - drag.y) })
+    const dx = e.clientX - drag.x
+    const dy = e.clientY - drag.y
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved.current = true
+    setPan({ x: drag.px + dx, y: drag.py + dy })
   }
   const panEnd = () => setDrag(null)
+
+  // Click on empty canvas (not a node, not after a pan) → exit: deselect and
+  // collapse any open branch. Node clicks stopPropagation so they never reach this.
+  const clearSelection = () => {
+    if (moved.current) {
+      moved.current = false
+      return
+    }
+    setSelNode(null)
+    setExp({})
+  }
 
   const toggleNode = (id: string) => {
     setExp((e) => ({ ...e, [id]: !e[id] }))
@@ -221,7 +240,7 @@ export function MindMapCanvas({
         }}
       >
         {/* world: edges + nodes */}
-        <div style={worldStyle}>
+        <div style={worldStyle} onClick={clearSelection}>
           <svg
             width={980}
             height={540}
@@ -258,7 +277,10 @@ export function MindMapCanvas({
 
           {/* center node */}
           <div
-            onClick={() => setSelNode((s) => (s === "center" ? null : "center"))}
+            onClick={(e) => {
+              e.stopPropagation()
+              setSelNode((s) => (s === "center" ? null : "center"))
+            }}
             onDoubleClick={() => onTopicDouble?.(mindmap.center)}
             style={{
               position: "absolute",
@@ -302,6 +324,7 @@ export function MindMapCanvas({
             return (
               <div
                 key={id}
+                onClick={(e) => e.stopPropagation()}
                 onDoubleClick={() => onTopicDouble?.(b.label)}
                 style={{
                   position: "absolute",

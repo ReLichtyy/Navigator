@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes"
 import { UserProvider } from "@/context/UserContext"
 import { SyllabusProvider } from "@/context/SyllabusContext"
 import { AuthModalProvider } from "@/context/AuthModalContext"
+import { BienvenidaGate } from "@/components/bienvenida/bienvenida-gate"
 
 export default function ClientProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -16,7 +17,10 @@ export default function ClientProviders({ children }: { children: React.ReactNod
     >
       <UserProvider>
         <SyllabusProvider>
-          <AuthModalProvider>{children}</AuthModalProvider>
+          <AuthModalProvider>
+            {children}
+            <BienvenidaGate />
+          </AuthModalProvider>
         </SyllabusProvider>
       </UserProvider>
     </ThemeProvider>

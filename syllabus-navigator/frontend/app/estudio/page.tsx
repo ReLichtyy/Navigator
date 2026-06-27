@@ -38,7 +38,6 @@ import {
   Network,
   AlignLeft,
   Zap,
-  SlidersHorizontal,
   Sparkles,
   BookText,
   FileText,
@@ -46,6 +45,7 @@ import {
   Flame,
   MousePointerClick,
   ChevronDown,
+  Globe,
 } from "lucide-react"
 import { FlashcardsView, EmptyMode } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
@@ -106,9 +106,12 @@ function EstudioContent() {
   const [setError, setSetError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
 
-  // Difficulty + optional topic focus. Instant UI selections; applied when a mode launches.
-  const [difficulty, setDifficulty] = useState<StudyDifficulty>("medio")
+  // Difficulty is adaptive (driven by mastery/SRS), not user-chosen — fixed base here.
+  const difficulty: StudyDifficulty = "medio"
+  // Optional topic focus. Instant UI selection; applied via the focus button / on launch.
   const [topic, setTopic] = useState<string | null>(null)
+  // Web augmentation: when on, generation pulls live web context (always fresh).
+  const [webSearch, setWebSearch] = useState(false)
   // The (scope|difficulty|topic) signature the currently-loaded `set` was generated with.
   const [loadedKey, setLoadedKey] = useState<string | null>(null)
   // The selected scope's cronograma events + the user's weekly plan (for week-topic chips).
@@ -119,8 +122,8 @@ function EstudioContent() {
 
   const scopeTarget = (s: Scope) =>
     s.kind === "course" ? s.courseId : s.kind === "doc" ? s.docId : s.groupKeys.slice().sort().join(",")
-  const scopeKey = (s: Scope | null, d: StudyDifficulty, t: string | null) =>
-    `${s ? `${s.kind}:${scopeTarget(s)}` : "none"}::${d}::${t ?? ""}`
+  const scopeKey = (s: Scope | null, d: StudyDifficulty, t: string | null, w = false) =>
+    `${s ? `${s.kind}:${scopeTarget(s)}` : "none"}::${d}::${t ?? ""}::${w ? "web" : ""}`
 
   // ── Group uploads into real course folders; keep only folders with ≥1 ready doc.
   const realCourses = useMemo<RealCourse[]>(
@@ -211,7 +214,6 @@ function EstudioContent() {
     if (multi) {
       setScope({ kind: "combo", groupKeys: selectedGroups.map(folderKey) })
       setMode("menu")
-      setDifficulty("medio")
       setTopic(null)
       return
     }
@@ -231,7 +233,6 @@ function EstudioContent() {
       setScope(null)
     }
     setMode("menu")
-    setDifficulty("medio")
     setTopic(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selKey])
@@ -240,17 +241,26 @@ function EstudioContent() {
   const loadSet = useCallback(
     async (
       s: Scope,
-      opts: { refresh?: boolean; difficulty?: StudyDifficulty; topic?: string | null } = {},
+      opts: {
+        refresh?: boolean
+        difficulty?: StudyDifficulty
+        topic?: string | null
+        web?: boolean
+        // Keep the current set visible and show an inline spinner instead of the
+        // full-screen loader (used by the "Aplicar enfoque" button).
+        inline?: boolean
+      } = {},
     ) => {
       const d = opts.difficulty ?? "medio"
       const t = opts.topic ?? null
-      if (opts.refresh) setRegenerating(true)
+      const w = opts.web ?? false
+      if (opts.refresh || opts.inline) setRegenerating(true)
       else {
         setSetLoading(true)
         setSet(null)
       }
       setSetError(null)
-      const fetchOpts = { refresh: opts.refresh, difficulty: d, topic: t ?? undefined }
+      const fetchOpts = { refresh: opts.refresh, difficulty: d, topic: t ?? undefined, web: w }
       // Fetch a single folder's whole-course set (or its first PDF for "Sin curso").
       const fetchFolder = (g: RealCourseGroup) =>
         g.id
@@ -270,7 +280,7 @@ function EstudioContent() {
           data = await fetchStudySet(s.docId, fetchOpts)
         }
         setSet(data)
-        setLoadedKey(scopeKey(s, d, t))
+        setLoadedKey(scopeKey(s, d, t, w))
       } catch (e) {
         setSetError(e instanceof Error ? e.message : "No se pudo generar el material de estudio.")
       } finally {
@@ -370,8 +380,13 @@ function EstudioContent() {
     [courseEvents, plan, weekTopics],
   )
 
-  const applyDifficulty = (d: StudyDifficulty) => setDifficulty(d)
   const applyTopic = (t: string | null) => setTopic(t)
+  // Load the set with the current focus applied. A topic makes it a "custom" set,
+  // which the server always generates fresh (never cached) — so no refresh flag is
+  // needed. With no topic (General) this just returns the cached default set.
+  const applyFocus = () => {
+    if (scope) loadSet(scope, { difficulty, topic, web: webSearch, inline: true })
+  }
 
   // Launch a mode, regenerating the set for the chosen difficulty/topic if needed.
   const launchMode = async (m: Mode) => {
@@ -381,8 +396,8 @@ function EstudioContent() {
       router.push(`/mapa?course=${scope.docId}`)
       return
     }
-    if (scope && loadedKey !== scopeKey(scope, difficulty, topic)) {
-      await loadSet(scope, { difficulty, topic })
+    if (scope && loadedKey !== scopeKey(scope, difficulty, topic, webSearch)) {
+      await loadSet(scope, { difficulty, topic, web: webSearch })
     }
     setSelectorsOpen(false)
     setMode(m)
@@ -542,17 +557,18 @@ function EstudioContent() {
                       onAsk={askInChat}
                       regenerating={regenerating}
                       onRegenerate={() =>
-                        scope && loadSet(scope, { refresh: true, difficulty, topic })
+                        scope && loadSet(scope, { refresh: true, difficulty, topic, web: webSearch })
                       }
                       setMode={setMode}
                       onLaunch={launchMode}
                       backToMenu={backToMenu}
-                      difficulty={difficulty}
                       topic={topic}
                       weekTopics={weekTopics}
                       suggestion={suggestion}
-                      onDifficulty={applyDifficulty}
                       onTopic={applyTopic}
+                      onApplyFocus={applyFocus}
+                      web={webSearch}
+                      onWeb={setWebSearch}
                     />
                   </SelectionAsk>
                 ) : null}
@@ -669,12 +685,13 @@ function ModeRouter({
   setMode,
   onLaunch,
   backToMenu,
-  difficulty,
   topic,
   weekTopics,
   suggestion,
-  onDifficulty,
   onTopic,
+  onApplyFocus,
+  web,
+  onWeb,
 }: {
   mode: Mode
   set: StudySetAPI
@@ -692,12 +709,13 @@ function ModeRouter({
   setMode: (m: Mode) => void
   onLaunch: (m: Mode) => void
   backToMenu: () => void
-  difficulty: StudyDifficulty
   topic: string | null
   weekTopics: string[]
   suggestion: StudySuggestion | null
-  onDifficulty: (d: StudyDifficulty) => void
   onTopic: (t: string | null) => void
+  onApplyFocus: () => void
+  web: boolean
+  onWeb: (on: boolean) => void
 }) {
   // Staged quiz / Repaso run per single PDF or per whole course. Combined
   // multi-course scope has no per-scope endpoint → ask the user to narrow it.
@@ -791,12 +809,14 @@ function ModeRouter({
                 : "todo el curso"
           }
           onLaunch={onLaunch}
-          difficulty={difficulty}
           topic={topic}
           weekTopics={weekTopics}
           suggestion={suggestion}
-          onDifficulty={onDifficulty}
           onTopic={onTopic}
+          onApplyFocus={onApplyFocus}
+          regenerating={regenerating}
+          web={web}
+          onWeb={onWeb}
         />
       )
   }
@@ -856,44 +876,42 @@ const MODES: {
 // Max focus-instruction length — mirrors the server cap in app/api/study/[syllabusId]/route.ts.
 const MAX_TOPIC = 160
 
-const DIFFICULTIES: { key: StudyDifficulty; label: string; hint: string }[] = [
-  { key: "facil", label: "Fácil", hint: "Conceptos base, recordar" },
-  { key: "medio", label: "Medio", hint: "Equilibrado" },
-  { key: "dificil", label: "Difícil", hint: "Razonar, aplicar, casos límite" },
-]
-
 function Menu({
   set,
   syllabusId,
   scopeLabel,
   scopeNote,
   onLaunch,
-  difficulty,
   topic,
   weekTopics,
   suggestion,
-  onDifficulty,
   onTopic,
+  onApplyFocus,
+  regenerating,
+  web,
+  onWeb,
 }: {
   set: StudySetAPI
   syllabusId: string | null
   scopeLabel: string
   scopeNote: string
   onLaunch: (m: Mode) => void
-  difficulty: StudyDifficulty
   topic: string | null
   weekTopics: string[]
   suggestion: StudySuggestion | null
-  onDifficulty: (d: StudyDifficulty) => void
   onTopic: (t: string | null) => void
+  onApplyFocus: () => void
+  regenerating: boolean
+  web: boolean
+  onWeb: (on: boolean) => void
 }) {
   return (
     <div>
       <StatsStrip />
 
       <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-        Material de estudio generado dinámicamente desde tu base de conocimiento. Ajusta la
-        dificultad y, si quieres, enfócalo en un tema; luego elige un modo.
+        Material de estudio generado dinámicamente desde tu base de conocimiento. La dificultad se
+        ajusta sola según tu dominio. Si quieres, enfócalo en un tema; luego elige un modo.
       </p>
 
       <Card className="mt-5 flex-row items-center gap-3 p-3.5">
@@ -910,66 +928,80 @@ function Menu({
         </Badge>
       </Card>
 
-      {/* ─── Difficulty + topic focus ─── */}
-      <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-border/70 bg-card/40 p-4 sm:flex-row sm:items-start sm:gap-6">
-        {/* Difficulty */}
-        <div className="flex-1">
-          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            <SlidersHorizontal className="h-3.5 w-3.5" /> Dificultad
-          </div>
-          <div className="flex gap-2">
-            {DIFFICULTIES.map((d) => {
-              const active = d.key === difficulty
-              return (
-                <button
-                  key={d.key}
-                  onClick={() => !active && onDifficulty(d.key)}
-                  title={d.hint}
-                  className={`flex-1 rounded-xl border px-3 py-2 text-center transition-colors ${
-                    active
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-border text-muted-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <div className="text-sm font-bold">{d.label}</div>
-                  <div className="mt-0.5 text-[10px] leading-tight opacity-80">{d.hint}</div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
+      {/* ─── Topic focus ─── */}
+      <div className="mt-5 rounded-2xl border border-border/70 bg-card/40 p-4">
         {/* Focus instruction — free-text prompt + week-topic shortcuts */}
-        <div className="flex-1">
-          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5" /> Instrucción de enfoque (opcional)
-          </div>
-          <p className="mb-2 text-[11px] text-muted-foreground/80">
-            Escribe en qué enfocar el material (un tema o una instrucción), o déjalo en blanco para
-            todo el alcance.
-          </p>
-          <div className="relative">
-            <Textarea
-              value={topic ?? ""}
-              onChange={(e) => onTopic(e.target.value.trimStart() || null)}
-              maxLength={MAX_TOPIC}
-              placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
-              className="min-h-[4.5rem] resize-none pb-6 text-[13px]"
-            />
-            <span className="pointer-events-none absolute bottom-1.5 right-2 text-[10px] tabular-nums text-muted-foreground/70">
-              {topic?.length ?? 0}/{MAX_TOPIC}
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-              Atajos
-            </span>
-            <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
-            {weekTopics.map((t) => (
-              <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
-            ))}
-          </div>
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+          <Sparkles className="h-3.5 w-3.5" /> Instrucción de enfoque (opcional)
         </div>
+        <p className="mb-2 text-[11px] text-muted-foreground/80">
+          Escribe en qué enfocar el material (un tema o una instrucción), o déjalo en blanco para
+          todo el alcance.
+        </p>
+        <div className="relative">
+          <Textarea
+            value={topic ?? ""}
+            onChange={(e) => onTopic(e.target.value.trimStart() || null)}
+            maxLength={MAX_TOPIC}
+            placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
+            className="min-h-[4.5rem] resize-none pb-6 text-[13px]"
+          />
+          <span className="pointer-events-none absolute bottom-1.5 right-2 text-[10px] tabular-nums text-muted-foreground/70">
+            {topic?.length ?? 0}/{MAX_TOPIC}
+          </span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+            Atajos
+          </span>
+          <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
+          {weekTopics.map((t) => (
+            <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
+          ))}
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => onWeb(!web)}
+            aria-pressed={web}
+            title="Enriquecer el material con una búsqueda web en vivo"
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+              web
+                ? "border-accent/40 bg-accent/[0.06] text-accent"
+                : "border-border bg-secondary/40 text-muted-foreground hover:border-accent/40 hover:bg-accent/10 hover:text-foreground"
+            }`}
+          >
+            <Globe className="h-4 w-4" strokeWidth={2.25} />
+            Búsqueda web
+            <span
+              className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                web ? "bg-accent/20 text-accent" : "bg-secondary text-muted-foreground"
+              }`}
+            >
+              {web ? "ON" : "OFF"}
+            </span>
+          </button>
+          <Button
+            variant="accent"
+            size="sm"
+            onClick={onApplyFocus}
+            disabled={regenerating}
+            className="gap-2"
+          >
+            {regenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {regenerating ? "Generando…" : "Aplicar enfoque"}
+          </Button>
+        </div>
+        {web && (
+          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
+            <Globe className="h-3 w-3 text-accent" />
+            El material se generará combinando tus documentos con resultados web actuales.
+          </p>
+        )}
       </div>
 
       {/* Mastery is tracked per PDF; only show it for a single-document scope. */}

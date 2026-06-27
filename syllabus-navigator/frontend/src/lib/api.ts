@@ -510,6 +510,8 @@ export interface StudySetOptions {
   difficulty?: StudyDifficulty
   /** Focus the set on a single cronograma topic. */
   topic?: string
+  /** Augment generation with a live web search (always fresh, never cached). */
+  web?: boolean
 }
 
 /**
@@ -522,6 +524,7 @@ export async function fetchStudySet(syllabusId: string, opts: StudySetOptions = 
   if (opts.refresh) qs.set("refresh", "1")
   if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
   if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
+  if (opts.web) qs.set("web", "1")
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
   return request<StudySetAPI>(`/study/${encodeURIComponent(syllabusId)}${suffix}`, {
     method: "GET",
@@ -538,6 +541,7 @@ export async function fetchCourseStudySet(courseId: string, opts: StudySetOption
   if (opts.refresh) qs.set("refresh", "1")
   if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
   if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
+  if (opts.web) qs.set("web", "1")
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
   return request<StudySetAPI>(`/study/course/${encodeURIComponent(courseId)}${suffix}`, {
     method: "GET",
