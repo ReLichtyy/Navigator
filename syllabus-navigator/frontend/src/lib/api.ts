@@ -249,20 +249,35 @@ const EXT_MIME: Record<string, string> = {
  * to ingest. Accounts only (the token route rejects guests). Lazy-imports the
  * blob client so it isn't in the bundle for guests / the multipart path.
  */
+// Largest file we can send through the multipart fallback: Vercel caps the
+// serverless request body at ~4.5MB. Bigger files MUST use the Blob path.
+const MULTIPART_MAX = 4 * 1024 * 1024
+
 export async function uploadSyllabusViaBlob(file: File) {
-  const { upload } = await import("@vercel/blob/client")
   const ext = file.name.toLowerCase().split(".").pop() ?? ""
   const contentType = EXT_MIME[ext] ?? file.type ?? "application/octet-stream"
 
-  const blob = await upload(file.name, file, {
-    access: "public",
-    handleUploadUrl: `${API_BASE}/upload/blob`,
-    contentType,
-  })
+  let blobUrl: string
+  try {
+    const { upload } = await import("@vercel/blob/client")
+    const blob = await upload(file.name, file, {
+      access: "public",
+      handleUploadUrl: `${API_BASE}/upload/blob`,
+      contentType,
+    })
+    blobUrl = blob.url
+  } catch (err) {
+    // The Blob client-token handshake can fail (missing/rotated BLOB token, or the
+    // token route is unreachable). For files within the serverless body limit, fall
+    // back to a direct multipart upload — no client token needed. Bigger files have
+    // no fallback, so surface the original error.
+    if (file.size <= MULTIPART_MAX) return uploadSyllabus(file)
+    throw err
+  }
 
   return request<{ syllabus_id: string; status: string; message: string }>("/upload/from-blob", {
     method: "POST",
-    body: JSON.stringify({ url: blob.url, filename: file.name, contentType }),
+    body: JSON.stringify({ url: blobUrl, filename: file.name, contentType }),
   })
 }
 
