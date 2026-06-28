@@ -2,13 +2,12 @@
  * server/rag/study-gen.ts — generate a per-course "study set" from the syllabus
  * material: flashcards, a multiple-choice quiz, an auto-summary and a mind map.
  *
- * Same shape as graph-gen.ts / schedule-gen.ts: one OpenAI strict structured-output
- * call → validated + normalized rows. Powers the "Área de Estudio" window.
+ * Same shape as graph-gen.ts / schedule-gen.ts: one gateway (gpt-5.4) JSON call
+ * → validated + normalized rows. Powers the "Área de Estudio" window.
  */
 
-import OpenAI from "openai"
 import { z } from "zod"
-import { DEFAULT_MODEL, isNextGenModel } from "@/lib/llm/config"
+import { gatewayJson, extractJson } from "@/lib/llm/gateway-generate"
 import { logError } from "@/lib/observability/logger"
 
 // ---------- public shape (what the UI consumes) ----------
@@ -226,7 +225,9 @@ const SYSTEM_PROMPT =
   "You are a study-material generator for a university course. From the course's topics produce study " +
   "aids: flashcards, a multiple-choice quiz, a short summary, and a mind map. " +
   SUBJECT_GROUNDING_POLICY +
-  " Each quiz question must have exactly one correct option and a brief explanation."
+  " Each quiz question must have exactly one correct option and a brief explanation." +
+  "\n\nReturn JSON matching this JSON Schema exactly:\n" +
+  JSON.stringify(STUDY_JSON_SCHEMA)
 
 /**
  * Validate + normalize a raw model object into a safe StudySet.
@@ -290,16 +291,6 @@ export function normalizeStudySet(raw: unknown): StudySet | null {
     return null
   }
   return set
-}
-
-let _client: OpenAI | null = null
-function getClient(): OpenAI {
-  if (!_client) {
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) throw new Error("OPENAI_API_KEY is not configured")
-    _client = new OpenAI({ apiKey })
-  }
-  return _client
 }
 
 // Keep token cost bounded — the head of the material is the most relevant for study aids.
@@ -374,33 +365,16 @@ export async function generateStudySet(
   const text = courseText.trim()
   if (text.length < 80) return null // not enough to study from
 
-  const client = getClient()
   try {
-    const completion = await client.chat.completions.create({
-      model: DEFAULT_MODEL,
-      // Higher temperature → diverse items across refreshes (anti-repeat). Combined
-      // with excludeSeen + bank dedupe, each refresh yields genuinely new material.
-      // GPT-5/o-series reject non-default temperature → omit it for those (BUG-001).
-      ...(isNextGenModel(DEFAULT_MODEL) ? {} : { temperature: 0.7 }),
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `${buildDirectives(opts)}\n\nGenerate study material from this course content:\n\n${text.slice(0, MAX_CHARS)}`,
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "study_set",
-          strict: true,
-          schema: STUDY_JSON_SCHEMA as unknown as Record<string, unknown>,
-        },
-      },
-    })
-
-    const rawText = completion.choices[0]?.message?.content ?? "{}"
-    return normalizeStudySet(JSON.parse(rawText))
+    // Higher temperature → diverse items across refreshes (anti-repeat). Combined
+    // with excludeSeen + bank dedupe, each refresh yields genuinely new material.
+    // (Reasoning models like gpt-5.4 ignore temperature; the helper omits it.)
+    const rawText = await gatewayJson(
+      SYSTEM_PROMPT,
+      `${buildDirectives(opts)}\n\nGenerate study material from this course content:\n\n${text.slice(0, MAX_CHARS)}`,
+      0.7,
+    )
+    return normalizeStudySet(JSON.parse(extractJson(rawText)))
   } catch (err) {
     logError("rag.study_gen.error", { error: err instanceof Error ? err.message : String(err) })
     throw err

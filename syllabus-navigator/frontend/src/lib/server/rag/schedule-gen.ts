@@ -2,13 +2,12 @@
  * server/rag/schedule-gen.ts — extract a structured schedule (cronograma) from
  * syllabus text: quizzes, exams, assignments, weekly topics, etc.
  *
- * Same shape as graph-gen.ts: OpenAI strict structured output → validated rows.
+ * Same shape as graph-gen.ts: gateway (gpt-5.4) JSON output → validated rows.
  * Powers schedule-aware chat ("what quizzes this week?") and the agenda view.
  */
 
-import OpenAI from "openai"
 import { z } from "zod"
-import { DEFAULT_MODEL, isNextGenModel } from "@/lib/llm/config"
+import { gatewayJson, extractJson } from "@/lib/llm/gateway-generate"
 import { logError } from "@/lib/observability/logger"
 
 export const EVENT_TYPES = [
@@ -38,50 +37,15 @@ const ScheduleSchema = z.object({
 
 type Schedule = z.infer<typeof ScheduleSchema>
 
-const SCHEDULE_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    events: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          type: {
-            type: "string",
-            enum: EVENT_TYPES,
-            description: "Kind of event",
-          },
-          title: { type: "string", description: "Short title, e.g. 'Quiz 1: Límites'" },
-          description: { type: "string", description: "Extra detail; empty string if none" },
-          date: {
-            type: "string",
-            description:
-              "Absolute date as ISO yyyy-mm-dd if the syllabus states one (resolve relative phrases only when an explicit date is present). Empty string if no concrete date.",
-          },
-          week_label: {
-            type: "string",
-            description: "Week marker like 'Semana 3' / 'Week 3' if present, else empty string",
-          },
-          weight_percent: {
-            type: "number",
-            description: "Grade weight 0-100 if stated for this item, else 0",
-          },
-        },
-        required: ["type", "title", "description", "date", "week_label", "weight_percent"],
-      },
-    },
-  },
-  required: ["events"],
-} as const
-
 const SYSTEM_PROMPT =
   "You extract the academic schedule (cronograma) from a course syllabus. Identify every " +
   "dated or weekly item: quizzes, exams, assignments, projects, readings, and the topics " +
   "covered each week (use type 'class' for weekly topic coverage). Preserve the original " +
   "language of titles. Only output an ISO date when the syllabus gives a concrete one; " +
-  "otherwise leave date empty and fill week_label. Do not invent dates or items."
+  "otherwise leave date empty and fill week_label. Do not invent dates or items.\n\n" +
+  `Each event.type is one of: ${EVENT_TYPES.join(", ")}. date is ISO yyyy-mm-dd or "" ` +
+  'when not stated. JSON shape: {"events":[{"type":string,"title":string,' +
+  '"description":string,"date":string,"week_label":string,"weight_percent":number}]}'
 
 export interface ExtractedEvent {
   type: EventType
@@ -94,16 +58,6 @@ export interface ExtractedEvent {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
-let _client: OpenAI | null = null
-function getClient(): OpenAI {
-  if (!_client) {
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) throw new Error("OPENAI_API_KEY is not configured")
-    _client = new OpenAI({ apiKey })
-  }
-  return _client
-}
-
 function normType(t: string): EventType {
   const v = t.toLowerCase().trim()
   return (EVENT_TYPES as readonly string[]).includes(v) ? (v as EventType) : "other"
@@ -111,33 +65,14 @@ function normType(t: string): EventType {
 
 /** Extract schedule events from syllabus text. Returns [] when none are found. */
 export async function extractScheduleFromText(syllabusText: string): Promise<ExtractedEvent[]> {
-  const client = getClient()
   try {
-    const completion = await client.chat.completions.create({
-      model: DEFAULT_MODEL,
-      // GPT-5/o-series reject non-default temperature → omit it for those (BUG-001).
-      ...(isNextGenModel(DEFAULT_MODEL) ? {} : { temperature: 0 }),
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        {
-          role: "user",
-          // Cap the prompt so a large document doesn't make this call slow/costly.
-          // Schedule items (dates, exams) cluster near the top of a syllabus.
-          content: `Extract the schedule from this syllabus text:\n\n${syllabusText.slice(0, 60_000)}`,
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "syllabus_schedule",
-          strict: true,
-          schema: SCHEDULE_JSON_SCHEMA as unknown as Record<string, unknown>,
-        },
-      },
-    })
-
-    const raw = completion.choices[0]?.message?.content ?? "{}"
-    const parsed: Schedule = ScheduleSchema.parse(JSON.parse(raw))
+    // Cap the prompt so a large document doesn't make this call slow/costly.
+    // Schedule items (dates, exams) cluster near the top of a syllabus.
+    const raw = await gatewayJson(
+      SYSTEM_PROMPT,
+      `Extract the schedule from this syllabus text:\n\n${syllabusText.slice(0, 60_000)}`,
+    )
+    const parsed: Schedule = ScheduleSchema.parse(JSON.parse(extractJson(raw)))
 
     return parsed.events
       .filter((e) => e.title.trim().length > 0)
