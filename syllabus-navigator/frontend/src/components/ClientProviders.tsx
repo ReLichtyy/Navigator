@@ -1,6 +1,7 @@
 "use client"
 
 import { ThemeProvider } from "next-themes"
+import { Toaster } from "sonner"
 import { UserProvider } from "@/context/UserContext"
 import { SyllabusProvider } from "@/context/SyllabusContext"
 import { AuthModalProvider } from "@/context/AuthModalContext"
@@ -20,6 +21,9 @@ export default function ClientProviders({ children }: { children: React.ReactNod
           <AuthModalProvider>
             {children}
             <BienvenidaGate />
+            {/* Renders all sonner toasts (upload progress, success/error). Without
+                this, toast() calls across the app do nothing. */}
+            <Toaster position="top-center" richColors closeButton theme="dark" />
           </AuthModalProvider>
         </SyllabusProvider>
       </UserProvider>

@@ -101,6 +101,39 @@ export const IngestionService = {
   },
 
   /**
+   * Phase 2a (fast): embed pending chunks and mark the doc 'processed' so it's
+   * chat-ready and visible immediately. Does NOT run graph/schedule/inference —
+   * those slow (gpt-5.4) generators run separately so the upload request returns
+   * quickly instead of blocking ~35s+ and timing out (which dropped the row).
+   */
+  async embedOnly(syllabusId: string): Promise<{ embedded: number }> {
+    try {
+      const pending = await ChunkRepository.listPendingEmbeddings(syllabusId)
+      let embedded = 0
+      if (pending.length > 0) {
+        const vectors = await embedTexts(pending.map((c) => c.content))
+        if (vectors.length !== pending.length) {
+          throw new Error(
+            `Embedding count mismatch: ${vectors.length} vectors for ${pending.length} chunks`,
+          )
+        }
+        await ChunkRepository.setEmbeddings(
+          pending.map((c, i) => ({ id: c.id, embedding: vectors[i] })),
+        )
+        embedded = pending.length
+      }
+      await DocumentRepository.setStatus(syllabusId, "processed")
+      logInfo("ingestion.embedded", { syllabusId, embedded })
+      return { embedded }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      await DocumentRepository.setStatus(syllabusId, "error", msg.slice(0, 2000))
+      logError("ingestion.embed_failed", { syllabusId, error: msg })
+      throw err
+    }
+  },
+
+  /**
    * Claim and process pending ingest jobs until the queue is empty or maxJobs is
    * reached. Called by the cron/process route (Vercel Cron + fire-and-forget
    * trigger from upload). Job claiming is atomic, so concurrent runs are safe.

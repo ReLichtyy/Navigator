@@ -18,6 +18,7 @@ import {
   deleteCourse,
   renameCourse,
   setDocumentCourse,
+  processDocument,
 } from "@/lib/api"
 import type { SyllabusUploadAPI, GraphResponseAPI, CourseAPI } from "@/lib/api"
 import Link from "next/link"
@@ -265,13 +266,19 @@ export default function KnowledgeBasePage() {
       }
       setUploads((prev) => [optimisticRow as any, ...prev])
 
+      // Loading toast (mini modal) that stays on screen while this file uploads,
+      // then turns into the success/error result (same id replaces it in place).
+      const toastId = toast.loading(`Subiendo ${file.name}…`)
       try {
         // Upload straight to Blob (bypasses the ~4.5MB serverless body limit).
         const res = await uploadSyllabusViaBlob(file)
         await assignToCourse(res.syllabus_id, targetCourseId)
-        toast.success(`${file.name} uploaded successfully.`)
+        // Fire the slow enrichment (graph/schedule/inference) without blocking;
+        // the row is already chat-ready and polling fills in the graph when done.
+        processDocument(res.syllabus_id).catch(() => {})
+        toast.success(`${file.name} subido correctamente.`, { id: toastId })
       } catch (err: any) {
-        toast.error(err?.message ?? `Failed to upload ${file.name}.`)
+        toast.error(err?.message ?? `No se pudo subir ${file.name}.`, { id: toastId })
       } finally {
         // Remove the optimistic row
         setUploads((prev) => prev.filter((u) => u.id !== tempId))
@@ -316,16 +323,18 @@ export default function KnowledgeBasePage() {
     if (!url) return
     const targetCourseId = addCourseId
     setIsAdding(true)
+    const toastId = toast.loading("Añadiendo enlace…")
     try {
       const res = await addLink(url)
       await assignToCourse(res.syllabus_id, targetCourseId)
-      toast.success("Enlace añadido.")
+      processDocument(res.syllabus_id).catch(() => {})
+      toast.success("Enlace añadido.", { id: toastId })
       setLinkUrl("")
       setAddCourseId(null)
       setAddOpen(false)
       await fetchUploads(true)
     } catch (err: any) {
-      toast.error(err?.message ?? "No se pudo añadir el enlace.")
+      toast.error(err?.message ?? "No se pudo añadir el enlace.", { id: toastId })
     } finally {
       setIsAdding(false)
     }
@@ -336,17 +345,19 @@ export default function KnowledgeBasePage() {
     if (!body) return
     const targetCourseId = addCourseId
     setIsAdding(true)
+    const toastId = toast.loading("Añadiendo texto…")
     try {
       const res = await addTextSource(body, textTitle.trim() || undefined)
       await assignToCourse(res.syllabus_id, targetCourseId)
-      toast.success("Texto añadido.")
+      processDocument(res.syllabus_id).catch(() => {})
+      toast.success("Texto añadido.", { id: toastId })
       setTextTitle("")
       setTextBody("")
       setAddCourseId(null)
       setAddOpen(false)
       await fetchUploads(true)
     } catch (err: any) {
-      toast.error(err?.message ?? "No se pudo añadir el texto.")
+      toast.error(err?.message ?? "No se pudo añadir el texto.", { id: toastId })
     } finally {
       setIsAdding(false)
     }

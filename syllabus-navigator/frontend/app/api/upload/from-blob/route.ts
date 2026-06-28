@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentService } from "@/lib/server/services/document.service"
-import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
+import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { UploadFromBlobSchema } from "@/lib/server/validators/api.schemas"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // embeddings + graph run inline before responding
+export const maxDuration = 60 // embeddings run inline (graph/schedule via /process)
 
 /**
  * Ingest a file the client already uploaded to Vercel Blob (see /api/upload/blob).
@@ -45,7 +45,9 @@ export async function POST(request: Request) {
       )
     }
 
-    await triggerIngestionWorker()
+    // Embed inline (fast) so the file is chat-ready immediately; the slow
+    // graph/schedule/inference run via the client-fired /process call afterwards.
+    await IngestionService.embedOnly(upload.id)
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.from_blob.success", { userId, uploadId: upload.id })

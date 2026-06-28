@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server"
 import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentService } from "@/lib/server/services/document.service"
-import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
+import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { UploadLinkSchema } from "@/lib/server/validators/api.schemas"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // fetch + embeddings + graph run inline
+export const maxDuration = 60 // fetch + embeddings run inline (graph/schedule via /process)
 
 export async function POST(request: Request) {
   try {
@@ -25,7 +25,9 @@ export async function POST(request: Request) {
 
     const upload = await DocumentService.processLink(userId, role, parsed.data.url)
 
-    await triggerIngestionWorker()
+    // Embed inline (fast) so the source is chat-ready immediately; the slow
+    // graph/schedule/inference run via the client-fired /process call after this.
+    await IngestionService.embedOnly(upload.id)
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.link.success", { userId, uploadId: upload.id })

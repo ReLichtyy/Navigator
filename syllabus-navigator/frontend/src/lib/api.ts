@@ -266,6 +266,18 @@ export async function uploadSyllabusViaBlob(file: File) {
   })
 }
 
+/**
+ * Kick the slow enrichment (graph + schedule + course inference) for a just-
+ * uploaded doc. Upload routes only embed inline (fast); this runs the heavy
+ * gpt-5.4 generators. Fire-and-forget — the caller does NOT await it; the
+ * knowledge page polls graph_status to reflect the result when ready.
+ */
+export async function processDocument(id: string) {
+  return request<{ ok: boolean }>(`/upload/${encodeURIComponent(id)}/process`, {
+    method: "POST",
+  })
+}
+
 export async function addLink(url: string) {
   return request<{ syllabus_id: string; status: string; message: string }>("/upload/link", {
     method: "POST",

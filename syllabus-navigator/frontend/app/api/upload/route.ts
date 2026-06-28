@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentService } from "@/lib/server/services/document.service"
-import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
+import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // embeddings + graph LLM run inline before responding
+export const maxDuration = 60 // embeddings run inline (graph/schedule via /process)
 
 export async function POST(request: Request) {
   try {
@@ -44,9 +44,10 @@ export async function POST(request: Request) {
       )
     }
 
-    // Run the worker (embeddings + graph) inline so it actually completes on
-    // serverless, then invalidate so the list reflects the final status.
-    await triggerIngestionWorker()
+    // Embed inline (fast) so the file is chat-ready immediately and the request
+    // returns well under the serverless cap; the slow graph/schedule/inference run
+    // via the client-fired /process call afterwards (the UI polls graph_status).
+    await IngestionService.embedOnly(upload.id)
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.success", {
