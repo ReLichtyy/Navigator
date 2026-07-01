@@ -2,7 +2,36 @@
 
 > Documento de **estado cambiante**. La referencia estable (estructura, dónde vive cada cosa)
 > está en `CLAUDE.md`. Actualiza este archivo conforme avances.
-> Última revisión: 2026-06-21.
+> Última revisión: 2026-07-01.
+
+---
+
+## 0. Estado 2026-07-01 (lo de abajo, §1-§2, es histórico — el port a TS ya se completó)
+
+Auditoría estructural + fixes de esta fecha:
+
+- ✅ **Gate de retrieval recalibrado**: `RAG_MAX_DISTANCE` 0.9 → **0.75** (el 0.9 estaba calibrado
+  para el modelo de embeddings viejo; con text-embedding-3-large@2000 dejaba pasar TODO).
+  Re-medir con `scratch/test-retrieval-live.mjs` si cambia el modelo/dims.
+- ✅ **Retry para el gateway Bluesmind**: 429/503 transitorios ahora reintentan (in-call en
+  `gatewayJson` + re-encolado del job de ingesta con backoff). Antes un 429 mataba el grafo
+  permanentemente.
+- ✅ `chat/[chatId]` sin SQL crudo (movido a `ChatRepository`), body validado con zod, y cerrado
+  el hueco de bindear un `syllabus_id` ajeno al chat.
+- ✅ Limpieza de muertos: `generateStudySet`, `sqlDirect`, exports sin uso, 3 archivos ui,
+  ~34 deps (xyflow, react-hook-form, recharts, radix sin uso, playwright…). CLAUDE.md al día
+  (Clerk, vector(2000), Study Engine, Bluesmind).
+
+### ⚠️ Acción pendiente (deploy)
+
+1. **Vercel: faltan `BLUESMIND_API_KEY` + `BLUESMIND_BASE_URL`** — los uploads del 28-jun
+   fallaron el grafo con "BLUESMIND_API_KEY is not configured". Añadirlas en el proyecto Vercel.
+2. El gateway Bluesmind devuelve 429/503 bajo ráfaga (límites del key). Si persiste, pedir cuota
+   al admin del gateway o bajar `MODEL_RAG` a un modelo con canal disponible.
+3. SQL crudo restante en rutas (fuera de los bloques principales): `user/preferences`,
+   `feedback`, `cron/cleanup` — mover a repos cuando se toquen.
+4. `PATCH /api/graph/[syllabusId]` (guardar mapa editado) tiene backend vivo pero **ninguna UI
+   lo llama** desde que se quitó el editor xyflow — reconectar cuando se retome el mapa editable.
 
 ---
 

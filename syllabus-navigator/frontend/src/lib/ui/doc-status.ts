@@ -13,14 +13,6 @@ export interface DocStatusView {
   canReprocess: boolean
 }
 
-/** Badge variant name (see components/ui/badge.tsx) for a given tone. */
-export const TONE_VARIANT: Record<DocTone, "ok" | "error" | "warn" | "pending"> = {
-  ok: "ok",
-  error: "error",
-  warn: "warn",
-  pending: "pending",
-}
-
 /** Message shown for a scanned/no-text PDF. Single source of truth (UI + tooltip). */
 export const NEEDS_OCR_HINT =
   "Este PDF es escaneado; sube una versión digital (con texto seleccionable) o espera al OCR."

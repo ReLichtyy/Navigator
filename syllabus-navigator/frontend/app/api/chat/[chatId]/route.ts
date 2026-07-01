@@ -6,7 +6,9 @@
 
 import { NextResponse } from "next/server"
 import { getAuthedUser } from "@/lib/server/utils/auth-helpers"
-import { sql } from "@/lib/db"
+import { ChatRepository } from "@/lib/server/repositories/chat.repo"
+import { DocumentRepository } from "@/lib/server/repositories/document.repo"
+import { UpdateChatSchema } from "@/lib/server/validators/api.schemas"
 import { invalidatePrefix } from "@/lib/cache"
 import { logError } from "@/lib/observability/logger"
 
@@ -22,31 +24,15 @@ export async function GET(_request: Request, { params }: RouteParams) {
     }
 
     const { chatId } = await params
-    const userId = session.userId
-
-    // Fetch chat
-    const chatRows = await sql`
-      SELECT id, title, active_model, syllabus_id, created_at
-      FROM chats
-      WHERE id = ${chatId}::uuid AND user_id = ${userId}
-    `
-    const chat = (chatRows as Record<string, unknown>[])[0]
-    if (!chat) {
+    const detail = await ChatRepository.getDetailWithMessages(chatId, session.userId)
+    if (!detail) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
     }
 
-    // Fetch messages
-    const messages = await sql`
-      SELECT id, role, content, citations, created_at
-      FROM messages
-      WHERE chat_id = ${chatId}::uuid
-      ORDER BY created_at ASC
-    `
-
     return NextResponse.json({
-      ...chat,
-      message_count: (messages as unknown[]).length,
-      messages,
+      ...detail.chat,
+      message_count: detail.messages.length,
+      messages: detail.messages,
     })
   } catch (err) {
     logError("api.chat.get_error", {
@@ -65,47 +51,45 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     const { chatId } = await params
     const userId = session.userId
-    const body = await request.json()
 
-    // Verify ownership
-    const existing = await sql`
-      SELECT id FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}
-    `
-    if ((existing as unknown[]).length === 0) {
+    const parsed = UpdateChatSchema.safeParse(await request.json().catch(() => null))
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 })
+    }
+    const patch = parsed.data
+
+    const existing = await ChatRepository.findByIdAndUser(chatId, userId)
+    if (!existing) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
     }
 
-    // Build update fields
-    const updates: string[] = []
-    const values: unknown[] = []
+    if (
+      patch.title === undefined &&
+      patch.active_model === undefined &&
+      patch.syllabus_id === undefined
+    ) {
+      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 })
+    }
 
-    if (body.title !== undefined) {
-      const rows = await sql`
-        UPDATE chats SET title = ${body.title} WHERE id = ${chatId}::uuid AND user_id = ${userId}
-        RETURNING id, title, active_model, syllabus_id, created_at
-      `
+    // Binding the chat to a syllabus grounds retrieval on that document — it must
+    // belong to the caller, or anyone could read another user's uploads via chat.
+    if (patch.syllabus_id) {
+      const doc = await DocumentRepository.findByIdAndUser(patch.syllabus_id, userId)
+      if (!doc) {
+        return NextResponse.json({ error: "Syllabus not found" }, { status: 404 })
+      }
+    }
+
+    const updated = await ChatRepository.updateChat(chatId, userId, patch)
+    if (!updated) {
+      return NextResponse.json({ error: "Chat not found" }, { status: 404 })
+    }
+
+    if (patch.title !== undefined) {
       await invalidatePrefix(`chats:list:${userId}`)
-      return NextResponse.json((rows as Record<string, unknown>[])[0])
     }
 
-    if (body.active_model !== undefined) {
-      const rows = await sql`
-        UPDATE chats SET active_model = ${body.active_model} WHERE id = ${chatId}::uuid AND user_id = ${userId}
-        RETURNING id, title, active_model, syllabus_id, created_at
-      `
-      return NextResponse.json((rows as Record<string, unknown>[])[0])
-    }
-
-    if (body.syllabus_id !== undefined) {
-      const syllabusId = body.syllabus_id || null
-      const rows = await sql`
-        UPDATE chats SET syllabus_id = ${syllabusId}::uuid WHERE id = ${chatId}::uuid AND user_id = ${userId}
-        RETURNING id, title, active_model, syllabus_id, created_at
-      `
-      return NextResponse.json((rows as Record<string, unknown>[])[0])
-    }
-
-    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 })
+    return NextResponse.json(updated)
   } catch (err) {
     logError("api.chat.patch_error", {
       error: err instanceof Error ? err.message : String(err),
@@ -122,20 +106,12 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     }
 
     const { chatId } = await params
-    const userId = session.userId
-
-    // Delete the chat scoped to its owner. messages.chat_id has ON DELETE CASCADE,
-    // so the rows are removed automatically — and we never touch another user's data.
-    const deleted = await sql`
-      DELETE FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}
-      RETURNING id
-    `
-    if ((deleted as unknown[]).length === 0) {
+    const deleted = await ChatRepository.deleteChat(chatId, session.userId)
+    if (!deleted) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 })
     }
 
-    await invalidatePrefix(`chats:list:${userId}`)
-
+    await invalidatePrefix(`chats:list:${session.userId}`)
     return new NextResponse(null, { status: 204 })
   } catch (err) {
     logError("api.chat.delete_error", {

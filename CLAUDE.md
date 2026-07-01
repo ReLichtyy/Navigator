@@ -47,19 +47,22 @@ Cross-cutting helpers used by services:
 
 | Concern | Location | Notes |
 |---|---|---|
-| Auth gating | `lib/server/utils/auth-helpers.ts` | `requireAuth()`, `requireRateLimit()`, `ApiErrorResponse` |
+| Auth gating | `lib/server/utils/auth-helpers.ts` | `getAuthedUser()` / `requireAuth()` resolve **Clerk** session → Neon user row (stable UUID + role); `requireRateLimit()`, `ApiErrorResponse` |
 | Input validation | `lib/server/validators/api.schemas.ts` | zod schemas |
-| RAG / ingestion | `lib/server/rag/` | `chunking` (`pdfToPageChunks` via `unpdf`), `graph-gen`, `schedule-gen`, `study-gen` (all OpenAI structured output) |
+| RAG / ingestion | `lib/server/rag/` | `chunking` (`pdfToPageChunks` via `unpdf` + office/link/text), `graph-gen`, `schedule-gen`, `study-gen` (types + normalize + shared prompts), `course-infer`, `web-search` |
+| Study Engine | `lib/server/rag/orchestrator/` + `agents/` + `eval/` + `retrieval/` | `runner#orchestrateStudySet` (flashcard/inquisitor/synth agents in parallel → `eval/gates` critic), `router` (study plan by mastery×weight×urgency), `planner#getTodaySession` (SRS), `retrieval/hybrid` (dense+lexical RRF per topic) |
 | PDF storage | `lib/server/storage/blob.ts` | `storePdf` → Vercel Blob (accounts only); degrades w/ warning if no token |
-| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai` + `openrouter`. GPT-5/o-series params built per family in `providers/openai.ts` (`max_completion_tokens`, temp=1) |
+| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai`, `openrouter`, `deepseek` (chat default). Study Engine agents run on the **Bluesmind gateway** (`agent-models.ts` role→model map, `_base.ts`); RAG generators use `gateway-generate.ts` (`MODEL_RAG`). Embeddings = OpenAI direct (`embeddings.ts`, text-embedding-3-large @ dim 2000) |
 | Model catalog/pricing | `lib/llm/config.ts` | `MODELS`, `DEFAULT_MODEL`, `estimateCost` |
+| Feature flags | `lib/config/flags.ts` | `ragEnabled` (RAG_ENABLED), `toolsEnabled` (TOOLS_ENABLED), default provider/model — resolved once at module load |
+| Tools (chat actions) | `lib/tools/` | 5 tools (retrieve-context, get-schedule, get-recommendations, generate-study-set, record-review) → services; loop in `lib/llm/tools-loop.ts`, gated by `TOOLS_ENABLED` |
 | Caching | `lib/cache/` | L1 in-memory + optional L2 Upstash; `invalidatePrefix` |
 | Guardrails | `lib/guardrails/` | `validateInput` / `validateOutput` |
 | Usage metering | `lib/metering/` | `recordUsage` → `usage_records` table |
 | Observability | `lib/observability/` | `logger`, `timing` (`timed`), `trace` |
 | Prompts | `lib/prompts/` | `getPrompt("chat:general" | "chat:title-gen", vars)`. Chat persona = **student mentor** (also `GROUNDED_SYSTEM_PROMPT` in `retrieval.service.ts` for the RAG path). |
 | Rate limit | `lib/rate-limit/` | Upstash ratelimit (falls back when unconfigured) |
-| Auth | `lib/auth/` | `auth.ts`, `auth.config.ts` (NextAuth 5), `rbac.ts` (roles/tiers) |
+| Auth | `@clerk/nextjs` + `lib/auth/rbac.ts` | Clerk owns sessions/UI (`/sign-in`, `/sign-up`, `/sso-callback`); `rbac.ts` = roles/tiers only. NextAuth was removed. |
 
 ### Where things live (`frontend/`)
 
@@ -67,14 +70,15 @@ Cross-cutting helpers used by services:
 
 | Path | Contents |
 |---|---|
-| `app/` | Routes. Pages: `/` (chat workspace), `/knowledge`, `/agenda`, `/estudio`, `/mapa`, `/settings`, `(auth)/login`, `(auth)/signup` |
+| `app/` | Routes. Pages: `/` (chat workspace), `/knowledge`, `/agenda`, `/estudio`, `/mapa`, `/settings`, `/sign-in`, `/sign-up`, `/sso-callback` (Clerk). `(auth)/login|signup` are legacy redirects. |
 | `app/api/` | API routes (see table below) |
 | `src/lib/api.ts` | **Single frontend→backend adapter.** All client calls go through here. SSE for chat. |
 | `src/lib/server/` | Server-only: `services/`, `repositories/`, `rag/`, `storage/`, `validators/`, `utils/` |
 | `src/lib/` | Cross-cutting libs (llm, cache, guardrails, metering, observability, prompts, auth, db) |
 | `src/components/ui/` | shadcn-style primitives (via `@base-ui` / Radix). **Use these; don't hand-roll.** |
 | `src/components/navigator/` | App shell: `app-sidebar`, `top-header`, `history-sidebar`, `chat-thread`, `chat-composer` |
-| `src/components/` | Feature components: `GraphCanvas`/`EditableGraph` (xyflow), `SelectionAsk`, `ClientProviders`; feature dirs `agenda/`, `estudio/`, `auth/` |
+| `src/components/` | Feature components: `GraphCanvas` (wraps the custom `estudio/mind-map-canvas` — xyflow was removed), `SelectionAsk`, `ClientProviders`; feature dirs `agenda/`, `estudio/` (incl. `cross-course-view`), `auth/`, `bienvenida/` |
+| `src/lib/ui/` | Pure UI helpers (unit-testable): `course-group`, `doc-status`, `combine-study` |
 | `src/context/` | `UserContext`, `AuthModalContext`, `SyllabusContext` |
 | `src/features/chat/` | `context/ChatContext` (`useChatWorkspace`), `hooks/` (chat orchestration) |
 | `src/hooks/` | `useChatWorkspace`, `use-mobile`, `use-toast` |
@@ -86,38 +90,53 @@ Cross-cutting helpers used by services:
 
 | Route | Purpose |
 |---|---|
-| `auth/[...nextauth]`, `auth/signup`, `auth/upgrade` | NextAuth + account creation / guest→user upgrade |
 | `chat/history` (GET list / POST new) | List & create chats |
 | `chat/[chatId]` (GET/PATCH/DELETE) | Chat detail, rename, set model/syllabus, delete |
 | `chat/[chatId]/messages` (POST) | Send message → **SSE stream** of the answer |
 | `chat/models` | Available models for the user's tier |
-| `upload` (POST), `upload/list`, `upload/[id]` (PATCH/DELETE) | Document upload & management (guests allowed) |
-| `graph/[syllabusId]` (GET/PATCH), `graph/[syllabusId]/reprocess` (POST) | Read graph, save edited mind map (cycle-validated), re-enqueue ingest |
+| `upload` (POST multipart ≤4MB), `upload/blob` + `upload/from-blob` (client→Vercel Blob for big files), `upload/link`, `upload/text` | Ingest sources (PDF/docx/pptx/xlsx, URL, pasted text) |
+| `upload/list`, `upload/[id]` (PATCH/DELETE), `upload/[id]/process` (POST), `upload/[id]/course` (POST) | Manage docs; fire slow enrichment (graph/schedule/inference); act on course suggestion |
+| `courses` (GET/POST), `courses/[id]` (PATCH/DELETE) | Course Intelligence Layer: real course folders (docs survive course deletion) |
+| `graph/[syllabusId]` (GET/PATCH), `graph/[syllabusId]/reprocess` (POST), `graph/cross` (GET) | Read graph; PATCH saves an edited graph (cycle-validated) — **backend live but no UI calls it today**; re-enqueue ingest; cross-course graph |
 | `schedule` (GET), `recommendations` (GET) | Cronograma agenda (all courses / `?syllabusId=`); weekly plan (assessments + this-week topics + review hints) |
-| `study/[syllabusId]` (GET), `study/review` (POST), `study/stats` (GET) | Study OS: flashcards/quiz/summary/mindmap (`?refresh&difficulty&topic`); record review; streak/cards |
+| `study/[syllabusId]`, `study/course/[courseId]` (GET) | Study set (bank-assembled; `?refresh&difficulty&topic&web`) per doc or whole course |
+| `study/[syllabusId]/quiz-stage`, `study/course/[courseId]/quiz-stage` (GET) | Staged quiz (3 escalating stages, lazy bank generation) |
+| `study/quiz-review` (GET/POST/PATCH), `study/quiz-seen` (POST) | Repaso queue (failed questions) / mark served questions |
+| `study/session` (GET), `study/review` (POST), `study/stats` (GET) | Adaptive today-session (SRS + plan-ordered items); record flashcard review; streak/cards |
+| `mastery` (GET/POST), `mastery/[syllabusId]` (GET) | Per-topic mastery ledger (quiz outcomes → confidence) |
 | `notes` (GET/POST), `notes/[id]` (PATCH/DELETE) | Per-date agenda notes (`?dates=1` for calendar markers, `?date=` for a day) |
 | `usage`, `user/preferences`, `feedback` | Metering summary, settings, thumbs up/down |
 | `health`, `cron/cleanup`, `cron/process` | Ops: healthcheck, scheduled guest cleanup, ingest-worker drain (crons need `CRON_SECRET`). `db/migrate` exists but is disabled (404). |
 
 ### Database (Neon Postgres)
 
-- Client: `src/lib/db.ts` — `sql` (pooled, runtime) and `sqlDirect` (migrations).
+- Client: `src/lib/db.ts` — `sql` (pooled, runtime). Migrations use their own client in
+  `scripts/migrate.mjs` (reads `DATABASE_URL`).
 - Schema: `src/lib/schema.sql`, idempotent (`IF NOT EXISTS`). Apply with `npm run db:migrate`
   (`scripts/migrate.mjs`). The `/api/db/migrate` route is **disabled** (returns 404, by design).
 - Tables: `users`, `user_preferences`, `syllabus_uploads`, `chunks`, `programs`, `courses`,
   `syllabi`, `topics`, `topic_dependencies`, `schedule_events`, `chats`, `messages`,
-  `usage_records`, `feedback`, `jobs`, `study_sets`, `date_notes`, `flashcard_reviews`.
-- ✅ Retrieval is live: `CREATE EXTENSION vector` + `chunks.embedding vector(1536)` with an HNSW
-  (`vector_cosine_ops`) index; `chunk.repo#search` / `searchByUser` do `embedding <=> $q`.
+  `usage_records`, `feedback`, `jobs`, `study_sets`, `date_notes`, `flashcard_reviews`,
+  `topic_mastery`, `user_courses`, `course_suggestions`, `course_study_sets`, `study_items`
+  (item bank, embedding-deduped), `quiz_review`, `quiz_seen`.
+- ✅ Retrieval is live: `CREATE EXTENSION vector` + `chunks.embedding vector(2000)`
+  (text-embedding-3-large truncated via the `dimensions` param; HNSW caps at 2000 dims) with an
+  HNSW (`vector_cosine_ops`) index, plus a generated `ts` tsvector (spanish) column + GIN index
+  for the lexical leg of hybrid retrieval; `chunk.repo#search` / `searchByUser` do `embedding <=> $q`.
+- ⚠️ The retrieval relevance gate (`RAG_MAX_DISTANCE`, default 0.75 in `retrieval.service.ts`) is
+  calibrated to THIS embedding model+dims. If either changes, re-measure with
+  `scratch/test-retrieval-live.mjs` — with the old 0.9 default the gate let everything through.
 - ⚠️ `schema.sql` adds new columns/tables via `IF NOT EXISTS` / `ALTER ... ADD COLUMN IF NOT
   EXISTS`, so existing DBs need `npm run db:migrate` re-run after a pull that touches the schema.
 
 ### Auth & access control
 
-- `middleware.ts` gates everything. Public: `/`, `/login`, `/signup`, `/api/auth`, `/api/health`, `/api/cron`.
-- Roles: `guest`, `free`, `pro`, `admin` (see `lib/auth/rbac.ts`). Guests are blocked from
-  `/settings`, `/api/user/preferences`, `/api/usage`, and from uploading.
-- Unauthenticated API calls → 401; unauthenticated pages → redirect to `/login`.
+- **Clerk** (`@clerk/nextjs`): `middleware.ts` runs `clerkMiddleware`; session UI at `/sign-in`,
+  `/sign-up`, `/sso-callback`. Server code never sees Clerk ids beyond
+  `auth-helpers.ts#getAuthedUser`, which maps Clerk → Neon `users` row (stable UUID + role) via
+  `user.repo#getOrCreateUserByClerk`. `ADMIN_EMAILS` promotes matching emails to admin.
+- Roles: `guest`, `free`, `pro`, `admin` (see `lib/auth/rbac.ts`).
+- Unauthenticated API calls → 401; pages gate via Clerk redirects.
 
 ---
 
@@ -126,13 +145,13 @@ Cross-cutting helpers used by services:
 | Layer | Choice |
 |---|---|
 | Framework | Next.js 14.2 (App Router), React 18.3, TypeScript strict |
-| Auth | NextAuth v5 (beta), bcryptjs |
+| Auth | Clerk (`@clerk/nextjs` + `@clerk/themes`) |
 | DB | Neon serverless Postgres (`@neondatabase/serverless`) |
 | Cache / rate limit | Upstash Redis (optional; in-memory fallback) |
-| LLM | OpenAI SDK + OpenRouter (router with tier/fallback logic) |
-| Graph UI | `@xyflow/react` |
-| Styling | Tailwind CSS 4, shadcn/ui (`@base-ui` / Radix), `lucide-react`, `sonner` |
-| Forms / validation | `react-hook-form` + `zod` |
+| LLM | OpenAI SDK client; providers: DeepSeek (chat), OpenAI (embeddings + fallback), OpenRouter, Bluesmind gateway (Study Engine agents + RAG generators) |
+| Graph / mind-map UI | Custom canvas (`components/estudio/mind-map-canvas`) — `@xyflow/react` removed |
+| Styling | Tailwind CSS 4, shadcn/ui (Radix), `lucide-react`, `sonner` |
+| Validation | `zod` (API schemas + LLM output contracts) |
 | Markdown / math | `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex` |
 | PDF parse | `unpdf` (text extraction, in-process — no native deps) |
 | Tooling | Prettier + ESLint (`next/core-web-vitals`) + `knip` (dead-code); Vitest |
@@ -147,7 +166,7 @@ npm run dev            # dev server on :3000
 npm run build          # production build (Vercel uses `vercel-build` = next build)
 npm start              # serve production build
 npm run db:migrate     # apply src/lib/schema.sql to Neon (idempotent; re-run after schema pulls)
-npm run db:users       # list users (debug)
+npm run db:users       # list users (debug); also db:seed-user, db:seed-demo, db:wipe
 npm test               # Vitest (tests/*, alias @→src; mocks auth+DB, no live services)
 npm run lint           # ESLint (next/core-web-vitals)
 npm run format         # Prettier --write (format:check to verify only)
@@ -158,17 +177,21 @@ npm run knip           # report unused files/exports/deps (review, don't blind-d
 
 | Var | Required | Notes |
 |---|---|---|
-| `AUTH_SECRET` | yes | `npx auth secret` |
-| `NEXTAUTH_URL` | yes | e.g. `http://localhost:3000` |
-| `DATABASE_URL` | yes | Neon pooled connection (runtime) |
-| `DATABASE_URL_DIRECT` | yes | Neon direct connection (migrations) |
-| `OPENAI_API_KEY` | yes | Default LLM provider |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY` | yes | Clerk auth |
+| `DATABASE_URL` | yes | Neon pooled connection (runtime + `scripts/migrate.mjs`) |
+| `OPENAI_API_KEY` | yes | Embeddings + openai chat provider + web-search context |
+| `DEEPSEEK_API_KEY` | yes (chat) | Direct DeepSeek provider — the chat default |
+| `BLUESMIND_API_KEY` / `BLUESMIND_BASE_URL` | yes (study) | OpenAI-compatible gateway for Study Engine agents + RAG generators |
+| `MODEL_RAG` | no | Model for graph/schedule/course-infer generators (via gateway) |
+| `MODEL_ROUTER/_SYNTH/_FLASHCARD/_INQUISITOR/_CASE/_VERIFIER/_GRADER` | no | Per-role Study Engine model overrides (`lib/llm/agent-models.ts`) |
+| `WEB_SEARCH_MODEL` | no | Model for the `?web=1` study augmentation |
 | `OPENROUTER_API_KEY` | no | Fallback / extended models |
 | `CRON_SECRET` | prod | Gates `cron/*`; also arms the fire-and-forget ingest worker trigger |
 | `BLOB_READ_WRITE_TOKEN` | no | Vercel Blob; without it account PDFs aren't persisted (degrades w/ warning) |
-| `GOOGLE_CLIENT_ID` / `_SECRET` | no | Google OAuth sign-in (NextAuth provider) |
-| `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` | no | Defaults: `openai` / `gpt-4o-mini` |
+| `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` | no | Defaults: `openai` / `gpt-4o-mini` (see `lib/config/flags.ts`) |
+| `RAG_ENABLED` / `TOOLS_ENABLED` | no | Master switches: RAG retrieval (default on) / chat tool-calling (default off) |
 | `RAG_MAX_DISTANCE` | no | Cosine cutoff for retrieval relevance gate (default `0.9`) |
+| `ADMIN_EMAILS` | no | Comma-separated emails auto-promoted to admin |
 | `RATE_LIMIT_ENABLED`, `LOG_LEVEL` | no | Ops toggles |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Omit → in-memory cache + rate-limit (per-instance, resets on cold start) |
 

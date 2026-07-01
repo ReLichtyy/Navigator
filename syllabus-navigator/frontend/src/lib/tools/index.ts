@@ -2,11 +2,8 @@
  * tools/index.ts — Actions & Tools layer entry point.
  *
  * Registers all tools, exposes them in OpenAI tool-calling format, and
- * provides a single `executeTool` dispatcher used by orchestration.
- *
- * SCAFFOLD: the execute path is live, but the individual tools are stubs.
- * Wire each tool to its service in the build phase, then enable tool-calling
- * in `lib/llm` / `chat.service`.
+ * provides a single `executeTool` dispatcher used by orchestration. Every tool
+ * is wired to its real service; chat.service runs the loop when TOOLS_ENABLED.
  */
 
 import { getTool, listTools, registerTool } from "./registry"

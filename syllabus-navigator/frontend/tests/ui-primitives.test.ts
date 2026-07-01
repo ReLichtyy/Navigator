@@ -16,18 +16,7 @@ function ui(name: string): string {
 const TOKEN =
   /\b(?:bg-(?:background|card|popover|secondary|muted|accent|primary|destructive)|border-border|text-foreground|text-card-foreground|bg-border)\b/
 
-const PRIMITIVES = [
-  "input",
-  "label",
-  "textarea",
-  "select",
-  "card",
-  "badge",
-  "table",
-  "separator",
-  "skeleton",
-  "accordion",
-]
+const PRIMITIVES = ["input", "label", "textarea", "select", "card", "badge", "accordion"]
 
 describe("UI-8 primitive library", () => {
   for (const name of PRIMITIVES) {

@@ -2,7 +2,7 @@
  * prompts/index.ts — Prompt template resolution and interpolation.
  */
 
-import type { CompiledPrompt, PromptTemplate } from "./types"
+import type { CompiledPrompt } from "./types"
 import { PROMPT_TEMPLATES } from "./templates"
 
 /**
@@ -39,20 +39,6 @@ export function getPrompt(id: string, vars?: Record<string, string>): CompiledPr
       ? interpolate(template.userTemplate, resolvedVars)
       : undefined,
   }
-}
-
-/**
- * List all registered prompt templates (for admin/debugging).
- */
-export function listPrompts(): PromptTemplate[] {
-  return Object.values(PROMPT_TEMPLATES)
-}
-
-/**
- * Get a template by ID without compiling it.
- */
-export function getTemplate(id: string): PromptTemplate | undefined {
-  return PROMPT_TEMPLATES[id]
 }
 
 // Re-export types

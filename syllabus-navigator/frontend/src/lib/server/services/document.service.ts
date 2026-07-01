@@ -16,8 +16,8 @@ import type { Role } from "@/lib/auth/rbac"
 import crypto from "crypto"
 
 // Vercel serverless caps the request body at ~4.5MB, so files larger than that
-// must use a client→Blob direct upload (not wired yet). Locally the limit is the
-// dev server's. We accept up to 25MB here; processing time is kept flat by
+// use the client→Blob direct upload path (/api/upload/blob + /api/upload/from-blob).
+// Locally the limit is the dev server's. We accept up to 25MB here; processing time is kept flat by
 // MAX_TEXT_CHARS below (we only ever embed/analyze the first N chars), so a big
 // file doesn't mean a slow upload — it just means the tail isn't indexed.
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB

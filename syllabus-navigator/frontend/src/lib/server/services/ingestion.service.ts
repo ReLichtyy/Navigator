@@ -9,6 +9,7 @@
  */
 
 import { embedTexts } from "@/lib/llm/embeddings"
+import { isTransientLLMError } from "@/lib/llm/gateway-generate"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { GraphRepository } from "../repositories/graph.repo"
 import { ScheduleRepository } from "../repositories/schedule.repo"
@@ -71,6 +72,11 @@ export const IngestionService = {
       })
     }
 
+    // Transient LLM failures (gateway 429/5xx) below are rethrown AFTER both
+    // steps ran, so the job retries with backoff instead of "completing" with a
+    // permanently-failed graph. Permanent failures stay best-effort.
+    let transient: string | null = null
+
     // --- Graph generation (best-effort: a failure here doesn't fail the upload) ---
     try {
       await DocumentRepository.setGraphStatus(syllabusId, "processing")
@@ -83,6 +89,7 @@ export const IngestionService = {
       const msg = err instanceof Error ? err.message : String(err)
       await DocumentRepository.setGraphStatus(syllabusId, "failed", msg.slice(0, 2000))
       logError("ingestion.graph_failed", { syllabusId, error: msg })
+      if (isTransientLLMError(err)) transient = `graph: ${msg}`
     }
 
     // --- Schedule extraction (best-effort; independent of the graph) ---
@@ -91,11 +98,14 @@ export const IngestionService = {
       events = await ScheduleRepository.replaceEvents(syllabusId, extracted)
       logInfo("ingestion.schedule_ready", { syllabusId, events })
     } catch (err) {
-      logError("ingestion.schedule_failed", {
-        syllabusId,
-        error: err instanceof Error ? err.message : String(err),
-      })
+      const msg = err instanceof Error ? err.message : String(err)
+      logError("ingestion.schedule_failed", { syllabusId, error: msg })
+      if (isTransientLLMError(err)) transient = transient ?? `schedule: ${msg}`
     }
+
+    // Retryable failure → let drainQueue re-queue the job (embeddings are
+    // idempotent, so the retry goes straight to the failed generator).
+    if (transient) throw new Error(`Transient enrichment failure — will retry (${transient})`)
 
     return { embedded, topics, events }
   },

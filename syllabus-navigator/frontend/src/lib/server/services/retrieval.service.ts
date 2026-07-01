@@ -28,15 +28,21 @@ const LEXICAL_WEIGHT = 0.35
 
 /**
  * Relevance gate (cosine distance, range 0..2; lower = closer).
- * `<=>` returns cosine distance. Measured on real data (Spanish syllabus):
- * on-topic queries land ~0.65-0.84 (cross-language inflates this) while clearly
- * off-topic ones sit ~0.94+. 0.9 splits the gap. If even the *closest* chunk is
- * past this ceiling, the question isn't about the syllabus → return no context
- * (the chat then answers with NO_CONTEXT_MESSAGE instead of grounding on noise).
- * Borderline tail chunks past the ceiling are also dropped to cut prompt noise.
- * Override with RAG_MAX_DISTANCE.
+ * `<=>` returns cosine distance. Re-measured 2026-07-01 on real data with
+ * text-embedding-3-large @ dim 2000 (scratch/test-retrieval-live.mjs) — the
+ * distance distribution is much tighter than the old model's: on-topic queries
+ * land ~0.54-0.74 (cross-language is the worst case) while off-topic ones sit
+ * ~0.67-0.81. The old 0.9 default let EVERYTHING through (gate was dead). 0.75
+ * keeps every measured on-topic query and blocks most off-topic ones; the
+ * distributions overlap, so the grounded prompt's "si no consta, dilo" rule is
+ * the second line of defense. If even the *closest* chunk is past this ceiling,
+ * the question isn't about the syllabus → return no context (the chat answers
+ * with NO_CONTEXT_MESSAGE instead of grounding on noise). Borderline tail chunks
+ * past the ceiling are also dropped to cut prompt noise. Override with
+ * RAG_MAX_DISTANCE; re-measure with the scratch script if the embedding model
+ * or dimensions change again.
  */
-const MAX_DISTANCE = Number(process.env.RAG_MAX_DISTANCE ?? "0.9")
+const MAX_DISTANCE = Number(process.env.RAG_MAX_DISTANCE ?? "0.75")
 
 export interface RetrievalResult {
   hasContext: boolean

@@ -118,10 +118,6 @@ export async function updateChat(
   })
 }
 
-export async function renameChat(chatId: string, title: string) {
-  return updateChat(chatId, { title })
-}
-
 export async function getChatDetail(chatId: string) {
   return request<ChatDetailAPI>(`/chat/${chatId}`, { method: "GET", json: false })
 }
@@ -458,20 +454,6 @@ export async function reprocessGraph(syllabusId: string) {
   })
 }
 
-/** Save a manually-edited mind map. Returns the persisted graph (with new ids). */
-export async function updateGraph(
-  syllabusId: string,
-  graph: {
-    nodes: { id: string; label: string; weight_percent?: number | null }[]
-    edges: { source: string; target: string }[]
-  },
-) {
-  return request<GraphResponseAPI>(`/graph/${syllabusId}`, {
-    method: "PATCH",
-    body: JSON.stringify(graph),
-  })
-}
-
 export interface ScheduleEventAPI {
   id: string
   syllabus_id: string
@@ -750,13 +732,6 @@ export interface MasteryTopicAPI {
   correct: number
 }
 
-export interface CourseMasteryAPI {
-  syllabus_id: string
-  topics: number
-  avg_confidence: number // 0..1
-  attempts: number
-}
-
 /** Record a batch of quiz outcomes against a course's topics (fire-and-forget). */
 export async function recordMastery(
   syllabusId: string,
@@ -774,11 +749,6 @@ export async function fetchMastery(syllabusId: string) {
     `/mastery/${encodeURIComponent(syllabusId)}`,
     { method: "GET", json: false },
   )
-}
-
-/** Course-level mastery overview across all the user's courses. */
-export async function fetchMasteryOverview() {
-  return request<{ courses: CourseMasteryAPI[] }>(`/mastery`, { method: "GET", json: false })
 }
 
 // ============================================================================

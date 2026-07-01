@@ -22,8 +22,3 @@ if (!process.env.DATABASE_URL) {
  * const rows = await sql`SELECT NOW() AS time`
  */
 export const sql = neon(dbUrl)
-
-/**
- * Conexión directa (opcional) recomendada para migraciones (scripts).
- */
-export const sqlDirect = neon(process.env.DATABASE_URL_DIRECT ?? dbUrl)

@@ -29,26 +29,6 @@ export function courseName(filename: string, code: string | null): string {
   return name || filename.replace(/\.pdf$/i, "")
 }
 
-/**
- * Rewrite a filename so it belongs to `targetCode`'s course group. Strips any
- * existing course code, then prepends the target (or none for "Otros").
- * Used to "move" a document between courses (which are filename-derived).
- */
-export function setCourseCode(filename: string, targetCode: string | null): string {
-  const base = filename.replace(/\.pdf$/i, "")
-  const current = parseCourseCode(base)
-  let stripped = base
-  if (current) {
-    const [alpha, num] = current.split("-")
-    stripped = base.replace(new RegExp(`\\b${alpha}[-\\s]?${num}\\b`, "i"), " ")
-  }
-  stripped = stripped
-    .replace(/[._-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-  return targetCode ? `${targetCode} ${stripped}`.trim() + ".pdf" : `${stripped || "documento"}.pdf`
-}
-
 export interface CourseGroup {
   /** Stable group key — the code, or "OTROS" when no code is detectable. */
   key: string

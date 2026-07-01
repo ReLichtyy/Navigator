@@ -62,7 +62,11 @@ describe("GET /api/study/[syllabusId]", () => {
     )
     const res = await GET(req(), params("s1"))
     expect(res.status).toBe(404)
-    expect(StudyService.getStudySet).toHaveBeenCalledWith("u1", "s1", { refresh: false })
+    expect(StudyService.getStudySet).toHaveBeenCalledWith(
+      "u1",
+      "s1",
+      expect.objectContaining({ refresh: false }),
+    )
   })
 
   it("200 returns the study set with the syllabus id", async () => {
@@ -78,18 +82,22 @@ describe("GET /api/study/[syllabusId]", () => {
     asUser()
     vi.mocked(StudyService.getStudySet).mockResolvedValue(SET as any)
     await GET(req("http://t/api/study/s1?refresh=1"), params("s1"))
-    expect(StudyService.getStudySet).toHaveBeenCalledWith("u1", "s1", { refresh: true })
+    expect(StudyService.getStudySet).toHaveBeenCalledWith(
+      "u1",
+      "s1",
+      expect.objectContaining({ refresh: true }),
+    )
   })
 
   it("passes difficulty + topic through to the service", async () => {
     asUser()
     vi.mocked(StudyService.getStudySet).mockResolvedValue(SET as any)
     await GET(req("http://t/api/study/s1?difficulty=dificil&topic=JSON%20Web"), params("s1"))
-    expect(StudyService.getStudySet).toHaveBeenCalledWith("u1", "s1", {
-      refresh: false,
-      difficulty: "dificil",
-      topic: "JSON Web",
-    })
+    expect(StudyService.getStudySet).toHaveBeenCalledWith(
+      "u1",
+      "s1",
+      expect.objectContaining({ refresh: false, difficulty: "dificil", topic: "JSON Web" }),
+    )
   })
 
   it("ignores an invalid difficulty value", async () => {

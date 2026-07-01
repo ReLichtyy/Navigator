@@ -33,8 +33,3 @@ export function getTool(name: string): AnyTool | undefined {
 export function listTools(): AnyTool[] {
   return [...registry.values()]
 }
-
-/** Test/HMR helper — clear the registry. */
-export function _resetRegistry(): void {
-  registry.clear()
-}

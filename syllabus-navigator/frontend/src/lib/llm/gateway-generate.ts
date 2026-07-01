@@ -42,9 +42,26 @@ export function extractJson(raw: string): string {
 }
 
 /**
+ * True for errors worth retrying: gateway rate limits (429), upstream hiccups
+ * (5xx, "no available channel"), or network failures. Permanent errors (bad
+ * request, auth) are not retried.
+ */
+export function isTransientLLMError(err: unknown): boolean {
+  const status = (err as { status?: number })?.status
+  if (status !== undefined) return status === 429 || status >= 500
+  const msg = err instanceof Error ? err.message : String(err)
+  return /\b(429|500|502|503|504)\b/.test(msg) || /rate.?limit|overloaded|no available channel|timeout|ECONNRESET|fetch failed/i.test(msg)
+}
+
+const RETRY_DELAYS_MS = [1_000, 4_000] // 3 total attempts; short — callers run inside a 60s serverless budget
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
  * Generate a JSON string from the gateway. Instructs "JSON only" (the gateway is
  * mixed-vendor → no strict json_schema); the caller runs extractJson + its own
- * zod parse. Uses RAG_GATEWAY_MODEL unless `model` is given.
+ * zod parse. Uses RAG_GATEWAY_MODEL unless `model` is given. Transient gateway
+ * errors (429/5xx) are retried in-call with a short backoff before surfacing.
  */
 export async function gatewayJson(
   system: string,
@@ -52,17 +69,24 @@ export async function gatewayJson(
   temperature = 0,
   model: string = RAG_GATEWAY_MODEL,
 ): Promise<string> {
-  const completion = await gateway().chat.completions.create({
-    model,
-    // Reasoning models (gpt-5/o-series, deepseek-reasoner) reject temperature → omit.
-    ...(isReasoningModel(model) ? {} : { temperature }),
-    messages: [
-      {
-        role: "system",
-        content: `${system}\n\nRespond ONLY with a single valid JSON object that matches the requested shape. No prose, no markdown fences.`,
-      },
-      { role: "user", content: user },
-    ],
-  })
-  return completion.choices[0]?.message?.content ?? "{}"
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const completion = await gateway().chat.completions.create({
+        model,
+        // Reasoning models (gpt-5/o-series, deepseek-reasoner) reject temperature → omit.
+        ...(isReasoningModel(model) ? {} : { temperature }),
+        messages: [
+          {
+            role: "system",
+            content: `${system}\n\nRespond ONLY with a single valid JSON object that matches the requested shape. No prose, no markdown fences.`,
+          },
+          { role: "user", content: user },
+        ],
+      })
+      return completion.choices[0]?.message?.content ?? "{}"
+    } catch (err) {
+      if (attempt >= RETRY_DELAYS_MS.length || !isTransientLLMError(err)) throw err
+      await sleep(RETRY_DELAYS_MS[attempt])
+    }
+  }
 }

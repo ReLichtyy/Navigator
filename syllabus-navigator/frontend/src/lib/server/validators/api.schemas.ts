@@ -25,10 +25,6 @@ export const UploadFromBlobSchema = z.object({
   contentType: z.string().max(255).optional(),
 })
 
-export type UploadLinkInput = z.infer<typeof UploadLinkSchema>
-export type UploadTextInput = z.infer<typeof UploadTextSchema>
-export type UploadFromBlobInput = z.infer<typeof UploadFromBlobSchema>
-
 export const CreateChatSchema = z.object({
   syllabus_id: z.string().uuid("Invalid syllabus ID").optional(),
   active_model: z.string().optional(),
@@ -63,8 +59,6 @@ export const FlashcardReviewSchema = z.object({
   known: z.boolean(),
 })
 
-export type FlashcardReviewInput = z.infer<typeof FlashcardReviewSchema>
-
 export const MasteryRecordSchema = z.object({
   syllabus_id: z.string().uuid("Invalid syllabus ID"),
   outcomes: z
@@ -73,8 +67,6 @@ export const MasteryRecordSchema = z.object({
     .max(100, "Too many outcomes"),
 })
 
-export type MasteryRecordInput = z.infer<typeof MasteryRecordSchema>
-
 // --- Course Intelligence Layer ---
 export const CreateCourseSchema = z.object({
   name: z.string().trim().min(1, "El nombre es obligatorio").max(120, "Nombre demasiado largo"),
@@ -82,7 +74,6 @@ export const CreateCourseSchema = z.object({
   subject_tags: z.array(z.string().trim().min(1).max(40)).max(12).nullish(),
   color: z.string().trim().max(32).nullish(),
 })
-export type CreateCourseInput = z.infer<typeof CreateCourseSchema>
 
 // Act on a document's pending course suggestion. For 'confirm' the caller may
 // target an existing course (course_id), create a new one (new_course_name), or
@@ -93,7 +84,6 @@ export const CourseActionSchema = z.object({
   new_course_name: z.string().trim().min(1).max(120).nullish(),
   new_course_tags: z.array(z.string().trim().min(1).max(40)).max(12).nullish(),
 })
-export type CourseActionInput = z.infer<typeof CourseActionSchema>
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -105,6 +95,3 @@ export const CreateNoteSchema = z.object({
 export const UpdateNoteSchema = z.object({
   body: z.string().trim().min(1, "Note is required").max(2000, "Note is too long"),
 })
-
-export type CreateNoteInput = z.infer<typeof CreateNoteSchema>
-export type UpdateNoteInput = z.infer<typeof UpdateNoteSchema>

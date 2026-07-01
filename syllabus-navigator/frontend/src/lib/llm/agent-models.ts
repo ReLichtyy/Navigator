@@ -63,5 +63,3 @@ export function resolveAgentModel(role: AgentRole): RoleModel {
   const r = RAW[role]
   return { provider: r.provider, model: r.model, fallback: r.fallback, fallbackProvider: r.fallbackProvider }
 }
-
-export const AGENT_MODELS = RAW

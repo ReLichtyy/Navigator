@@ -7,47 +7,6 @@
 
 export type Role = "guest" | "free" | "pro" | "admin"
 
-export type Permission =
-  | "chat"
-  | "upload"
-  | "graph"
-  | "feedback"
-  | "usage:own"
-  | "admin:users"
-  | "admin:settings"
-  | "admin:usage:all"
-
-const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  guest: ["chat", "feedback"],
-  free: ["chat", "upload", "graph", "feedback", "usage:own"],
-  pro: ["chat", "upload", "graph", "feedback", "usage:own"],
-  admin: [
-    "chat",
-    "upload",
-    "graph",
-    "feedback",
-    "usage:own",
-    "admin:users",
-    "admin:settings",
-    "admin:usage:all",
-  ],
-}
-
-/**
- * Check if a role has a specific permission.
- */
-export function hasPermission(role: Role, permission: Permission): boolean {
-  const perms = ROLE_PERMISSIONS[role]
-  return perms ? perms.includes(permission) : false
-}
-
-/**
- * Get all permissions for a role.
- */
-export function getPermissions(role: Role): Permission[] {
-  return ROLE_PERMISSIONS[role] ?? []
-}
-
 /**
  * Get rate limit tier from role.
  */

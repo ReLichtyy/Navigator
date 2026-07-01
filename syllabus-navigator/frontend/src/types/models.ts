@@ -3,14 +3,6 @@
  * These represent the core entities in the application.
  */
 
-export interface User {
-  id: string
-  email: string
-  name: string | null
-  image: string | null
-  role: "free" | "pro" | "guest"
-}
-
 export interface Citation {
   chunk_id: string
   page_start: number | null
@@ -77,12 +69,4 @@ export interface TopicNode {
 export interface TopicEdge {
   source: string
   target: string
-}
-
-export interface KnowledgeGraph {
-  syllabusId: string
-  status: Document["graphStatus"]
-  error: string | null
-  nodes: TopicNode[]
-  edges: TopicEdge[]
 }

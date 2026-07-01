@@ -89,15 +89,6 @@ export function estimateCost(
 }
 
 /**
- * Get models available for a given user tier.
- */
-export function getModelsForTier(tier: "free" | "pro" | "admin"): ModelDefinition[] {
-  if (tier === "admin") return MODELS
-  if (tier === "pro") return MODELS
-  return MODELS.filter((m) => m.tier === "free")
-}
-
-/**
  * Find a model definition by ID.
  */
 export function getModelDef(modelId: string): ModelDefinition | undefined {

@@ -24,7 +24,12 @@ vi.mock("@/lib/cache", () => ({
 }))
 vi.mock("@/lib/db", () => ({ sql: vi.fn() }))
 vi.mock("@/lib/server/repositories/chat.repo", () => ({
-  ChatRepository: { listChats: vi.fn(), createChat: vi.fn(), countChats: vi.fn() },
+  ChatRepository: {
+    listChats: vi.fn(),
+    createChat: vi.fn(),
+    countChats: vi.fn(),
+    deleteChat: vi.fn(),
+  },
 }))
 
 import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
@@ -63,17 +68,16 @@ describe("DELETE /api/chat/[chatId] — IDOR fix", () => {
 
   it("404 when chat not owned (delete scoped by user_id returns no rows)", async () => {
     session("u1", "free")
-    vi.mocked(sql).mockResolvedValue([] as any)
+    vi.mocked(ChatRepository.deleteChat).mockResolvedValue(false)
     const res = await DELETE(new Request("http://t/x"), params("c1"))
     expect(res.status).toBe(404)
-    // the DELETE query carries the caller's userId among its bound values
-    const values = vi.mocked(sql).mock.calls[0].slice(1)
-    expect(values).toContain("u1")
+    // the repo delete is scoped to the caller's userId
+    expect(ChatRepository.deleteChat).toHaveBeenCalledWith("c1", "u1")
   })
 
   it("204 when owned; deletes and invalidates cache", async () => {
     session("u1", "free")
-    vi.mocked(sql).mockResolvedValue([{ id: "c1" }] as any)
+    vi.mocked(ChatRepository.deleteChat).mockResolvedValue(true)
     const res = await DELETE(new Request("http://t/x"), params("c1"))
     expect(res.status).toBe(204)
   })

@@ -23,7 +23,8 @@ function getClient(): OpenAI {
       apiKey,
       baseURL: OPENROUTER_BASE_URL,
       defaultHeaders: {
-        "HTTP-Referer": process.env.NEXTAUTH_URL ?? "http://localhost:3000",
+        // Attribution header OpenRouter asks for; NEXTAUTH_URL is gone (Clerk).
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
         "X-Title": "Navigator",
       },
     })

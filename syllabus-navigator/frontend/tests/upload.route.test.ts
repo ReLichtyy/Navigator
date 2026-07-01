@@ -19,7 +19,9 @@ vi.mock("@/lib/server/utils/auth-helpers", () => {
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: vi.fn() }))
 vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn() }))
 vi.mock("@/lib/cache", () => ({ invalidatePrefix: vi.fn() }))
-vi.mock("@/lib/server/services/worker-trigger", () => ({ triggerIngestionWorker: vi.fn() }))
+vi.mock("@/lib/server/services/ingestion.service", () => ({
+  IngestionService: { embedOnly: vi.fn() },
+}))
 vi.mock("@/lib/server/services/document.service", () => ({
   DocumentService: { processUpload: vi.fn() },
 }))
@@ -27,7 +29,7 @@ vi.mock("@/lib/server/services/document.service", () => ({
 import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { DocumentService } from "@/lib/server/services/document.service"
-import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
+import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { POST } from "../app/api/upload/route"
 
 const asUser = (id = "u1", role = "free") => (
@@ -80,17 +82,19 @@ describe("POST /api/upload", () => {
     expect(res.status).toBe(400)
   })
 
-  it("201 on success; processes upload and kicks worker", async () => {
+  it("201 on success; embeds inline so the doc is chat-ready", async () => {
     asUser()
     vi.mocked(DocumentService.processUpload).mockResolvedValue({
       id: "up1",
       original_filename: "syllabus.pdf",
       jobId: "j1",
+      status: "pending",
     } as any)
+    vi.mocked(IngestionService.embedOnly).mockResolvedValue({ embedded: 3 })
     const res = await POST(fileReq())
     expect(res.status).toBe(201)
     expect(DocumentService.processUpload).toHaveBeenCalled()
-    expect(triggerIngestionWorker).toHaveBeenCalled()
+    expect(IngestionService.embedOnly).toHaveBeenCalledWith("up1")
     const body = await res.json()
     expect(body.syllabus_id).toBe("up1")
   })
@@ -102,6 +106,6 @@ describe("POST /api/upload", () => {
     )
     const res = await POST(fileReq())
     expect(res.status).toBe(400)
-    expect(triggerIngestionWorker).not.toHaveBeenCalled()
+    expect(IngestionService.embedOnly).not.toHaveBeenCalled()
   })
 })

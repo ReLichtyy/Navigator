@@ -88,8 +88,3 @@ export interface GraphResponseAPI {
   nodes: { id: string; label: string; weight_percent: number }[]
   edges: { source: string; target: string }[]
 }
-
-export interface ApiResponse<T> {
-  data?: T
-  error?: string
-}

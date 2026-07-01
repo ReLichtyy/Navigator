@@ -7,6 +7,15 @@ export interface DbChat {
   syllabus_id: string | null
 }
 
+/** Full chat row as the detail/update endpoints return it. */
+export interface DbChatRow {
+  id: string
+  title: string
+  active_model: string
+  syllabus_id: string | null
+  created_at: string
+}
+
 export interface DbMessage {
   role: string
   content: string
@@ -15,11 +24,68 @@ export interface DbMessage {
 export const ChatRepository = {
   async findByIdAndUser(chatId: string, userId: string): Promise<DbChat | undefined> {
     const rows = await sql`
-      SELECT id, active_model, syllabus_id 
+      SELECT id, active_model, syllabus_id
       FROM chats
       WHERE id = ${chatId}::uuid AND user_id = ${userId}
     `
     return rows[0] as DbChat | undefined
+  },
+
+  /** Chat detail + full message list (ownership-scoped). Undefined when not owned. */
+  async getDetailWithMessages(
+    chatId: string,
+    userId: string,
+  ): Promise<{ chat: DbChatRow; messages: unknown[] } | undefined> {
+    const chatRows = await sql`
+      SELECT id, title, active_model, syllabus_id, created_at
+      FROM chats
+      WHERE id = ${chatId}::uuid AND user_id = ${userId}
+    `
+    const chat = chatRows[0] as DbChatRow | undefined
+    if (!chat) return undefined
+    const messages = await sql`
+      SELECT id, role, content, citations, created_at
+      FROM messages
+      WHERE chat_id = ${chatId}::uuid
+      ORDER BY created_at ASC
+    `
+    return { chat, messages: messages as unknown[] }
+  },
+
+  /**
+   * Apply a partial update (title / active_model / syllabus_id) in ONE statement.
+   * `undefined` fields are left untouched; `syllabus_id: null` unbinds the chat.
+   * Ownership-scoped; returns the updated row or undefined when not owned.
+   */
+  async updateChat(
+    chatId: string,
+    userId: string,
+    patch: { title?: string; active_model?: string; syllabus_id?: string | null },
+  ): Promise<DbChatRow | undefined> {
+    const setTitle = patch.title !== undefined
+    const setModel = patch.active_model !== undefined
+    const setSyllabus = patch.syllabus_id !== undefined
+    const rows = await sql`
+      UPDATE chats SET
+        title        = CASE WHEN ${setTitle}    THEN ${patch.title ?? null}            ELSE title END,
+        active_model = CASE WHEN ${setModel}    THEN ${patch.active_model ?? null}     ELSE active_model END,
+        syllabus_id  = CASE WHEN ${setSyllabus} THEN ${patch.syllabus_id ?? null}::uuid ELSE syllabus_id END
+      WHERE id = ${chatId}::uuid AND user_id = ${userId}
+      RETURNING id, title, active_model, syllabus_id, created_at
+    `
+    return rows[0] as DbChatRow | undefined
+  },
+
+  /**
+   * Delete a chat scoped to its owner; messages cascade (messages.chat_id ON
+   * DELETE CASCADE). Returns false when the chat wasn't owned/found.
+   */
+  async deleteChat(chatId: string, userId: string): Promise<boolean> {
+    const rows = await sql`
+      DELETE FROM chats WHERE id = ${chatId}::uuid AND user_id = ${userId}
+      RETURNING id
+    `
+    return rows.length > 0
   },
 
   async getRecentHistory(chatId: string, limit: number): Promise<DbMessage[]> {
