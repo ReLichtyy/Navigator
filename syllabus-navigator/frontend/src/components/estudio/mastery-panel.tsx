@@ -32,12 +32,9 @@ export function MasteryPanel({ syllabusId }: { syllabusId: string }) {
   if (!topics || topics.length === 0) return null
 
   return (
-    <div className="mt-5 rounded-2xl border border-border/70 bg-card/40 p-4">
-      <div className="mb-3 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+    <div className="mt-2 border-t border-border/60 pt-4">
+      <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
         <Brain className="h-3.5 w-3.5" /> Tu dominio
-        <span className="ml-auto font-normal normal-case tracking-normal text-muted-foreground/70">
-          se actualiza con cada quiz
-        </span>
       </div>
       <div className="flex flex-col gap-2.5">
         {topics.slice(0, 8).map((t) => {

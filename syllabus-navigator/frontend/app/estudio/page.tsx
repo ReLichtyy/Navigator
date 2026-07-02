@@ -37,13 +37,11 @@ import {
   Timer,
   Network,
   AlignLeft,
-  Zap,
   Sparkles,
   BookText,
   FileText,
   FolderOpen,
   Flame,
-  MousePointerClick,
   ChevronDown,
   Globe,
 } from "lucide-react"
@@ -99,7 +97,8 @@ function EstudioContent() {
   const [scope, setScope] = useState<Scope | null>(null)
   const [mode, setMode] = useState<Mode>("menu")
   // Course/scope selector collapse (manual on the menu; auto-hidden inside a mode).
-  const [selectorsOpen, setSelectorsOpen] = useState(true)
+  // Closed by default — the trigger row already names the active course · scope.
+  const [selectorsOpen, setSelectorsOpen] = useState(false)
 
   const [set, setSet] = useState<StudySetAPI | null>(null)
   const [setLoading, setSetLoading] = useState(false)
@@ -437,9 +436,7 @@ function EstudioContent() {
         <MobileNav />
         <GraduationCap className="h-5 w-5 text-accent" />
         <h1 className="text-lg font-semibold">Área de Estudio</h1>
-        <Badge variant="new" className="ml-1 uppercase">
-          Nuevo
-        </Badge>
+        <StatsInline />
       </header>
 
       <div className="flex-1 overflow-auto p-6 sm:px-10 sm:py-9">
@@ -456,21 +453,20 @@ function EstudioContent() {
             <>
               {/* ── Course + scope selector — collapsible; hidden inside a study mode so the activity stays centered ── */}
               {mode === "menu" && (
-                <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/30">
+                <div className="overflow-hidden rounded-xl border border-border bg-card/30">
                   <button
                     onClick={() => setSelectorsOpen((o) => !o)}
-                    className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-secondary/40"
+                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-secondary/40"
                   >
                     <FolderOpen className="h-4 w-4 flex-none text-accent" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                       {multi ? `${selectedGroups.length} cursos combinados` : (selectedGroup?.name ?? "Curso")}
                       {!multi && scopeLabel && (
                         <span className="font-normal text-muted-foreground"> · {scopeLabel}</span>
                       )}
                     </span>
                     <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
-                      {selectedGroups.length} de {groups.length}{" "}
-                      {groups.length === 1 ? "curso" : "cursos"}
+                      {selectedGroups.length}/{groups.length}
                     </span>
                     <ChevronDown
                       className="h-4 w-4 flex-none text-muted-foreground transition-transform"
@@ -479,12 +475,9 @@ function EstudioContent() {
                   </button>
 
                   {selectorsOpen && (
-                    <div className="border-t border-border/50 p-4">
-                      <div className="mb-2.5 text-[11px] font-medium text-muted-foreground">
-                        Elige un curso, o varios para combinar su material de estudio.
-                      </div>
+                    <div className="border-t border-border/60 p-4">
                       {/* Course folders (horizontal, multi-select) */}
-                      <div className="flex flex-wrap gap-2.5">
+                      <div className="flex flex-wrap gap-2">
                         {groups.map((g) => {
                           const active = selectedKeys.includes(folderKey(g))
                           const count = g.docs.filter(isReady).length
@@ -522,7 +515,6 @@ function EstudioContent() {
                       {/* Scope: Todo el curso / specific PDF (vertical) — single folder only */}
                       {selectedGroup && (
                         <ScopePicker
-                          group={selectedGroup}
                           readyDocs={readyDocs}
                           canWholeCourse={canWholeCourse}
                           scope={scope}
@@ -583,48 +575,39 @@ function EstudioContent() {
 
 /** Vertical scope list: "Todo el curso" (when available) + each ready PDF. */
 function ScopePicker({
-  group,
   readyDocs,
   canWholeCourse,
   scope,
   onPickWhole,
   onPickDoc,
 }: {
-  group: RealCourseGroup
   readyDocs: SyllabusUploadAPI[]
   canWholeCourse: boolean
   scope: Scope | null
   onPickWhole: () => void
   onPickDoc: (id: string) => void
 }) {
-  const wholeActive = scope?.kind === "course"
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-card/40">
-      <div className="flex items-center gap-1.5 border-b border-border/60 px-4 py-2.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-        <FolderOpen className="h-3.5 w-3.5" /> Alcance · {group.name}
-      </div>
-      <ul className="divide-y divide-border/40">
-        {canWholeCourse && (
-          <ScopeRow
-            active={wholeActive}
-            onClick={onPickWhole}
-            icon={<Layers className="h-4 w-4 text-accent" />}
-            label="Todo el curso"
-            meta={`${readyDocs.length} ${readyDocs.length === 1 ? "PDF" : "PDFs"} · preguntas que cruzan temas`}
-          />
-        )}
-        {readyDocs.map((d) => (
-          <ScopeRow
-            key={d.id}
-            active={scope?.kind === "doc" && scope.docId === d.id}
-            onClick={() => onPickDoc(d.id)}
-            icon={<FileText className="h-4 w-4 text-accent/70" />}
-            label={cleanName(d.original_filename)}
-            meta="PDF específico"
-          />
-        ))}
-      </ul>
-    </div>
+    <ul className="mt-4 divide-y divide-border/40 border-t border-border/60">
+      {canWholeCourse && (
+        <ScopeRow
+          active={scope?.kind === "course"}
+          onClick={onPickWhole}
+          icon={<Layers className="h-4 w-4 text-accent" />}
+          label="Todo el curso"
+          meta={`${readyDocs.length} ${readyDocs.length === 1 ? "PDF" : "PDFs"}`}
+        />
+      )}
+      {readyDocs.map((d) => (
+        <ScopeRow
+          key={d.id}
+          active={scope?.kind === "doc" && scope.docId === d.id}
+          onClick={() => onPickDoc(d.id)}
+          icon={<FileText className="h-4 w-4 text-accent/70" />}
+          label={cleanName(d.original_filename)}
+        />
+      ))}
+    </ul>
   )
 }
 
@@ -639,14 +622,14 @@ function ScopeRow({
   onClick: () => void
   icon: React.ReactNode
   label: string
-  meta: string
+  meta?: string
 }) {
   return (
     <li>
       <button
         onClick={onClick}
-        className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-          active ? "bg-accent/10" : "hover:bg-secondary/50"
+        className={`flex w-full items-center gap-3 px-2 py-2.5 text-left transition-colors ${
+          active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
         }`}
       >
         <span
@@ -657,14 +640,12 @@ function ScopeRow({
           {active && <span className="h-2 w-2 rounded-full bg-accent" />}
         </span>
         {icon}
-        <span className="min-w-0 flex-1">
-          <span
-            className={`block truncate text-sm ${active ? "font-semibold text-foreground" : ""}`}
-          >
-            {label}
-          </span>
-          <span className="block text-[11px] text-muted-foreground">{meta}</span>
+        <span className={`min-w-0 flex-1 truncate text-sm ${active ? "font-medium" : ""}`}>
+          {label}
         </span>
+        {meta && (
+          <span className="flex-none text-[11px] tabular-nums text-muted-foreground">{meta}</span>
+        )}
       </button>
     </li>
   )
@@ -800,14 +781,6 @@ function ModeRouter({
         <Menu
           set={set}
           syllabusId={syllabusId}
-          scopeLabel={scopeLabel}
-          scopeNote={
-            scope.kind === "doc"
-              ? "PDF específico"
-              : scope.kind === "combo"
-                ? "cursos combinados"
-                : "todo el curso"
-          }
           onLaunch={onLaunch}
           topic={topic}
           weekTopics={weekTopics}
@@ -825,52 +798,15 @@ function ModeRouter({
 const MODES: {
   key: Mode
   title: string
-  desc: string
   Icon: typeof HelpCircle
   meta: (s: StudySetAPI) => string
 }[] = [
-  {
-    key: "quiz",
-    title: "Quiz dinámico",
-    desc: "3 etapas que suben de dificultad (15 c/u), generadas de tu material.",
-    Icon: HelpCircle,
-    meta: () => "3 etapas · 45",
-  },
-  {
-    key: "flash",
-    title: "Tarjetas dinámicas",
-    desc: "Flashcards de concepto → definición con repetición espaciada.",
-    Icon: Layers,
-    meta: (s) => `${s.flashcards.length} tarjetas`,
-  },
-  {
-    key: "repaso",
-    title: "Modo repaso",
-    desc: "Repasa solo las preguntas que fallaste en el quiz, hasta dominarlas.",
-    Icon: RotateCcw,
-    meta: () => "fallos",
-  },
-  {
-    key: "simulacro",
-    title: "Simulacro · Prueba corta",
-    desc: "Examen con el formato de la próxima evaluación.",
-    Icon: Timer,
-    meta: () => "cronometrado",
-  },
-  {
-    key: "mind",
-    title: "Mapa mental",
-    desc: "Estructura visual de los temas y cómo se conectan.",
-    Icon: Network,
-    meta: () => "visual",
-  },
-  {
-    key: "resumen",
-    title: "Resumen automático",
-    desc: "Síntesis de los temas clave, lista para repasar.",
-    Icon: AlignLeft,
-    meta: () => "auto",
-  },
+  { key: "quiz", title: "Quiz", Icon: HelpCircle, meta: () => "3 etapas · 45 preguntas" },
+  { key: "flash", title: "Tarjetas", Icon: Layers, meta: (s) => `${s.flashcards.length} tarjetas` },
+  { key: "repaso", title: "Repaso", Icon: RotateCcw, meta: () => "tus fallos" },
+  { key: "simulacro", title: "Simulacro", Icon: Timer, meta: () => "cronometrado" },
+  { key: "mind", title: "Mapa mental", Icon: Network, meta: () => "visual" },
+  { key: "resumen", title: "Resumen", Icon: AlignLeft, meta: () => "síntesis" },
 ]
 
 // Max focus-instruction length — mirrors the server cap in app/api/study/[syllabusId]/route.ts.
@@ -879,8 +815,6 @@ const MAX_TOPIC = 160
 function Menu({
   set,
   syllabusId,
-  scopeLabel,
-  scopeNote,
   onLaunch,
   topic,
   weekTopics,
@@ -893,8 +827,6 @@ function Menu({
 }: {
   set: StudySetAPI
   syllabusId: string | null
-  scopeLabel: string
-  scopeNote: string
   onLaunch: (m: Mode) => void
   topic: string | null
   weekTopics: string[]
@@ -905,148 +837,128 @@ function Menu({
   web: boolean
   onWeb: (on: boolean) => void
 }) {
+  // Focus is secondary — collapsed until the student wants to narrow the material.
+  const [focusOpen, setFocusOpen] = useState(false)
   return (
     <div>
-      <StatsStrip />
-
-      <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-        Material de estudio generado dinámicamente desde tu base de conocimiento. La dificultad se
-        ajusta sola según tu dominio. Si quieres, enfócalo en un tema; luego elige un modo.
-      </p>
-
-      <Card className="mt-5 flex-row items-center gap-3 p-3.5">
-        <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-accent/10">
-          <Zap className="h-4 w-4 text-accent" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm text-foreground">
-            <b>{scopeLabel}</b> · {scopeNote}
-          </div>
-        </div>
-        <Badge variant="accent" className="flex-none">
-          ● Indexado
-        </Badge>
-      </Card>
-
-      {/* ─── Topic focus ─── */}
-      <div className="mt-5 rounded-2xl border border-border/70 bg-card/40 p-4">
-        {/* Focus instruction — free-text prompt + week-topic shortcuts */}
-        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5" /> Instrucción de enfoque (opcional)
-        </div>
-        <p className="mb-2 text-[11px] text-muted-foreground/80">
-          Escribe en qué enfocar el material (un tema o una instrucción), o déjalo en blanco para
-          todo el alcance.
-        </p>
-        <div className="relative">
-          <Textarea
-            value={topic ?? ""}
-            onChange={(e) => onTopic(e.target.value.trimStart() || null)}
-            maxLength={MAX_TOPIC}
-            placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
-            className="min-h-[4.5rem] resize-none pb-6 text-[13px]"
-          />
-          <span className="pointer-events-none absolute bottom-1.5 right-2 text-[10px] tabular-nums text-muted-foreground/70">
-            {topic?.length ?? 0}/{MAX_TOPIC}
-          </span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
-            Atajos
-          </span>
-          <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
-          {weekTopics.map((t) => (
-            <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
-          ))}
-        </div>
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={() => onWeb(!web)}
-            aria-pressed={web}
-            title="Enriquecer el material con una búsqueda web en vivo"
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-              web
-                ? "border-accent/40 bg-accent/[0.06] text-accent"
-                : "border-border bg-secondary/40 text-muted-foreground hover:border-accent/40 hover:bg-accent/10 hover:text-foreground"
-            }`}
-          >
-            <Globe className="h-4 w-4" strokeWidth={2.25} />
-            Búsqueda web
-            <span
-              className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                web ? "bg-accent/20 text-accent" : "bg-secondary text-muted-foreground"
-              }`}
-            >
-              {web ? "ON" : "OFF"}
-            </span>
-          </button>
-          <Button
-            variant="accent"
-            size="sm"
-            onClick={onApplyFocus}
-            disabled={regenerating}
-            className="gap-2"
-          >
-            {regenerating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-            {regenerating ? "Generando…" : "Aplicar enfoque"}
-          </Button>
-        </div>
-        {web && (
-          <p className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
-            <Globe className="h-3 w-3 text-accent" />
-            El material se generará combinando tus documentos con resultados web actuales.
-          </p>
-        )}
-      </div>
-
-      {/* Mastery is tracked per PDF; only show it for a single-document scope. */}
-      {syllabusId && <MasteryPanel syllabusId={syllabusId} />}
-
-      <div className="mt-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+      {/* ─── Study modes — the point of the page, so they come first ─── */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {MODES.map((m) => {
           const suggested = suggestion?.mode === m.key
           return (
             <Card
               key={m.key}
               asChild
-              className={`cursor-pointer gap-0 p-5 transition-all hover:-translate-y-0.5 hover:border-accent/40 ${
-                suggested ? "border-accent/50 bg-accent/[0.04] ring-1 ring-accent/30" : ""
+              className={`cursor-pointer gap-0 p-5 transition-colors hover:border-accent/50 ${
+                suggested ? "border-accent/40 bg-accent/[0.03]" : "bg-card/40"
               }`}
             >
               <button onClick={() => onLaunch(m.key)} className="text-left">
-                <div className="flex items-center justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/10">
-                    <m.Icon className="h-5 w-5 text-accent" />
-                  </div>
-                  {suggested ? (
+                <div className="flex items-start justify-between gap-2">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
+                    <m.Icon className="h-[18px] w-[18px] text-accent" />
+                  </span>
+                  {suggested && (
                     <Badge variant="accent" className="gap-1">
                       <Sparkles className="h-3 w-3" />
                       Sugerido · {suggestion!.reason}
                     </Badge>
-                  ) : (
-                    <span className="font-mono text-xs text-muted-foreground">{m.meta(set)}</span>
                   )}
                 </div>
-                <div className="mt-3.5 text-[15px] font-bold text-foreground">{m.title}</div>
-                <div className="mt-1 text-[13px] leading-snug text-muted-foreground">{m.desc}</div>
+                <div className="mt-4 text-sm font-semibold text-foreground">{m.title}</div>
+                <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                  {m.meta(set)}
+                </div>
               </button>
             </Card>
           )
         })}
       </div>
+
+      {/* ─── Topic focus — collapsed disclosure ─── */}
+      <div className="mt-10 border-t border-border/60">
+        <button
+          onClick={() => setFocusOpen((o) => !o)}
+          className="flex w-full items-center gap-2 py-3.5 text-left"
+        >
+          <Sparkles className="h-4 w-4 flex-none text-accent" />
+          <span className="text-sm font-medium text-foreground">Enfocar material</span>
+          {!focusOpen && topic && (
+            <span className="min-w-0 truncate text-xs text-accent" title={topic}>
+              · {topic}
+            </span>
+          )}
+          {!focusOpen && web && <Globe className="h-3.5 w-3.5 flex-none text-accent" />}
+          <ChevronDown
+            className="ml-auto h-4 w-4 flex-none text-muted-foreground transition-transform"
+            style={{ transform: focusOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+          />
+        </button>
+
+        {focusOpen && (
+          <div className="pb-4">
+            <div className="relative">
+              <Textarea
+                value={topic ?? ""}
+                onChange={(e) => onTopic(e.target.value.trimStart() || null)}
+                maxLength={MAX_TOPIC}
+                placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
+                className="min-h-[4.5rem] resize-none pb-6 text-[13px]"
+              />
+              <span className="pointer-events-none absolute bottom-1.5 right-2 text-[10px] tabular-nums text-muted-foreground/70">
+                {topic?.length ?? 0}/{MAX_TOPIC}
+              </span>
+            </div>
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
+              {weekTopics.map((t) => (
+                <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
+              ))}
+            </div>
+            <div className="mt-3.5 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => onWeb(!web)}
+                aria-pressed={web}
+                title="Enriquecer el material con una búsqueda web en vivo"
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  web
+                    ? "border-accent/40 bg-accent/[0.06] text-accent"
+                    : "border-border bg-secondary/40 text-muted-foreground hover:border-accent/40 hover:text-foreground"
+                }`}
+              >
+                <Globe className="h-4 w-4" strokeWidth={2.25} />
+                Búsqueda web
+              </button>
+              <Button
+                variant="accent"
+                size="sm"
+                onClick={onApplyFocus}
+                disabled={regenerating}
+                className="gap-2"
+              >
+                {regenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {regenerating ? "Generando…" : "Aplicar"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Mastery is tracked per PDF; only show it for a single-document scope. */}
+      {syllabusId && <MasteryPanel syllabusId={syllabusId} />}
     </div>
   )
 }
 
 // ---------- small presentational helpers ----------
 
-/** Compact streak / weekly-volume strip + highlight-to-ask hint at the top of the menu. */
-function StatsStrip() {
+/** Quiet streak / weekly-volume readout, lives in the page header. */
+function StatsInline() {
   const [stats, setStats] = useState<StudyStatsAPI | null>(null)
   useEffect(() => {
     let alive = true
@@ -1057,30 +969,24 @@ function StatsStrip() {
       alive = false
     }
   }, [])
+  if (!stats) return null
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-2.5">
-      <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/40 px-3.5 py-2">
+    <div className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
+      <span
+        className="flex items-center gap-1.5"
+        title={stats.streakDays === 1 ? "1 día de racha" : `${stats.streakDays} días de racha`}
+      >
         <Flame
-          className={`h-4 w-4 ${stats && stats.streakDays > 0 ? "text-orange-400" : "text-muted-foreground"}`}
+          className={`h-3.5 w-3.5 ${stats.streakDays > 0 ? "text-orange-400" : ""}`}
         />
-        <span className="text-sm font-bold text-foreground tabular-nums">
-          {stats?.streakDays ?? 0}
+        <span className="tabular-nums">
+          {stats.streakDays} {stats.streakDays === 1 ? "día" : "días"}
         </span>
-        <span className="text-xs text-muted-foreground">
-          {stats?.streakDays === 1 ? "día de racha" : "días de racha"}
-        </span>
-      </div>
-      <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/40 px-3.5 py-2">
-        <Layers className="h-4 w-4 text-accent" />
-        <span className="text-sm font-bold text-foreground tabular-nums">
-          {stats?.cardsThisWeek ?? 0}
-        </span>
-        <span className="text-xs text-muted-foreground">repasos esta semana</span>
-      </div>
-      <div className="ml-auto hidden items-center gap-1.5 rounded-xl border border-accent/25 bg-accent/[0.06] px-3.5 py-2 text-[11.5px] font-medium text-muted-foreground sm:flex">
-        <MousePointerClick className="h-3.5 w-3.5 text-accent" />
-        Subraya cualquier texto para preguntárselo a la IA
-      </div>
+      </span>
+      <span className="hidden items-center gap-1.5 sm:flex" title="Repasos esta semana">
+        <Layers className="h-3.5 w-3.5 text-accent" />
+        <span className="tabular-nums">{stats.cardsThisWeek} esta semana</span>
+      </span>
     </div>
   )
 }
@@ -1100,8 +1006,8 @@ function TopicChip({
       title={label}
       className={`max-w-[15rem] truncate rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
         active
-          ? "border-accent bg-accent/15 text-accent shadow-[0_0_0_1px_rgba(63,191,132,0.25)]"
-          : "border-border bg-secondary/40 text-muted-foreground hover:border-accent/40 hover:bg-accent/10 hover:text-foreground"
+          ? "border-accent bg-accent/15 text-accent"
+          : "border-border bg-secondary/40 text-muted-foreground hover:border-accent/40 hover:text-foreground"
       }`}
     >
       {label}
