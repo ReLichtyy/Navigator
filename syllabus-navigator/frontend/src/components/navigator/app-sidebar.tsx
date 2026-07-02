@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
+import { useChatNav } from "@/context/ChatNavContext"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -32,6 +33,7 @@ export function AppSidebar() {
   const router = useRouter()
   const { displayName, status, resetIdentity } = useUser()
   const { openAuthModal } = useAuthModal()
+  const { requestChat, requestNewChat, setAllChatsOpen } = useChatNav()
   const [collapsed, setCollapsed] = useState(false)
   const [stats, setStats] = useState<StudyStatsAPI | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(true)
@@ -183,7 +185,10 @@ export function AppSidebar() {
                 <div className="ml-[22px] mt-1 flex flex-col gap-0.5 border-l border-sidebar-border pl-2.5">
                   <button
                     type="button"
-                    onClick={() => router.push("/?new=1")}
+                    onClick={() => {
+                      requestNewChat()
+                      if (pathname !== "/") router.push("/")
+                    }}
                     className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-semibold text-[#9FEDC4] transition-colors hover:bg-accent/10"
                   >
                     <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.3} />
@@ -193,7 +198,10 @@ export function AppSidebar() {
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => router.push(`/?chat=${c.id}`)}
+                      onClick={() => {
+                        requestChat(c.id)
+                        if (pathname !== "/") router.push("/")
+                      }}
                       className="group flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40 transition-colors group-hover:bg-accent" />
@@ -202,7 +210,10 @@ export function AppSidebar() {
                   ))}
                   <button
                     type="button"
-                    onClick={() => router.push("/?history=1")}
+                    onClick={() => {
+                      setAllChatsOpen(true)
+                      if (pathname !== "/") router.push("/")
+                    }}
                     className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   >
                     <List className="h-3.5 w-3.5 shrink-0" />

@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button"
 import { ChatWorkspaceProvider, useChatWorkspace } from "@/features/chat/context/ChatContext"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
-import { useEffect, useRef, useState } from "react"
+import { useChatNav } from "@/context/ChatNavContext"
+import { useEffect, useRef } from "react"
 import { Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 
@@ -20,8 +21,8 @@ function PageContent() {
   const ws = useChatWorkspace()
   const { status, ready } = useUser()
   const { openAuthModal, isOpen } = useAuthModal()
+  const nav = useChatNav()
   const hasShownWelcome = useRef(false)
-  const [allChatsOpen, setAllChatsOpen] = useState(false)
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -36,25 +37,22 @@ function PageContent() {
     }
   }, [ready, ws.chatsLoading, ws.activeChatId, searchParams, status, ws, router])
 
-  // Actions arriving from the app sidebar (Asistente section): ?new=1, ?chat=<id>, ?history=1
+  // Sidebar intents (Asistente section) — consumed once the chat list is ready.
   useEffect(() => {
-    if (!ready || ws.chatsLoading) return
-    const chatId = searchParams.get("chat")
-    if (chatId) {
-      if (ws.chats.some((c) => c.id === chatId)) ws.selectChat(chatId)
-      router.replace("/")
-      return
+    if (!ready || ws.chatsLoading || !nav.pendingChatId) return
+    if (ws.chats.some((c) => c.id === nav.pendingChatId)) {
+      ws.selectChat(nav.pendingChatId)
     }
-    if (searchParams.get("new")) {
-      ws.handleNewChat()
-      router.replace("/")
-      return
-    }
-    if (searchParams.get("history")) {
-      setAllChatsOpen(true)
-      router.replace("/")
-    }
-  }, [ready, ws.chatsLoading, searchParams, ws, router])
+    nav.clearPendingChat()
+  }, [ready, ws.chatsLoading, nav.pendingChatId, nav, ws])
+
+  // "Nuevo chat" from the sidebar: each tick is one request; consume exactly once.
+  const consumedTick = useRef(0)
+  useEffect(() => {
+    if (!ready || nav.newChatTick === 0 || nav.newChatTick === consumedTick.current) return
+    consumedTick.current = nav.newChatTick
+    ws.handleNewChat()
+  }, [ready, nav.newChatTick, ws])
 
   useEffect(() => {
     if (ready && status === "anonymous" && !hasShownWelcome.current) {
@@ -79,8 +77,8 @@ function PageContent() {
       />
 
       <ChatsModal
-        open={allChatsOpen}
-        onOpenChange={setAllChatsOpen}
+        open={nav.allChatsOpen}
+        onOpenChange={nav.setAllChatsOpen}
         chats={ws.chats}
         activeId={ws.activeChat?.id ?? ""}
         onSelect={ws.selectChat}

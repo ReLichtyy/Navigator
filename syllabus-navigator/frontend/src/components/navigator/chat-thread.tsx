@@ -126,6 +126,10 @@ export function ChatThread({
   }
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // Pin-to-bottom autoscroll: follow the stream only while the user is at the
+  // bottom; never hijack the scroll when they read older messages.
+  const pinnedRef = useRef(true)
+  const msgCountRef = useRef(messages.length)
 
   // Next upcoming assessment + its course (for the contextual simulacro suggestion).
   const [nextAssessment, setNextAssessment] = useState<{
@@ -134,8 +138,23 @@ export function ChatThread({
   } | null>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    const el = scrollRef.current
+    const isNewMessage = messages.length !== msgCountRef.current
+    msgCountRef.current = messages.length
+    if (!pinnedRef.current) return
+    if (isNewMessage) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    } else if (el) {
+      // Streaming content growth: jump instantly — repeated smooth scrolls stutter.
+      el.scrollTop = el.scrollHeight
+    }
   }, [messages])
+
+  const onScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
 
   // Load the nearest assessment once. Fail-silent (anonymous → 401, no schedule → empty).
   useEffect(() => {
@@ -187,7 +206,11 @@ export function ChatThread({
   }
 
   return (
-    <div ref={scrollRef} className="animate-fade-in h-full overflow-y-auto py-6">
+    <div
+      ref={scrollRef}
+      onScroll={onScroll}
+      className="animate-fade-in h-full overflow-y-auto overscroll-contain py-6"
+    >
       <div className="flex flex-col gap-5">
         {messages.map((m) => (
           <MessageBubble
