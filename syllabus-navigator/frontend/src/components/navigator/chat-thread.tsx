@@ -7,6 +7,7 @@ import {
   FileText,
   Link2,
   RefreshCw,
+  Search,
   ThumbsUp,
   ThumbsDown,
   Timer,
@@ -14,6 +15,7 @@ import {
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { useUser } from "@/context/UserContext"
 import type { Message } from "@/components/navigator/types"
 import {
   submitFeedback,
@@ -55,28 +57,40 @@ function SimulacroSuggestion({
   )
 }
 
-const prompts = [
-  {
-    id: "p1",
-    title: "¿Cuáles son los temas del curso?",
-    description: "Lista los temas principales y su peso en la evaluación.",
-  },
-  {
-    id: "p2",
-    title: "¿Cómo se evalúa este curso?",
-    description: "Muestra los criterios, porcentajes y fechas de evaluación.",
-  },
-  {
-    id: "p3",
-    title: "Resume todo el programa del curso",
-    description: "Genera un resumen ejecutivo del contenido del curso.",
-  },
-  {
-    id: "p4",
-    title: "¿Cuáles son los prerequisitos?",
-    description: "Identifica los conocimientos previos necesarios para el curso.",
-  },
+// Rotating suggestions under the hero heading (Navigator v2 — swaps every 2.8s).
+// Static fallback for users without schedule/knowledge; replaced with phrases
+// built from the weekly plan (this-week topics + upcoming assessments) when available.
+const FALLBACK_PHRASES = [
+  "Busca en tu material: persistencia de datos",
+  "Indaga sobre árboles binarios de búsqueda",
+  "Repasa el patrón Factory con un ejemplo",
+  "Busca en tu material: normalización 3FN",
+  "Resume la Unidad III de Programación Web",
+  "Explora los estándares de modelaje UML",
 ]
+
+const PHRASE_TEMPLATES = [
+  (t: string) => `Busca en tu material: ${t}`,
+  (t: string) => `Repasa ${t} con un ejemplo`,
+  (t: string) => `Indaga sobre ${t}`,
+]
+
+/** Build hero suggestions from the user's actual week (topics + assessments). */
+function phrasesFromPlan(plan: {
+  this_week_topics: { title: string }[]
+  upcoming_assessments: UpcomingAssessmentAPI[]
+}): string[] {
+  const out: string[] = plan.this_week_topics
+    .slice(0, 5)
+    .map((e, i) => PHRASE_TEMPLATES[i % PHRASE_TEMPLATES.length](e.title))
+  for (const a of plan.upcoming_assessments.slice(0, 2)) {
+    out.push(`Prepárame para ${a.title} de ${a.course_name}`)
+    for (const topic of a.review_first.slice(0, 2)) {
+      out.push(`Repasa ${topic} antes de ${a.title}`)
+    }
+  }
+  return Array.from(new Set(out)).slice(0, 8)
+}
 
 export function ChatThread({
   messages,
@@ -85,6 +99,18 @@ export function ChatThread({
   messages: Message[]
   onPrompt?: (text: string) => void
 }) {
+  const { displayName } = useUser()
+  const firstName = displayName?.trim().split(/\s+/)[0] ?? null
+
+  // Hero suggestion carousel — only ticks while the empty state is visible.
+  const [phrases, setPhrases] = useState<string[]>(FALLBACK_PHRASES)
+  const [phraseIdx, setPhraseIdx] = useState(0)
+  const isEmpty = messages.length === 0
+  useEffect(() => {
+    if (!isEmpty) return
+    const t = setInterval(() => setPhraseIdx((i) => (i + 1) % phrases.length), 2800)
+    return () => clearInterval(t)
+  }, [isEmpty, phrases.length])
   // The user question immediately preceding an assistant message, by message id —
   // used to "regenerate" an answer the user marked as unhelpful (feedback loop).
   const prevUserById = new Map<string, string>()
@@ -117,6 +143,9 @@ export function ChatThread({
     Promise.all([fetchRecommendations(), fetchAgenda()])
       .then(([plan, agenda]) => {
         if (!alive) return
+        // Hero phrases from the user's real week; keep the fallback if too few.
+        const dynamic = phrasesFromPlan(plan)
+        if (dynamic.length >= 2) setPhrases(dynamic)
         const a = plan.upcoming_assessments[0]
         if (!a) return
         const syllabusId = agenda.events.find((e) => e.course_name === a.course_name)?.syllabus_id
@@ -136,32 +165,22 @@ export function ChatThread({
   if (messages.length === 0) {
     return (
       <div className="animate-fade-in flex h-full flex-col items-center justify-center gap-6 py-10">
-        <div className="flex flex-col items-center text-center">
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            Inicia una conversación o sube un documento para empezar:
-          </p>
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent-bright shadow-[0_0_28px_rgba(63,191,132,0.25)]">
+          <Compass className="h-7 w-7" />
         </div>
-
-        <div className="grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
-          {prompts.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => onPrompt?.(p.title)}
-              className="group flex flex-col items-start gap-1.5 rounded-xl border border-border bg-card px-4 py-3.5 text-left transition-colors hover:border-accent/40 hover:bg-secondary/60"
-            >
-              <div className="flex w-full items-start justify-between gap-2">
-                <span className="font-mono text-[13px] font-medium text-foreground">{p.title}</span>
-                <ArrowUpRight
-                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-colors group-hover:text-accent"
-                  strokeWidth={2.25}
-                />
-              </div>
-              <span className="text-[12px] leading-relaxed text-muted-foreground">
-                {p.description}
-              </span>
-            </button>
-          ))}
+        <h1 className="text-center text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
+          ¿Qué estudiarás hoy{firstName ? `, ${firstName}` : ""}?
+        </h1>
+        <div className="flex min-h-[42px] items-center justify-center">
+          <button
+            key={phraseIdx}
+            type="button"
+            onClick={() => onPrompt?.(phrases[phraseIdx % phrases.length])}
+            className="animate-phrase-swap flex max-w-full items-center gap-2.5 rounded-full border border-border bg-card px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-accent/40 hover:bg-secondary/60 hover:text-foreground"
+          >
+            <Search className="h-4 w-4 shrink-0 text-accent-bright" strokeWidth={1.9} />
+            <span className="truncate">{phrases[phraseIdx % phrases.length]}</span>
+          </button>
         </div>
       </div>
     )

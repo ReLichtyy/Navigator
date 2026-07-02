@@ -268,7 +268,7 @@ export function ChatComposer({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={isDragging ? "Suelta los PDFs…" : "Escribe tu mensaje…"}
+            placeholder={isDragging ? "Suelta los PDFs…" : "Escribe o pregunta lo que quieras…"}
             rows={1}
             disabled={disabled}
             // 16px (text-base) prevents iOS Safari auto-zoom on focus.
@@ -349,7 +349,9 @@ export function ChatComposer({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={isDragging ? "Suelta los PDFs para adjuntar…" : "Escribe tu mensaje…"}
+            placeholder={
+              isDragging ? "Suelta los PDFs para adjuntar…" : "Escribe o pregunta lo que quieras…"
+            }
             rows={1}
             disabled={disabled}
             // 16px font on mobile (text-base) stops iOS Safari auto-zoom on focus;
@@ -392,15 +394,38 @@ export function ChatComposer({
               )}
             </div>
 
+            <button
+              type="button"
+              onClick={toggleWebSearch}
+              aria-pressed={webSearchOn}
+              disabled={disabled}
+              title="Buscar en la web"
+              className={cn(
+                "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                webSearchOn
+                  ? "border-accent/40 bg-accent/[0.06] text-accent"
+                  : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
+              )}
+            >
+              <Globe className="h-4 w-4" strokeWidth={2.25} />
+              <span className="hidden sm:inline">Web</span>
+            </button>
+
             <div className="relative" ref={toolsRef}>
               <button
                 type="button"
                 onClick={() => setToolsOpen((v) => !v)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                className={cn(
+                  "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  toolsOpen
+                    ? "border-accent/40 bg-accent/[0.06] text-accent"
+                    : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )}
                 aria-label="Herramientas"
                 disabled={disabled}
               >
                 <Sparkles className="h-4 w-4" />
+                <span className="hidden sm:inline">Herramientas</span>
               </button>
               {toolsOpen && (
                 <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[230px] rounded-lg border border-border bg-card py-1 shadow-lg">
@@ -424,25 +449,8 @@ export function ChatComposer({
 
             <button
               type="button"
-              onClick={toggleWebSearch}
-              aria-pressed={webSearchOn}
-              disabled={disabled}
-              title="Buscar en la web"
-              className={cn(
-                "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                webSearchOn
-                  ? "border-accent/40 bg-accent/[0.06] text-accent"
-                  : "border-border bg-background text-muted-foreground hover:bg-secondary hover:text-foreground",
-              )}
-            >
-              <Globe className="h-4 w-4" strokeWidth={2.25} />
-              <span className="hidden sm:inline">Web</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => inputRef.current?.click()}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
               aria-label="Attach a PDF"
               disabled={disabled}
             >
@@ -454,9 +462,9 @@ export function ChatComposer({
               onClick={handleSend}
               disabled={!canSend}
               className={cn(
-                "ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
+                "ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] transition-all duration-200",
                 canSend
-                  ? "bg-accent text-accent-foreground shadow-sm hover:opacity-90"
+                  ? "bg-[linear-gradient(135deg,#3FBF84,#2c9a66)] text-[#06140D] shadow-[0_4px_14px_rgba(63,191,132,0.22)] hover:brightness-110"
                   : "bg-secondary text-muted-foreground/70",
               )}
               aria-label="Enviar mensaje"

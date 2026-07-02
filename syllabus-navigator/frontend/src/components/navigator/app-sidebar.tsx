@@ -1,10 +1,18 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
-import { fetchStudyStats, type StudyStatsAPI } from "@/lib/api"
-import { Compass, PanelLeft, Flame, User as UserIcon } from "lucide-react"
+import { fetchStudyStats, listChats, type StudyStatsAPI } from "@/lib/api"
+import {
+  ChevronDown,
+  Compass,
+  List,
+  PanelLeft,
+  Plus,
+  Flame,
+  User as UserIcon,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -21,20 +29,30 @@ import { MAIN_NAV, STUDY_NAV, type NavItem } from "@/components/navigator/nav-it
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const { displayName, status, resetIdentity } = useUser()
   const { openAuthModal } = useAuthModal()
   const [collapsed, setCollapsed] = useState(false)
   const [stats, setStats] = useState<StudyStatsAPI | null>(null)
+  const [assistantOpen, setAssistantOpen] = useState(true)
+  const [recentChats, setRecentChats] = useState<{ id: string; title: string }[]>([])
 
   useEffect(() => {
     if (status === "anonymous") {
       setStats(null)
+      setRecentChats([])
       return
     }
     let alive = true
     fetchStudyStats()
       .then((s) => alive && setStats(s))
       .catch(() => alive && setStats(null))
+    listChats()
+      .then(
+        (d) =>
+          alive && setRecentChats(d.chats.slice(0, 4).map((c) => ({ id: c.id, title: c.title }))),
+      )
+      .catch(() => alive && setRecentChats([]))
     return () => {
       alive = false
     }
@@ -46,6 +64,9 @@ export function AppSidebar() {
   }
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href))
+
+  const assistantItem = MAIN_NAV[0]
+  const AssistantIcon = assistantItem.icon
 
   function NavLink({ item }: { item: NavItem }) {
     const active = isActive(item.href)
@@ -124,9 +145,75 @@ export function AppSidebar() {
           {!collapsed && <span>Colapsar</span>}
         </Button>
 
-        {/* Main nav */}
+        {/* Main nav — "Asistente" expands to new-chat + recent chats (Navigator v2) */}
         <nav className="mt-4 flex flex-col gap-1">
-          {MAIN_NAV.map((item) => (
+          {collapsed ? (
+            <NavLink item={assistantItem} />
+          ) : (
+            <div>
+              <div
+                className={cn(
+                  "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  isActive("/")
+                    ? "border border-accent/30 bg-accent/15 text-accent"
+                    : "border border-transparent text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                )}
+              >
+                <Link href="/" className="flex min-w-0 flex-1 items-center gap-3">
+                  <AssistantIcon className="h-[18px] w-[18px] shrink-0" />
+                  <span className="truncate">{assistantItem.label}</span>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setAssistantOpen((v) => !v)}
+                  aria-label={assistantOpen ? "Contraer chats" : "Expandir chats"}
+                  aria-expanded={assistantOpen}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform",
+                      !assistantOpen && "-rotate-90",
+                    )}
+                  />
+                </button>
+              </div>
+
+              {assistantOpen && (
+                <div className="ml-[22px] mt-1 flex flex-col gap-0.5 border-l border-sidebar-border pl-2.5">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/?new=1")}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-semibold text-[#9FEDC4] transition-colors hover:bg-accent/10"
+                  >
+                    <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.3} />
+                    Nuevo chat
+                  </button>
+                  {recentChats.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => router.push(`/?chat=${c.id}`)}
+                      className="group flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                    >
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40 transition-colors group-hover:bg-accent" />
+                      <span className="truncate">{c.title}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => router.push("/?history=1")}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  >
+                    <List className="h-3.5 w-3.5 shrink-0" />
+                    Ver todos los chats
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {MAIN_NAV.slice(1).map((item) => (
             <NavLink key={item.href} item={item} />
           ))}
         </nav>

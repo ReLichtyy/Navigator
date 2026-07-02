@@ -23,8 +23,8 @@ function client(): OpenAI {
   return _client
 }
 
-// Bluesmind gateway (OpenAI-compatible): one key + base URL for every vendor id
-// (gpt-5.x, gemini, deepseek). Used by the whole Study Engine.
+// Bluesmind gateway (OpenAI-compatible): kept only for env-override use — the
+// defaults moved to direct OpenAI/DeepSeek (agent-models.ts) when the gateway died.
 let _bluesmind: OpenAI | null = null
 function bluesmind(): OpenAI {
   if (!_bluesmind) {
@@ -121,7 +121,7 @@ export async function runAgent<T>(c: AgentCall<T>): Promise<T | null> {
     })
     if (!fallback) return null
     try {
-      // Fallback runs through its own provider (e.g. DeepSeek verifier → Bluesmind gpt-5.4).
+      // Fallback runs through its own provider (e.g. DeepSeek verifier → OpenAI gpt-5-mini).
       const raw = await callOnce(fallbackProvider ?? provider, fallback, c)
       const parsed = c.schema.safeParse(JSON.parse(extractJson(raw)))
       return parsed.success ? parsed.data : null

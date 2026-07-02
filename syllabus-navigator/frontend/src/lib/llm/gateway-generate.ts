@@ -1,35 +1,36 @@
 /**
  * llm/gateway-generate.ts — structured JSON generation for the RAG generators
- * (course inference, graph, schedule, study) via the BLUESMIND gateway.
+ * (course inference, graph, schedule) via the DIRECT OpenAI API.
  *
- * Why not the direct OpenAI client: these run on gpt-5.4, a gateway-only id.
- * Sending it to api.openai.com 404s (the bug that silently killed course
- * inference/graph/schedule). The gateway is OpenAI-compatible (one key + base
- * URL) — same client the Study Engine agents use.
+ * Formerly ran on the Bluesmind gateway (gpt-5.4), dropped 2026-07-01: every
+ * model the gateway lists fails live (503 "no available channel" / 504 / 500 /
+ * 403), which silently killed course inference/graph/schedule. OpenAI direct is
+ * the replacement — same key as embeddings (OPENAI_API_KEY, always configured).
  *
- * gpt-5.4 is the only model the gateway token currently has access to (deepseek/*
- * and gemini/* return 403 "no access" / 400 "price not configured" until the
- * gateway admin enables them), so all four generators use it. Override per-deploy
- * via MODEL_RAG. The gateway is mixed-vendor → no OpenAI strict json_schema; we
- * instruct "JSON only" and parse the reply, exactly like rag/agents/_base.ts.
+ * Default model: gpt-5-mini (cheap, strong at big structured JSON). Override
+ * per-deploy via MODEL_RAG. Kept the "JSON only" instruct-and-parse contract
+ * (plus json_object response_format) so callers are unchanged.
  */
 import OpenAI from "openai"
 import { isReasoningModel } from "./config"
 
-let _gw: OpenAI | null = null
-function gateway(): OpenAI {
-  if (!_gw) {
-    const apiKey = process.env.BLUESMIND_API_KEY
-    const baseURL = process.env.BLUESMIND_BASE_URL
-    if (!apiKey) throw new Error("BLUESMIND_API_KEY is not configured")
-    if (!baseURL) throw new Error("BLUESMIND_BASE_URL is not configured")
-    _gw = new OpenAI({ apiKey, baseURL })
+let _client: OpenAI | null = null
+function openaiClient(): OpenAI {
+  if (!_client) {
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) throw new Error("OPENAI_API_KEY is not configured")
+    _client = new OpenAI({ apiKey })
   }
-  return _gw
+  return _client
 }
 
-/** The gateway model for every RAG generator. Overridable per-deploy. */
-export const RAG_GATEWAY_MODEL = process.env.MODEL_RAG || "gpt-5.4"
+/** The model for every RAG generator. Overridable per-deploy via MODEL_RAG. */
+export const RAG_GATEWAY_MODEL = (() => {
+  const v = process.env.MODEL_RAG?.trim()
+  // gpt-5.4 / gemini-* / deepseek/* were gateway-only ids — 404 on api.openai.com.
+  if (!v || /^(gpt-5\.4|gemini|deepseek\/)/.test(v)) return "gpt-5-mini"
+  return v
+})()
 
 /** Pull a JSON object out of a model reply, tolerating ```json fences / prose. */
 export function extractJson(raw: string): string {
@@ -58,10 +59,10 @@ const RETRY_DELAYS_MS = [1_000, 4_000] // 3 total attempts; short — callers ru
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * Generate a JSON string from the gateway. Instructs "JSON only" (the gateway is
- * mixed-vendor → no strict json_schema); the caller runs extractJson + its own
- * zod parse. Uses RAG_GATEWAY_MODEL unless `model` is given. Transient gateway
- * errors (429/5xx) are retried in-call with a short backoff before surfacing.
+ * Generate a JSON string from OpenAI. Instructs "JSON only" + json_object mode;
+ * the caller runs extractJson + its own zod parse (contract unchanged from the
+ * gateway era, so callers didn't move). Uses RAG_GATEWAY_MODEL unless `model` is
+ * given. Transient errors (429/5xx) are retried in-call with a short backoff.
  */
 export async function gatewayJson(
   system: string,
@@ -71,10 +72,11 @@ export async function gatewayJson(
 ): Promise<string> {
   for (let attempt = 0; ; attempt++) {
     try {
-      const completion = await gateway().chat.completions.create({
+      const completion = await openaiClient().chat.completions.create({
         model,
-        // Reasoning models (gpt-5/o-series, deepseek-reasoner) reject temperature → omit.
+        // Reasoning models (gpt-5/o-series) reject temperature → omit.
         ...(isReasoningModel(model) ? {} : { temperature }),
+        response_format: { type: "json_object" },
         messages: [
           {
             role: "system",

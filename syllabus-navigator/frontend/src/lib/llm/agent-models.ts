@@ -1,22 +1,23 @@
 /**
  * llm/agent-models.ts — role → model map for the multi-agent Study Engine.
  *
- * The whole backend Study Engine runs on the BLUESMIND gateway (OpenAI-compatible:
- * one BLUESMIND_API_KEY + BLUESMIND_BASE_URL serves every vendor id). "Best model
- * for each job": a cheap/fast model for high-volume roles, a creative model for
- * generation, a reasoning model for verification/grading. Each role's model is
- * overridable per-deploy via env (no code change).
+ * The Study Engine runs on DIRECT provider APIs: OpenAI for generation (strict
+ * json_schema output in _base.ts) and DeepSeek for the reasoning roles. The
+ * Bluesmind gateway was dropped as default on 2026-07-01: every model it lists
+ * fails live (gpt-5.4 → 503 "no available channel", gpt-5-nano → 504, gemini →
+ * 500, deepseek/* → 403/400). The "bluesmind" provider is still accepted via
+ * env overrides if the gateway comes back. Each role's model is overridable
+ * per-deploy via env (no code change).
  *
- * Preset (all via the Bluesmind gateway):
- *   - creative engine (inquisitor, case)  → gpt-5.4
- *   - volume processors (synth, flashcard)→ gemini-3.1-flash-lite-preview
- *   - router                              → gpt-5-nano
- *   - verifier / grader (reasoning)       → deepseek/deepseek-reasoner
+ * Preset:
+ *   - creative engine (inquisitor, case)  → openai gpt-5-mini
+ *   - volume processors (synth, flashcard)→ openai gpt-4o-mini
+ *   - router                              → openai gpt-5-nano
+ *   - verifier / grader (reasoning)       → deepseek deepseek-reasoner (direct)
  *
- * Every role falls back to gpt-5.4 (the consistently-up Bluesmind model) so a model
- * the gateway hasn't fully enabled yet (deepseek/* pricing, flaky gemini/nano
- * upstream) never empties a study set. Embeddings stay on OpenAI; the chat assistant
- * is separate (llm/selectModel) and runs on the direct DeepSeek provider.
+ * Fallbacks stay on OpenAI (the consistently-up provider) so one flaky model
+ * never empties a study set. Embeddings stay on OpenAI; the chat assistant is
+ * separate (llm/selectModel) and runs on the direct DeepSeek provider.
  */
 import type { LLMProvider } from "./types"
 
@@ -41,22 +42,27 @@ export interface RoleModel {
 }
 
 function env(name: string, def: string): string {
-  const v = process.env[name]
-  return v && v.trim() ? v.trim() : def
+  const v = process.env[name]?.trim()
+  if (!v) return def
+  // Gateway-era ids: gpt-5.4 / gemini-* only existed on Bluesmind, and deepseek
+  // ids were vendor-prefixed there. Map stale deploy envs so they can't 404.
+  if (/^(gpt-5\.4|gemini)/.test(v)) return def
+  return v.replace(/^deepseek\//, "")
 }
 
-const BS: AgentProvider = "bluesmind" // every Study Engine role runs on the gateway
-const SAFE = "gpt-5.4" // the consistently-up Bluesmind model → universal fallback
+const OA: AgentProvider = "openai"
+const DS: AgentProvider = "deepseek"
+const SAFE = "gpt-4o-mini" // cheap + consistently up → universal OpenAI fallback
 
 const RAW: Record<AgentRole, { provider: AgentProvider; model: string; fallback?: string; fallbackProvider?: AgentProvider }> = {
-  // Each role falls back to gpt-5.4 (same provider) when its model errors / isn't enabled.
-  router: { provider: BS, model: env("MODEL_ROUTER", "gpt-5-nano"), fallback: SAFE },
-  synth: { provider: BS, model: env("MODEL_SYNTH", "gemini-3.1-flash-lite-preview"), fallback: SAFE },
-  flashcard: { provider: BS, model: env("MODEL_FLASHCARD", "gemini-3.1-flash-lite-preview"), fallback: SAFE },
-  inquisitor: { provider: BS, model: env("MODEL_INQUISITOR", "gpt-5.4") },
-  case: { provider: BS, model: env("MODEL_CASE", "gpt-5.4") },
-  verifier: { provider: BS, model: env("MODEL_VERIFIER", "deepseek/deepseek-reasoner"), fallback: SAFE },
-  grader: { provider: BS, model: env("MODEL_GRADER", "deepseek/deepseek-reasoner"), fallback: SAFE },
+  // Each role falls back to an OpenAI model when its primary errors / is down.
+  router: { provider: OA, model: env("MODEL_ROUTER", "gpt-5-nano"), fallback: SAFE },
+  synth: { provider: OA, model: env("MODEL_SYNTH", "gpt-4o-mini"), fallback: "gpt-5-mini" },
+  flashcard: { provider: OA, model: env("MODEL_FLASHCARD", "gpt-4o-mini"), fallback: "gpt-5-mini" },
+  inquisitor: { provider: OA, model: env("MODEL_INQUISITOR", "gpt-5-mini"), fallback: SAFE },
+  case: { provider: OA, model: env("MODEL_CASE", "gpt-5-mini"), fallback: SAFE },
+  verifier: { provider: DS, model: env("MODEL_VERIFIER", "deepseek-reasoner"), fallback: "gpt-5-mini", fallbackProvider: OA },
+  grader: { provider: DS, model: env("MODEL_GRADER", "deepseek-reasoner"), fallback: "gpt-5-mini", fallbackProvider: OA },
 }
 
 export function resolveAgentModel(role: AgentRole): RoleModel {

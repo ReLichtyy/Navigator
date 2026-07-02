@@ -52,7 +52,7 @@ Cross-cutting helpers used by services:
 | RAG / ingestion | `lib/server/rag/` | `chunking` (`pdfToPageChunks` via `unpdf` + office/link/text), `graph-gen`, `schedule-gen`, `study-gen` (types + normalize + shared prompts), `course-infer`, `web-search` |
 | Study Engine | `lib/server/rag/orchestrator/` + `agents/` + `eval/` + `retrieval/` | `runner#orchestrateStudySet` (flashcard/inquisitor/synth agents in parallel → `eval/gates` critic), `router` (study plan by mastery×weight×urgency), `planner#getTodaySession` (SRS), `retrieval/hybrid` (dense+lexical RRF per topic) |
 | PDF storage | `lib/server/storage/blob.ts` | `storePdf` → Vercel Blob (accounts only); degrades w/ warning if no token |
-| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai`, `openrouter`, `deepseek` (chat default). Study Engine agents run on the **Bluesmind gateway** (`agent-models.ts` role→model map, `_base.ts`); RAG generators use `gateway-generate.ts` (`MODEL_RAG`). Embeddings = OpenAI direct (`embeddings.ts`, text-embedding-3-large @ dim 2000) |
+| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai`, `openrouter`, `deepseek` (chat default). Study Engine agents run on **direct OpenAI** (+ DeepSeek `deepseek-reasoner` for verifier/grader) — `agent-models.ts` role→model map, `_base.ts`. RAG generators use `gateway-generate.ts` (**OpenAI direct**, `MODEL_RAG`, default gpt-5-mini; the name is historical — the Bluesmind gateway died 2026-07-01 and was dropped as default). Embeddings = OpenAI direct (`embeddings.ts`, text-embedding-3-large @ dim 2000) |
 | Model catalog/pricing | `lib/llm/config.ts` | `MODELS`, `DEFAULT_MODEL`, `estimateCost` |
 | Feature flags | `lib/config/flags.ts` | `ragEnabled` (RAG_ENABLED), `toolsEnabled` (TOOLS_ENABLED), default provider/model — resolved once at module load |
 | Tools (chat actions) | `lib/tools/` | 5 tools (retrieve-context, get-schedule, get-recommendations, generate-study-set, record-review) → services; loop in `lib/llm/tools-loop.ts`, gated by `TOOLS_ENABLED` |
@@ -148,7 +148,7 @@ Cross-cutting helpers used by services:
 | Auth | Clerk (`@clerk/nextjs` + `@clerk/themes`) |
 | DB | Neon serverless Postgres (`@neondatabase/serverless`) |
 | Cache / rate limit | Upstash Redis (optional; in-memory fallback) |
-| LLM | OpenAI SDK client; providers: DeepSeek (chat), OpenAI (embeddings + fallback), OpenRouter, Bluesmind gateway (Study Engine agents + RAG generators) |
+| LLM | OpenAI SDK client; providers: DeepSeek (chat + verifier/grader), OpenAI (embeddings + Study Engine + RAG generators), OpenRouter (fallback). Bluesmind gateway dead (2026-07-01) — only reachable via env override |
 | Graph / mind-map UI | Custom canvas (`components/estudio/mind-map-canvas`) — `@xyflow/react` removed |
 | Styling | Tailwind CSS 4, shadcn/ui (Radix), `lucide-react`, `sonner` |
 | Validation | `zod` (API schemas + LLM output contracts) |
@@ -180,9 +180,9 @@ npm run knip           # report unused files/exports/deps (review, don't blind-d
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY` | yes | Clerk auth |
 | `DATABASE_URL` | yes | Neon pooled connection (runtime + `scripts/migrate.mjs`) |
 | `OPENAI_API_KEY` | yes | Embeddings + openai chat provider + web-search context |
-| `DEEPSEEK_API_KEY` | yes (chat) | Direct DeepSeek provider — the chat default |
-| `BLUESMIND_API_KEY` / `BLUESMIND_BASE_URL` | yes (study) | OpenAI-compatible gateway for Study Engine agents + RAG generators |
-| `MODEL_RAG` | no | Model for graph/schedule/course-infer generators (via gateway) |
+| `DEEPSEEK_API_KEY` | yes (chat + study) | Direct DeepSeek provider — chat default + Study Engine verifier/grader (`deepseek-reasoner`) |
+| `BLUESMIND_API_KEY` / `BLUESMIND_BASE_URL` | no (legacy) | Dead gateway (2026-07-01); only used if a `MODEL_*` env override targets provider bluesmind |
+| `MODEL_RAG` | no | Model for graph/schedule/course-infer generators (OpenAI direct, default `gpt-5-mini`) |
 | `MODEL_ROUTER/_SYNTH/_FLASHCARD/_INQUISITOR/_CASE/_VERIFIER/_GRADER` | no | Per-role Study Engine model overrides (`lib/llm/agent-models.ts`) |
 | `WEB_SEARCH_MODEL` | no | Model for the `?web=1` study augmentation |
 | `OPENROUTER_API_KEY` | no | Fallback / extended models |

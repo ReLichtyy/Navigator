@@ -4,7 +4,7 @@
  * existing courses, an OpenAI structured-output call returns the best course
  * name + a confidence, optionally matching one of the existing courses.
  *
- * Runs on the BLUESMIND gateway (gpt-5.4) via gatewayJson — same as graph-gen.
+ * Runs on OpenAI direct (MODEL_RAG, default gpt-5-mini) via gatewayJson — same as graph-gen.
  * Pure inference — it never writes to the DB; the service persists the result.
  */
 

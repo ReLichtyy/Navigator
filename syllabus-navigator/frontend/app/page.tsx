@@ -3,6 +3,7 @@
 import { ChatComposer } from "@/components/navigator/chat-composer"
 import { ChatThread } from "@/components/navigator/chat-thread"
 import { ChatSkeleton } from "@/components/navigator/chat-skeleton"
+import { ChatsModal } from "@/components/navigator/chats-modal"
 import { HistorySidebar } from "@/components/navigator/history-sidebar"
 import { MobileHistorySheet } from "@/components/navigator/mobile-history-sheet"
 import { TopHeader } from "@/components/navigator/top-header"
@@ -11,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { ChatWorkspaceProvider, useChatWorkspace } from "@/features/chat/context/ChatContext"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 
@@ -20,6 +21,7 @@ function PageContent() {
   const { status, ready } = useUser()
   const { openAuthModal, isOpen } = useAuthModal()
   const hasShownWelcome = useRef(false)
+  const [allChatsOpen, setAllChatsOpen] = useState(false)
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -33,6 +35,26 @@ function PageContent() {
       }
     }
   }, [ready, ws.chatsLoading, ws.activeChatId, searchParams, status, ws, router])
+
+  // Actions arriving from the app sidebar (Asistente section): ?new=1, ?chat=<id>, ?history=1
+  useEffect(() => {
+    if (!ready || ws.chatsLoading) return
+    const chatId = searchParams.get("chat")
+    if (chatId) {
+      if (ws.chats.some((c) => c.id === chatId)) ws.selectChat(chatId)
+      router.replace("/")
+      return
+    }
+    if (searchParams.get("new")) {
+      ws.handleNewChat()
+      router.replace("/")
+      return
+    }
+    if (searchParams.get("history")) {
+      setAllChatsOpen(true)
+      router.replace("/")
+    }
+  }, [ready, ws.chatsLoading, searchParams, ws, router])
 
   useEffect(() => {
     if (ready && status === "anonymous" && !hasShownWelcome.current) {
@@ -54,6 +76,15 @@ function PageContent() {
         onNewChat={ws.handleNewChat}
         onDelete={ws.handleDeleteChat}
         onRename={ws.handleRenameChat}
+      />
+
+      <ChatsModal
+        open={allChatsOpen}
+        onOpenChange={setAllChatsOpen}
+        chats={ws.chats}
+        activeId={ws.activeChat?.id ?? ""}
+        onSelect={ws.selectChat}
+        onNewChat={ws.handleNewChat}
       />
 
       <MobileHistorySheet

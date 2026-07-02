@@ -78,7 +78,9 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
   } = useSyllabus()
   const { openAuthModal } = useAuthModal()
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Navigator v2: recent chats live in the app sidebar, so the full history
+  // panel starts hidden ("Ver todos los chats" / the header toggle opens it).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false)
   const [activeChatId, setActiveChatId] = useState("")
   const [transitionKey, setTransitionKey] = useState(0)

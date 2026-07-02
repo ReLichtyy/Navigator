@@ -180,6 +180,22 @@
   }
 }
 
+/* Hero suggestion swap (Navigator v2 rotating phrase) */
+@keyframes phrase-swap {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-phrase-swap {
+  animation: phrase-swap 0.3s ease both;
+}
+
 /* Quicker fade-in used when switching chats */
 @keyframes nav-fade-in {
   from {
