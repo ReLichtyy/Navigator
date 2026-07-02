@@ -182,4 +182,16 @@ export const ChatRepository = {
     `
     return rows[0]
   },
+
+  /** Find the most-recent chat bound to a specific syllabus for this user. */
+  async findByUserAndSyllabus(userId: string, syllabusId: string): Promise<DbChatRow | undefined> {
+    const rows = await sql`
+      SELECT id, title, active_model, syllabus_id, created_at
+      FROM chats
+      WHERE user_id = ${userId} AND syllabus_id = ${syllabusId}::uuid
+      ORDER BY created_at DESC
+      LIMIT 1
+    `
+    return rows[0] as DbChatRow | undefined
+  },
 }

@@ -12,8 +12,24 @@ export interface DbJob {
 }
 
 export const JobRepository = {
-  /** Enqueue a job. */
+  /**
+   * Enqueue a job, deduplicating on syllabusId: if a pending or processing job
+   * for the same type + syllabusId already exists, returns the existing job's id
+   * instead of inserting a duplicate.
+   */
   async enqueue(type: string, payload: Record<string, unknown>): Promise<string> {
+    const syllabusId = payload.syllabusId as string | undefined
+    if (syllabusId) {
+      const existing = await sql`
+        SELECT id FROM jobs
+        WHERE type = ${type}
+          AND payload->>'syllabusId' = ${syllabusId}
+          AND status IN ('pending', 'processing')
+        LIMIT 1
+      `
+      if (existing.length > 0) return (existing[0] as { id: string }).id
+    }
+
     const rows = await sql`
       INSERT INTO jobs (type, payload, status)
       VALUES (${type}, ${JSON.stringify(payload)}::jsonb, 'pending')

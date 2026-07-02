@@ -51,9 +51,9 @@ export function getDocStatus(doc: SyllabusUploadAPI & { _optimistic?: boolean })
     }
   }
   if (doc.graph_status === "pending" || doc.graph_status === "processing") {
-    return { label: "Generando mapa…", tone: "pending", canReprocess: false }
+    return { label: "Generando mapa…", tone: "pending", canReprocess: true }
   }
-  return { label: "Listo", tone: "ok", canReprocess: false }
+  return { label: "Listo", tone: "ok", canReprocess: true }
 }
 
 /** True when the document is fully indexed and usable as chat context. */

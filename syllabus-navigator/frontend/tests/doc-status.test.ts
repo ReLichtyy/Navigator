@@ -56,15 +56,16 @@ describe("getDocStatus", () => {
     })
   })
 
-  it("graph processing → Generando mapa, pending", () => {
+  it("graph processing → Generando mapa, pending, reprocessable", () => {
     expect(getDocStatus(doc({ graph_status: "processing" }))).toMatchObject({
       label: "Generando mapa…",
       tone: "pending",
+      canReprocess: true,
     })
   })
 
-  it("fully processed → Listo, ok, not reprocessable", () => {
-    expect(getDocStatus(doc())).toMatchObject({ label: "Listo", tone: "ok", canReprocess: false })
+  it("fully processed → Listo, ok, reprocessable", () => {
+    expect(getDocStatus(doc())).toMatchObject({ label: "Listo", tone: "ok", canReprocess: true })
   })
 
   it("error tone falls back to default tooltip when none given", () => {

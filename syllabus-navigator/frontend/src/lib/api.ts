@@ -454,6 +454,14 @@ export async function reprocessGraph(syllabusId: string) {
   })
 }
 
+/** Find an existing chat bound to this syllabus, or create one. */
+export async function findOrCreateChatForDoc(syllabusId: string) {
+  return request<ChatOutAPI>(`/chat/by-document/${encodeURIComponent(syllabusId)}`, {
+    method: "POST",
+    json: false,
+  })
+}
+
 export interface ScheduleEventAPI {
   id: string
   syllabus_id: string

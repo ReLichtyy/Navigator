@@ -19,8 +19,10 @@ import {
   renameCourse,
   setDocumentCourse,
   processDocument,
+  findOrCreateChatForDoc,
 } from "@/lib/api"
 import type { SyllabusUploadAPI, GraphResponseAPI, CourseAPI } from "@/lib/api"
+import { useChatNav } from "@/context/ChatNavContext"
 import Link from "next/link"
 import {
   Search,
@@ -80,6 +82,7 @@ import { groupByRealCourse, type RealCourse } from "@/lib/ui/course-group"
 export default function KnowledgeBasePage() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
+  const nav = useChatNav()
 
   const [uploads, setUploads] = useState<SyllabusUploadAPI[]>([])
   const [courses, setCourses] = useState<CourseAPI[]>([])
@@ -252,6 +255,14 @@ export default function KnowledgeBasePage() {
         continue
       }
 
+      // Duplicate filename check — UX guard (backend handles hash-based dedup).
+      const existingNames = new Set(uploads.map(u => u.original_filename.toLowerCase()))
+      if (existingNames.has(file.name.toLowerCase())) {
+        if (!confirm(`"${file.name}" ya existe en tu base de conocimiento. ¿Subir de nuevo?`)) {
+          continue
+        }
+      }
+
       // Optimistic row. Unique id per file (Date.now() alone collides when
       // several files are added within the same millisecond).
       const tempId = `optimistic-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`
@@ -377,8 +388,14 @@ export default function KnowledgeBasePage() {
     }
   }
 
-  const handleChat = (id: string, name: string) => {
-    router.push(`/?docId=${encodeURIComponent(id)}&docName=${encodeURIComponent(name)}`)
+  const handleChat = async (id: string, _name: string) => {
+    try {
+      const chat = await findOrCreateChatForDoc(id)
+      nav.requestChat(chat.id)
+      router.push("/")
+    } catch {
+      toast.error("No se pudo abrir el chat para este documento")
+    }
   }
 
   const handlePreview = (doc: SyllabusUploadAPI) => {
