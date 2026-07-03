@@ -14,7 +14,15 @@ import {
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
 import { fuseMindmaps, type NamedMindmap } from "@/lib/ui/combine-study"
-import { Network, Loader2, AlertCircle, Layers, BookText, FolderOpen, ChevronDown } from "lucide-react"
+import {
+  Network,
+  Loader2,
+  AlertCircle,
+  Layers,
+  BookText,
+  FolderOpen,
+  ChevronDown,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"

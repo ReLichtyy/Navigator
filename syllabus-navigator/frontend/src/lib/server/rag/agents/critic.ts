@@ -38,7 +38,8 @@ const QUIZ_JSON_SCHEMA = {
           index: { type: "number", description: "The question's index as given" },
           sound: {
             type: "boolean",
-            description: "exactly one option is correct for the subject AND the marked answer is that option",
+            description:
+              "exactly one option is correct for the subject AND the marked answer is that option",
           },
           grounded: {
             type: "boolean",
@@ -49,7 +50,8 @@ const QUIZ_JSON_SCHEMA = {
           },
           substantive: {
             type: "boolean",
-            description: "tests real understanding/application of the subject, not trivia/tautology/filler",
+            description:
+              "tests real understanding/application of the subject, not trivia/tautology/filler",
           },
         },
         required: ["index", "sound", "grounded", "substantive"],
@@ -137,14 +139,20 @@ const CARD_JSON_SCHEMA = {
         additionalProperties: false,
         properties: {
           index: { type: "number", description: "The card's index as given" },
-          accurate: { type: "boolean", description: "the back correctly defines/answers the front for the subject" },
+          accurate: {
+            type: "boolean",
+            description: "the back correctly defines/answers the front for the subject",
+          },
           grounded: {
             type: "boolean",
             description:
               "on-subject — both sides concern the course's actual subject (a topic the material covers), not " +
               "the document's metadata (schedule, dates, weights) and not an unrelated subject",
           },
-          substantive: { type: "boolean", description: "teaches something worth knowing, not trivia/tautology" },
+          substantive: {
+            type: "boolean",
+            description: "teaches something worth knowing, not trivia/tautology",
+          },
         },
         required: ["index", "accurate", "grounded", "substantive"],
       },
@@ -189,7 +197,11 @@ export async function critiqueFlashcards(
   if (out) {
     for (const v of out.verdicts) {
       if (v.index >= 0 && v.index < aligned.length) {
-        aligned[v.index] = { accurate: v.accurate, grounded: v.grounded, substantive: v.substantive }
+        aligned[v.index] = {
+          accurate: v.accurate,
+          grounded: v.grounded,
+          substantive: v.substantive,
+        }
       }
     }
   }

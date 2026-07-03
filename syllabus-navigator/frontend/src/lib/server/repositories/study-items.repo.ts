@@ -80,7 +80,8 @@ export const StudyItemsRepository = {
     // Pass 1 — collapse near-identical items within this batch.
     const unique: NewStudyItem[] = []
     for (const it of items) {
-      if (unique.some((u) => cosineDistance(u.embedding, it.embedding) < DEDUPE_MAX_DISTANCE)) continue
+      if (unique.some((u) => cosineDistance(u.embedding, it.embedding) < DEDUPE_MAX_DISTANCE))
+        continue
       unique.push(it)
     }
 
@@ -121,9 +122,21 @@ export const StudyItemsRepository = {
       ORDER BY created_at DESC
       LIMIT ${limit}
     `
-    return (rows as { id: string; type: StudyItemType; topic_key: string | null; difficulty: string; payload: T }[]).map(
-      (r) => ({ id: r.id, type: r.type, topicKey: r.topic_key, difficulty: r.difficulty, payload: r.payload }),
-    )
+    return (
+      rows as {
+        id: string
+        type: StudyItemType
+        topic_key: string | null
+        difficulty: string
+        payload: T
+      }[]
+    ).map((r) => ({
+      id: r.id,
+      type: r.type,
+      topicKey: r.topic_key,
+      difficulty: r.difficulty,
+      payload: r.payload,
+    }))
   },
 
   /**
@@ -145,9 +158,21 @@ export const StudyItemsRepository = {
       ORDER BY created_at DESC
       LIMIT ${limit}
     `
-    return (rows as { id: string; type: StudyItemType; topic_key: string | null; difficulty: string; payload: T }[]).map(
-      (r) => ({ id: r.id, type: r.type, topicKey: r.topic_key, difficulty: r.difficulty, payload: r.payload }),
-    )
+    return (
+      rows as {
+        id: string
+        type: StudyItemType
+        topic_key: string | null
+        difficulty: string
+        payload: T
+      }[]
+    ).map((r) => ({
+      id: r.id,
+      type: r.type,
+      topicKey: r.topic_key,
+      difficulty: r.difficulty,
+      payload: r.payload,
+    }))
   },
 
   /** How many items of a type exist for a scope (used to enforce the bank cap). */

@@ -13,7 +13,10 @@
  *   - creative engine (inquisitor, case)  → openai gpt-5-mini
  *   - volume processors (synth, flashcard)→ openai gpt-4o-mini
  *   - router                              → openai gpt-5-nano
- *   - verifier / grader (reasoning)       → deepseek deepseek-reasoner (direct)
+ *   - verifier                            → deepseek deepseek-chat (direct; the
+ *     reasoner's full CoT made every cold quiz-stage generation 1.5-3 min —
+ *     batched boolean gating doesn't need it. MODEL_VERIFIER env restores it.)
+ *   - grader (reasoning, unused today)    → deepseek deepseek-reasoner (direct)
  *
  * Fallbacks stay on OpenAI (the consistently-up provider) so one flaky model
  * never empties a study set. Embeddings stay on OpenAI; the chat assistant is
@@ -54,18 +57,36 @@ const OA: AgentProvider = "openai"
 const DS: AgentProvider = "deepseek"
 const SAFE = "gpt-4o-mini" // cheap + consistently up → universal OpenAI fallback
 
-const RAW: Record<AgentRole, { provider: AgentProvider; model: string; fallback?: string; fallbackProvider?: AgentProvider }> = {
+const RAW: Record<
+  AgentRole,
+  { provider: AgentProvider; model: string; fallback?: string; fallbackProvider?: AgentProvider }
+> = {
   // Each role falls back to an OpenAI model when its primary errors / is down.
   router: { provider: OA, model: env("MODEL_ROUTER", "gpt-5-nano"), fallback: SAFE },
   synth: { provider: OA, model: env("MODEL_SYNTH", "gpt-4o-mini"), fallback: "gpt-5-mini" },
   flashcard: { provider: OA, model: env("MODEL_FLASHCARD", "gpt-4o-mini"), fallback: "gpt-5-mini" },
   inquisitor: { provider: OA, model: env("MODEL_INQUISITOR", "gpt-5-mini"), fallback: SAFE },
   case: { provider: OA, model: env("MODEL_CASE", "gpt-5-mini"), fallback: SAFE },
-  verifier: { provider: DS, model: env("MODEL_VERIFIER", "deepseek-reasoner"), fallback: "gpt-5-mini", fallbackProvider: OA },
-  grader: { provider: DS, model: env("MODEL_GRADER", "deepseek-reasoner"), fallback: "gpt-5-mini", fallbackProvider: OA },
+  verifier: {
+    provider: DS,
+    model: env("MODEL_VERIFIER", "deepseek-chat"),
+    fallback: "gpt-5-mini",
+    fallbackProvider: OA,
+  },
+  grader: {
+    provider: DS,
+    model: env("MODEL_GRADER", "deepseek-reasoner"),
+    fallback: "gpt-5-mini",
+    fallbackProvider: OA,
+  },
 }
 
 export function resolveAgentModel(role: AgentRole): RoleModel {
   const r = RAW[role]
-  return { provider: r.provider, model: r.model, fallback: r.fallback, fallbackProvider: r.fallbackProvider }
+  return {
+    provider: r.provider,
+    model: r.model,
+    fallback: r.fallback,
+    fallbackProvider: r.fallbackProvider,
+  }
 }

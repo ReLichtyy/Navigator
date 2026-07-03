@@ -29,12 +29,15 @@ vi.mock("@/lib/server/repositories/job.repo", () => ({
   JobRepository: { enqueue: vi.fn() },
 }))
 vi.mock("@/lib/server/services/worker-trigger", () => ({ triggerIngestionWorker: vi.fn() }))
+vi.mock("@/lib/server/services/ingestion.service", () => ({
+  IngestionService: { drainForSyllabus: vi.fn() },
+}))
 
 import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentRepository } from "@/lib/server/repositories/document.repo"
 import { GraphRepository } from "@/lib/server/repositories/graph.repo"
 import { JobRepository } from "@/lib/server/repositories/job.repo"
-import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
+import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { GET, PATCH } from "../app/api/graph/[syllabusId]/route"
 import { POST } from "../app/api/graph/[syllabusId]/reprocess/route"
 
@@ -108,7 +111,7 @@ describe("POST /api/graph/[syllabusId]/reprocess", () => {
     expect(JobRepository.enqueue).not.toHaveBeenCalled()
   })
 
-  it("200 re-enqueues, marks pending, kicks worker", async () => {
+  it("200 re-enqueues with backoff kick and drains only this syllabus", async () => {
     asUser()
     vi.mocked(DocumentRepository.findByIdAndUser).mockResolvedValue({
       ...DOC,
@@ -118,8 +121,14 @@ describe("POST /api/graph/[syllabusId]/reprocess", () => {
     const res = await POST(new Request("http://t/x", { method: "POST" }), params("s1"))
     expect(res.status).toBe(200)
     expect(DocumentRepository.setGraphStatus).toHaveBeenCalledWith("s1", "pending", null)
-    expect(JobRepository.enqueue).toHaveBeenCalledWith("ingest", { syllabusId: "s1" })
-    expect(triggerIngestionWorker).toHaveBeenCalled()
+    // User-initiated retry skips the backoff window on a dedupe-hit.
+    expect(JobRepository.enqueue).toHaveBeenCalledWith(
+      "ingest",
+      { syllabusId: "s1" },
+      { kickIfPending: true },
+    )
+    // Targeted drain: the clicked doc's job, not the first 5 of the global queue.
+    expect(IngestionService.drainForSyllabus).toHaveBeenCalledWith("s1")
   })
 })
 

@@ -26,10 +26,7 @@ export const getScheduleTool: Tool<GetScheduleArgs, GetScheduleData> = {
     properties: {},
     additionalProperties: false,
   },
-  async execute(
-    _args: GetScheduleArgs,
-    ctx: ToolContext,
-  ): Promise<ToolResult<GetScheduleData>> {
+  async execute(_args: GetScheduleArgs, ctx: ToolContext): Promise<ToolResult<GetScheduleData>> {
     if (ctx.syllabusId) {
       const { events } = await ScheduleService.getForSyllabus(ctx.userId, ctx.syllabusId)
       return { ok: true, data: { events } }

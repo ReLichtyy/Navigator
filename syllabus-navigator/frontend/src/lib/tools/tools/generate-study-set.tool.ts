@@ -52,10 +52,7 @@ export const generateStudySetTool: Tool<GenerateStudySetArgs, StudySet> = {
     },
     additionalProperties: false,
   },
-  async execute(
-    args: GenerateStudySetArgs,
-    ctx: ToolContext,
-  ): Promise<ToolResult<StudySet>> {
+  async execute(args: GenerateStudySetArgs, ctx: ToolContext): Promise<ToolResult<StudySet>> {
     const opts = { refresh: args.refresh, difficulty: args.difficulty, topic: args.topic }
 
     if (args.scope === "course") {

@@ -1,0 +1,73 @@
+import { describe, it, expect, beforeEach, vi } from "vitest"
+
+// Tagged-template sql mock: records query text + values, returns queued results.
+const queries: { text: string; values: unknown[] }[] = []
+let responses: unknown[][] = []
+vi.mock("@/lib/db", () => ({
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+    queries.push({ text: strings.join("?"), values })
+    return Promise.resolve(responses.shift() ?? [])
+  },
+}))
+
+import { JobRepository } from "@/lib/server/repositories/job.repo"
+
+beforeEach(() => {
+  queries.length = 0
+  responses = []
+})
+
+describe("JobRepository.enqueue — dedupe + kickIfPending", () => {
+  it("kickIfPending on a pending dedupe-hit resets scheduled_at and returns the existing id (no INSERT)", async () => {
+    responses = [[{ id: "j1", status: "pending" }], []]
+    const id = await JobRepository.enqueue(
+      "ingest",
+      { syllabusId: "s1" },
+      { kickIfPending: true },
+    )
+    expect(id).toBe("j1")
+    expect(queries).toHaveLength(2) // SELECT + UPDATE, no INSERT
+    expect(queries[1].text).toContain("UPDATE jobs SET scheduled_at = now()")
+    expect(queries[1].values).toContain("j1")
+  })
+
+  it("dedupe-hit without kickIfPending does not touch scheduled_at", async () => {
+    responses = [[{ id: "j1", status: "pending" }]]
+    const id = await JobRepository.enqueue("ingest", { syllabusId: "s1" })
+    expect(id).toBe("j1")
+    expect(queries).toHaveLength(1) // SELECT only
+  })
+
+  it("kickIfPending on a processing dedupe-hit does not reset the schedule", async () => {
+    responses = [[{ id: "j1", status: "processing" }]]
+    const id = await JobRepository.enqueue(
+      "ingest",
+      { syllabusId: "s1" },
+      { kickIfPending: true },
+    )
+    expect(id).toBe("j1")
+    expect(queries).toHaveLength(1) // SELECT only, running job left alone
+  })
+
+  it("no dedupe-hit inserts a new job", async () => {
+    responses = [[], [{ id: "j-new" }]]
+    const id = await JobRepository.enqueue("ingest", { syllabusId: "s1" })
+    expect(id).toBe("j-new")
+    expect(queries[1].text).toContain("INSERT INTO jobs")
+  })
+})
+
+describe("JobRepository.claimNext — optional syllabus filter", () => {
+  it("passes the syllabusId filter into the claim query", async () => {
+    responses = [[]]
+    await JobRepository.claimNext("ingest", 10, "s1")
+    expect(queries[0].values).toContain("s1")
+    expect(queries[0].text).toContain("payload->>'syllabusId'")
+  })
+
+  it("binds a null filter when no syllabusId is given (global order)", async () => {
+    responses = [[]]
+    await JobRepository.claimNext("ingest")
+    expect(queries[0].values).toContain(null)
+  })
+})

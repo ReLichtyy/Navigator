@@ -21,12 +21,16 @@ const JSON_SCHEMA = {
   properties: {
     flashcards: {
       type: "array",
-      description: "8–14 flashcards. Mix concept→definition with a few cloze (fill-in-the-blank) cards.",
+      description:
+        "8–14 flashcards. Mix concept→definition with a few cloze (fill-in-the-blank) cards.",
       items: {
         type: "object",
         additionalProperties: false,
         properties: {
-          front: { type: "string", description: "Concept, question, or cloze sentence with a blank" },
+          front: {
+            type: "string",
+            description: "Concept, question, or cloze sentence with a blank",
+          },
           back: { type: "string", description: "Definition / answer" },
         },
         required: ["front", "back"],

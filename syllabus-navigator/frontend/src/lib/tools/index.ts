@@ -57,10 +57,4 @@ export async function executeTool(
 }
 
 export { getTool, listTools, registerTool } from "./registry"
-export type {
-  OpenAIToolDef,
-  Tool,
-  ToolContext,
-  ToolParameterSchema,
-  ToolResult,
-} from "./types"
+export type { OpenAIToolDef, Tool, ToolContext, ToolParameterSchema, ToolResult } from "./types"

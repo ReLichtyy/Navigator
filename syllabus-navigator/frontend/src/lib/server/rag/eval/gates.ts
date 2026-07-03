@@ -57,7 +57,13 @@ export async function gateFlashcards(cards: Flashcard[], evidence: string): Prom
   })
   const dropped = cards.length - kept.length
   if (dropped > 0) {
-    logInfo("rag.eval.flashcards_dropped", { dropped, total: cards.length, inaccurate, ungrounded, shallow })
+    logInfo("rag.eval.flashcards_dropped", {
+      dropped,
+      total: cards.length,
+      inaccurate,
+      ungrounded,
+      shallow,
+    })
   }
   return kept
 }

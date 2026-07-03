@@ -649,7 +649,9 @@ export async function fetchQuizStage(
 type QuizScope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
 
 const scopeParams = (s: QuizScope) =>
-  s.kind === "doc" ? { kind: "doc" as const, id: s.docId } : { kind: "course" as const, id: s.courseId }
+  s.kind === "doc"
+    ? { kind: "doc" as const, id: s.docId }
+    : { kind: "course" as const, id: s.courseId }
 
 /** Record a wrong quiz answer → it leaves the quiz and enters Repaso (fire-and-forget). */
 export async function recordQuizFail(scope: QuizScope, question: QuizQuestionAPI) {
@@ -705,10 +707,10 @@ export interface StudySessionAPI {
  * and mastery are tracked per syllabus.
  */
 export async function fetchStudySession(syllabusId: string) {
-  return request<StudySessionAPI>(
-    `/study/session?syllabusId=${encodeURIComponent(syllabusId)}`,
-    { method: "GET", json: false },
-  )
+  return request<StudySessionAPI>(`/study/session?syllabusId=${encodeURIComponent(syllabusId)}`, {
+    method: "GET",
+    json: false,
+  })
 }
 
 /** Stable key for a flashcard, surviving study-set regeneration. */

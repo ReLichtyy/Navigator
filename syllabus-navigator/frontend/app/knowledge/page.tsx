@@ -256,7 +256,7 @@ export default function KnowledgeBasePage() {
       }
 
       // Duplicate filename check — UX guard (backend handles hash-based dedup).
-      const existingNames = new Set(uploads.map(u => u.original_filename.toLowerCase()))
+      const existingNames = new Set(uploads.map((u) => u.original_filename.toLowerCase()))
       if (existingNames.has(file.name.toLowerCase())) {
         if (!confirm(`"${file.name}" ya existe en tu base de conocimiento. ¿Subir de nuevo?`)) {
           continue
@@ -1152,9 +1152,7 @@ export default function KnowledgeBasePage() {
               }}
               onDrop={handleFileDrop}
               className={`flex flex-col items-center gap-3 rounded-lg border border-dashed p-6 text-center transition-colors ${
-                fileDragActive
-                  ? "border-accent bg-accent/10"
-                  : "border-border/70"
+                fileDragActive ? "border-accent bg-accent/10" : "border-border/70"
               }`}
             >
               <FileIcon

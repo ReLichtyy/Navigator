@@ -4,15 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { fetchStudyStats, listChats, type StudyStatsAPI } from "@/lib/api"
-import {
-  ChevronDown,
-  Compass,
-  List,
-  PanelLeft,
-  Plus,
-  Flame,
-  User as UserIcon,
-} from "lucide-react"
+import { ChevronDown, Compass, List, PanelLeft, Plus, Flame, User as UserIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -173,10 +165,7 @@ export function AppSidebar() {
                   className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-sidebar-accent"
                 >
                   <ChevronDown
-                    className={cn(
-                      "h-4 w-4 transition-transform",
-                      !assistantOpen && "-rotate-90",
-                    )}
+                    className={cn("h-4 w-4 transition-transform", !assistantOpen && "-rotate-90")}
                   />
                 </button>
               </div>

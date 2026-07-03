@@ -10,6 +10,7 @@ import { StudyService } from "@/lib/server/services/study.service"
 import { logError } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
+export const maxDuration = 60 // cold path generates via LLM agents before responding
 
 export async function GET(req: Request, { params }: { params: Promise<{ syllabusId: string }> }) {
   try {
@@ -18,7 +19,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ syllabus
     const sp = new URL(req.url).searchParams
     const stage = Number(sp.get("stage") ?? 0)
     const boost = Number(sp.get("boost") ?? 0)
-    const excludeIds = (sp.get("exclude") ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+    const excludeIds = (sp.get("exclude") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
 
     const data = await StudyService.getQuizStage(userId, syllabusId, { stage, boost, excludeIds })
     return NextResponse.json(data)

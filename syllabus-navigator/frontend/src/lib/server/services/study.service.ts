@@ -38,11 +38,18 @@ import { embedTexts } from "@/lib/llm/embeddings"
 import { logError } from "@/lib/observability/logger"
 import {
   STUDY_SCHEMA_VERSION,
+  shuffleQuizOptions,
   type StudySet,
   type Difficulty,
   type Flashcard,
   type QuizQuestion,
 } from "../rag/study-gen"
+
+/** Serve-time option shuffle for a whole set's quiz (bank items have biased `answer`). */
+function shuffleSetQuiz(set: StudySet): StudySet {
+  if (set.quiz.length === 0) return set
+  return { ...set, quiz: set.quiz.map((q) => shuffleQuizOptions(q)) }
+}
 
 // How many bank items to surface in an assembled default set (keeps UI counts sane).
 const SET_FLASHCARDS = 14
@@ -57,6 +64,11 @@ const STAGES = 3
 // = up to 120 distinct questions per scope.
 const BANK_CAP_PER_DIFFICULTY = 40
 const GEN_BATCH = 18 // questions requested per lazy generation (gate drops some)
+// Generation is split into parallel sub-batches (each gen→gate chain runs
+// independently) so cold wall-clock ≈ 1/SUB_BATCHES of a single 18-item call.
+// Sub-batches share `excludeSeen`, so near-duplicates BETWEEN them are possible —
+// acceptable: insertDeduped drops them by embedding at persist time.
+const SUB_BATCHES = 3
 const DIFFICULTY_LADDER: Difficulty[] = ["facil", "medio", "dificil"]
 
 /** A staged-quiz question carries its bank id so the client can exclude served items. */
@@ -84,7 +96,10 @@ function stageDifficulty(stage: number, masteryAvg: number, boost: number): Diff
 }
 
 /** Order bank items by the plan's topic priority (weak/urgent/heavy first); recency otherwise. */
-function orderByPlan<T extends { topicKey: string | null }>(items: T[], orderedKeys: string[]): T[] {
+function orderByPlan<T extends { topicKey: string | null }>(
+  items: T[],
+  orderedKeys: string[],
+): T[] {
   if (orderedKeys.length === 0) return items
   const rank = new Map(orderedKeys.map((k, i) => [k, i]))
   return [...items].sort((a, b) => {
@@ -104,9 +119,18 @@ async function stageItems(
   scope: StudyScope,
   difficulty: Difficulty,
   excludeIds: string[],
-  genEvidence: () => Promise<{ text: string; weightedTopics: { label: string; weight: number }[] } | null>,
+  genEvidence: () => Promise<{
+    text: string
+    weightedTopics: { label: string; weight: number }[]
+  } | null>,
 ): Promise<{ id: string; topicKey: string | null; payload: QuizQuestion }[]> {
-  let pool = await StudyItemsRepository.listForStage<QuizQuestion>(scope, "quiz", difficulty, STAGE_POOL, excludeIds)
+  let pool = await StudyItemsRepository.listForStage<QuizQuestion>(
+    scope,
+    "quiz",
+    difficulty,
+    STAGE_POOL,
+    excludeIds,
+  )
   if (pool.length < STAGE_SIZE) {
     const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
     if (total < BANK_CAP_PER_DIFFICULTY) {
@@ -114,12 +138,17 @@ async function stageItems(
         const ev = await genEvidence()
         if (ev && ev.text.trim().length >= 80) {
           const excludeSeen = await StudyItemsRepository.listDedupeTexts(scope, "quiz")
-          const raw = await inquisitorAgent(
-            ev.text,
-            { difficulty, weightedTopics: ev.weightedTopics, excludeSeen },
-            GEN_BATCH,
+          const perBatch = Math.ceil(GEN_BATCH / SUB_BATCHES)
+          const batches = await Promise.all(
+            Array.from({ length: SUB_BATCHES }, () =>
+              inquisitorAgent(
+                ev.text,
+                { difficulty, weightedTopics: ev.weightedTopics, excludeSeen },
+                perBatch,
+              ).then((raw) => gateQuiz(raw, ev.text)),
+            ),
           )
-          const gated = await gateQuiz(raw, ev.text)
+          const gated = batches.flat()
           if (gated.length > 0) {
             const embeddings = await embedTexts(gated.map((q) => q.question))
             const items: NewStudyItem[] = gated.map((q, i) => ({
@@ -132,11 +161,19 @@ async function stageItems(
               embedding: embeddings[i],
             }))
             await StudyItemsRepository.insertDeduped(scope, items)
-            pool = await StudyItemsRepository.listForStage<QuizQuestion>(scope, "quiz", difficulty, STAGE_POOL, excludeIds)
+            pool = await StudyItemsRepository.listForStage<QuizQuestion>(
+              scope,
+              "quiz",
+              difficulty,
+              STAGE_POOL,
+              excludeIds,
+            )
           }
         }
       } catch (err) {
-        logError("study.stage.gen_error", { error: err instanceof Error ? err.message : String(err) })
+        logError("study.stage.gen_error", {
+          error: err instanceof Error ? err.message : String(err),
+        })
       }
     }
   }
@@ -144,11 +181,24 @@ async function stageItems(
 }
 
 /** Flatten a generated set into bank items (dedupe text + payload + topic). Pure. */
-function decompose(set: StudySet): { dedupeText: string; type: "flashcard" | "quiz"; topicKey: string | null; payload: unknown }[] {
-  const out: { dedupeText: string; type: "flashcard" | "quiz"; topicKey: string | null; payload: unknown }[] = []
-  for (const f of set.flashcards) out.push({ dedupeText: f.front, type: "flashcard", topicKey: null, payload: f })
+function decompose(
+  set: StudySet,
+): { dedupeText: string; type: "flashcard" | "quiz"; topicKey: string | null; payload: unknown }[] {
+  const out: {
+    dedupeText: string
+    type: "flashcard" | "quiz"
+    topicKey: string | null
+    payload: unknown
+  }[] = []
+  for (const f of set.flashcards)
+    out.push({ dedupeText: f.front, type: "flashcard", topicKey: null, payload: f })
   for (const q of set.quiz) {
-    out.push({ dedupeText: q.question, type: "quiz", topicKey: q.topic ? topicKey(q.topic) : null, payload: q })
+    out.push({
+      dedupeText: q.question,
+      type: "quiz",
+      topicKey: q.topic ? topicKey(q.topic) : null,
+      payload: q,
+    })
   }
   return out
 }
@@ -196,7 +246,7 @@ async function bankAndAssemble(
 
     // Custom (topic/difficulty) sets stay focused — serve fresh, don't dilute with
     // the generic bank. Default sets are assembled from the accumulating bank.
-    if (custom) return set
+    if (custom) return shuffleSetQuiz(set)
 
     // Pull a wider window than we serve, then rank by the plan so the surfaced
     // items are the highest-priority ones (not merely the most recent).
@@ -211,15 +261,18 @@ async function bankAndAssemble(
       return ra - rb // lower plan index = higher priority = first
     }
     const orderedQuiz = rank.size > 0 ? [...bankQuiz].sort(byPlan) : bankQuiz
-    return {
+    return shuffleSetQuiz({
       ...set,
       flashcards:
-        bankFlash.length > 0 ? bankFlash.slice(0, SET_FLASHCARDS).map((b) => b.payload) : set.flashcards,
-      quiz: orderedQuiz.length > 0 ? orderedQuiz.slice(0, SET_QUIZ).map((b) => b.payload) : set.quiz,
-    }
+        bankFlash.length > 0
+          ? bankFlash.slice(0, SET_FLASHCARDS).map((b) => b.payload)
+          : set.flashcards,
+      quiz:
+        orderedQuiz.length > 0 ? orderedQuiz.slice(0, SET_QUIZ).map((b) => b.payload) : set.quiz,
+    })
   } catch (err) {
     logError("study.bank.error", { error: err instanceof Error ? err.message : String(err) })
-    return set // banking failed → still serve the freshly generated set
+    return shuffleSetQuiz(set) // banking failed → still serve the freshly generated set
   }
 }
 
@@ -261,9 +314,10 @@ export const StudyService = {
     const fingerprint = await ChunkRepository.contentFingerprint(syllabusId)
 
     // Default set is cacheable; custom (topic/difficulty) sets are always fresh.
+    // Cached quiz items carry the generator's position-biased `answer` → shuffle on serve.
     if (!opts.refresh && !custom) {
       const cached = await StudyRepository.get(syllabusId, fingerprint, STUDY_SCHEMA_VERSION)
-      if (cached) return cached
+      if (cached) return shuffleSetQuiz(cached)
     }
 
     // Bias generation toward the course's heaviest (most exam-weighted) topics.
@@ -347,7 +401,7 @@ export const StudyService = {
 
     if (!opts.refresh && !custom) {
       const cached = await StudyRepository.getByCourse(courseId, fingerprint, STUDY_SCHEMA_VERSION)
-      if (cached) return cached
+      if (cached) return shuffleSetQuiz(cached)
     }
 
     // Step 2: when a focus topic is given, retrieve it across the whole course
@@ -382,7 +436,8 @@ export const StudyService = {
 
     const served = await bankAndAssemble(scope, set, difficulty, custom)
 
-    if (!custom) await StudyRepository.upsertByCourse(courseId, served, fingerprint, STUDY_SCHEMA_VERSION)
+    if (!custom)
+      await StudyRepository.upsertByCourse(courseId, served, fingerprint, STUDY_SCHEMA_VERSION)
     return served
   },
 
@@ -445,7 +500,8 @@ export const StudyService = {
       stage,
       stages: STAGES,
       difficulty,
-      questions: orderedItems.map((it) => ({ ...it.payload, id: it.id })),
+      // Shuffle options on serve: bank payloads keep the generator's biased `answer`.
+      questions: orderedItems.map((it) => ({ ...shuffleQuizOptions(it.payload), id: it.id })),
     }
   },
 
@@ -482,7 +538,7 @@ export const StudyService = {
       stage,
       stages: STAGES,
       difficulty,
-      questions: ordered.map((it) => ({ ...it.payload, id: it.id })),
+      questions: ordered.map((it) => ({ ...shuffleQuizOptions(it.payload), id: it.id })),
     }
   },
 

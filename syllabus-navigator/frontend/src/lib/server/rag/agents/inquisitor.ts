@@ -46,14 +46,22 @@ function jsonSchema(count: number): Record<string, unknown> {
                 "relationship, formula or example from one of the course's topics — NOT a question about the " +
                 "document's schedule, dates, weights or other administrative metadata.",
             },
-            options: { type: "array", items: { type: "string" }, description: "4 options (one correct, three distractors)" },
+            options: {
+              type: "array",
+              items: { type: "string" },
+              description: "4 options (one correct, three distractors)",
+            },
             answer: { type: "number", description: "0-based index of the single correct option" },
             explanation: {
               type: "string",
               description:
                 "Explain the subject concept that makes the answer correct, and say briefly why each distractor is wrong.",
             },
-            topic: { type: "string", description: "The topic this question assesses (a weighted topic label when provided)" },
+            topic: {
+              type: "string",
+              description:
+                "The topic this question assesses (a weighted topic label when provided)",
+            },
           },
           required: ["question", "options", "answer", "explanation", "topic"],
         },
@@ -72,7 +80,8 @@ function system(count: number): string {
     "about the document's metadata (schedule, dates, weights). (3) Draw the distractors from real, related " +
     "concepts of the subject so they are tempting but wrong — never filler like 'none of the above'. " +
     "(4) Exactly ONE option is correct and unambiguous. (5) Cover the breadth of the course's topics, " +
-    "weighting heavier exam topics more."
+    "weighting heavier exam topics more. (6) Vary the position of the correct option across questions — " +
+    "it must NOT default to the first option."
   )
 }
 

@@ -32,7 +32,11 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
   try {
     for (let i = 0; i < texts.length; i += BATCH_SIZE) {
       const batch = texts.slice(i, i + BATCH_SIZE)
-      const resp = await client.embeddings.create({ model: EMBEDDING_MODEL, input: batch, dimensions: EMBEDDING_DIM })
+      const resp = await client.embeddings.create({
+        model: EMBEDDING_MODEL,
+        input: batch,
+        dimensions: EMBEDDING_DIM,
+      })
       // OpenAI does not contractually guarantee `data` order matches `input`; each
       // item carries an `index`. Sort by it so every embedding maps to the right
       // chunk — otherwise retrieval silently cites the wrong text (BUG-002).

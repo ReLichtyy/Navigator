@@ -72,7 +72,10 @@ async function resolveToolsIfEnabled(
   messages: LLMMessage[],
   config: { provider: LLMProvider; model: string },
   ctx: { userId: string; syllabusId: string | null; chatId: string },
-): Promise<{ messages: LLMMessage[]; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+): Promise<{
+  messages: LLMMessage[]
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number }
+}> {
   const noUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
   if (!flags.toolsEnabled) return { messages, usage: noUsage }
 

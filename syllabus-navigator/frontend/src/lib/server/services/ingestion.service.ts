@@ -149,37 +149,60 @@ export const IngestionService = {
    * trigger from upload). Job claiming is atomic, so concurrent runs are safe.
    */
   async drainQueue(maxJobs = 5): Promise<{ processed: number; failed: number; retried: number }> {
-    let processed = 0
-    let failed = 0
-    let retried = 0
+    const tally = { processed: 0, failed: 0, retried: 0 }
 
     for (let i = 0; i < maxJobs; i++) {
       const job = await JobRepository.claimNext(JOB_TYPE)
       if (!job) break
-
-      const syllabusId = (job.payload as { syllabusId?: string }).syllabusId
-      if (!syllabusId) {
-        // Unrecoverable payload error — don't waste retries on it.
-        await JobRepository.fail(job.id, "Missing syllabusId in payload", true)
-        failed++
-        continue
-      }
-
-      try {
-        const result = await this.runIngestJob(syllabusId)
-        await JobRepository.complete(job.id, result)
-        processed++
-      } catch (err) {
-        const { retried: willRetry } = await JobRepository.fail(
-          job.id,
-          err instanceof Error ? err.message : String(err),
-        )
-        if (willRetry) retried++
-        else failed++
-      }
+      await processClaimedJob(job, tally)
     }
 
-    if (processed || failed || retried) logInfo("ingestion.drain", { processed, failed, retried })
-    return { processed, failed, retried }
+    if (tally.processed || tally.failed || tally.retried) logInfo("ingestion.drain", tally)
+    return tally
   },
+
+  /**
+   * Drain only the job for one syllabus (user-initiated reprocess). Claims at
+   * most one job so the reprocess route fits in its maxDuration; the rest of
+   * the queue is drained by the cron backstop and post-upload triggers.
+   */
+  async drainForSyllabus(
+    syllabusId: string,
+  ): Promise<{ processed: number; failed: number; retried: number }> {
+    const tally = { processed: 0, failed: 0, retried: 0 }
+
+    const job = await JobRepository.claimNext(JOB_TYPE, 10, syllabusId)
+    if (job) await processClaimedJob(job, tally)
+
+    if (tally.processed || tally.failed || tally.retried)
+      logInfo("ingestion.drain_targeted", { syllabusId, ...tally })
+    return tally
+  },
+}
+
+/** Run one claimed job through the pipeline and settle it (complete/fail). */
+async function processClaimedJob(
+  job: { id: string; payload: Record<string, unknown> },
+  tally: { processed: number; failed: number; retried: number },
+): Promise<void> {
+  const syllabusId = (job.payload as { syllabusId?: string }).syllabusId
+  if (!syllabusId) {
+    // Unrecoverable payload error — don't waste retries on it.
+    await JobRepository.fail(job.id, "Missing syllabusId in payload", true)
+    tally.failed++
+    return
+  }
+
+  try {
+    const result = await IngestionService.runIngestJob(syllabusId)
+    await JobRepository.complete(job.id, result)
+    tally.processed++
+  } catch (err) {
+    const { retried: willRetry } = await JobRepository.fail(
+      job.id,
+      err instanceof Error ? err.message : String(err),
+    )
+    if (willRetry) tally.retried++
+    else tally.failed++
+  }
 }

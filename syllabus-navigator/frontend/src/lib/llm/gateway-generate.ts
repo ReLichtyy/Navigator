@@ -51,7 +51,10 @@ export function isTransientLLMError(err: unknown): boolean {
   const status = (err as { status?: number })?.status
   if (status !== undefined) return status === 429 || status >= 500
   const msg = err instanceof Error ? err.message : String(err)
-  return /\b(429|500|502|503|504)\b/.test(msg) || /rate.?limit|overloaded|no available channel|timeout|ECONNRESET|fetch failed/i.test(msg)
+  return (
+    /\b(429|500|502|503|504)\b/.test(msg) ||
+    /rate.?limit|overloaded|no available channel|timeout|ECONNRESET|fetch failed/i.test(msg)
+  )
 }
 
 const RETRY_DELAYS_MS = [1_000, 4_000] // 3 total attempts; short — callers run inside a 60s serverless budget

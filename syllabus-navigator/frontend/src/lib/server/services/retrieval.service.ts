@@ -102,7 +102,8 @@ function buildResult(all: RetrievedChunk[], withSource: boolean, query: string):
   // Relevance gate: the gate is on raw vector distance (closest candidate). If even
   // the nearest chunk is past the ceiling, the question is off-topic → no context.
   const nearest = all.reduce((min, c) => Math.min(min, c.distance), Infinity)
-  const passing = all.length === 0 || nearest > MAX_DISTANCE ? [] : all.filter((c) => c.distance <= MAX_DISTANCE)
+  const passing =
+    all.length === 0 || nearest > MAX_DISTANCE ? [] : all.filter((c) => c.distance <= MAX_DISTANCE)
 
   // Re-rank the survivors with the hybrid signal, then keep TOP_K.
   const chunks = rerankChunks(query, passing).slice(0, TOP_K)

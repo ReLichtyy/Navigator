@@ -86,8 +86,6 @@ const StudySchema = z.object({
 
 type RawStudy = z.infer<typeof StudySchema>
 
-
-
 /**
  * Shared content policy for EVERY study-generation agent (flashcard, inquisitor,
  * synth) and the Critic that gates them. THE key rule: teach the course's SUBJECT,
@@ -177,6 +175,29 @@ export function normalizeStudySet(raw: unknown): StudySet | null {
   return set
 }
 
+/**
+ * Shuffle a question's options (Fisher-Yates) remapping `answer` to follow the
+ * correct option. Applied at SERVE time (not generation) so items already
+ * persisted with a position-biased `answer` are covered too, and the same item
+ * shows a different order on every serve. `rand` is injectable for deterministic
+ * tests (defaults to Math.random). Pure â€” returns a new object.
+ */
+export function shuffleQuizOptions(
+  q: QuizQuestion,
+  rand: () => number = Math.random,
+): QuizQuestion {
+  const order = q.options.map((_, i) => i)
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1))
+    ;[order[i], order[j]] = [order[j], order[i]]
+  }
+  return {
+    ...q,
+    options: order.map((i) => q.options[i]),
+    answer: order.indexOf(q.answer),
+  }
+}
+
 export type Difficulty = "facil" | "medio" | "dificil"
 
 export interface StudyGenOptions {
@@ -222,7 +243,10 @@ export function buildDirectives(opts: StudyGenOptions): string {
         list,
     )
   }
-  const seen = (opts.excludeSeen ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 120)
+  const seen = (opts.excludeSeen ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 120)
   if (seen.length > 0) {
     const list = seen.map((s) => `- ${s}`).join("\n")
     lines.push(

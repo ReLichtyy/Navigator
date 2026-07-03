@@ -7,7 +7,7 @@
 import { NextResponse } from "next/server"
 import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { GraphService } from "@/lib/server/services/graph.service"
-import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
+import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
@@ -22,8 +22,9 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
     const graph = await GraphService.reprocess(userId, syllabusId)
 
-    // Run the worker inline so it completes on serverless before we respond.
-    await triggerIngestionWorker()
+    // Drain only this syllabus's job inline: one job (~35s) fits maxDuration=60,
+    // and the clicked doc can't be starved by older jobs from other documents.
+    await IngestionService.drainForSyllabus(syllabusId)
 
     logInfo("api.graph.reprocess", { userId, syllabusId })
     return NextResponse.json(graph)

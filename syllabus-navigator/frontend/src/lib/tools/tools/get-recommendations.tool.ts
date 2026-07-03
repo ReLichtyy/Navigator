@@ -22,10 +22,7 @@ export const getRecommendationsTool: Tool<GetRecommendationsArgs, WeeklyPlan> = 
     properties: {},
     additionalProperties: false,
   },
-  async execute(
-    _args: GetRecommendationsArgs,
-    ctx: ToolContext,
-  ): Promise<ToolResult<WeeklyPlan>> {
+  async execute(_args: GetRecommendationsArgs, ctx: ToolContext): Promise<ToolResult<WeeklyPlan>> {
     const plan = await RecommendationService.getWeeklyPlan(ctx.userId)
     return { ok: true, data: plan }
   },

@@ -72,7 +72,8 @@ const JSON_SCHEMA = {
     },
     studyGuide: {
       type: "array",
-      description: "Ordered study guide, ONE section per main topic, heaviest exam weight first. 3–6 sections.",
+      description:
+        "Ordered study guide, ONE section per main topic, heaviest exam weight first. 3–6 sections.",
       items: {
         type: "object",
         additionalProperties: false,

@@ -27,7 +27,11 @@ const STEPS: Step[] = [
     kicker: "Sube tu material",
     title: "Arrastra tus PDFs y apuntes.",
     body: "Suelta los documentos de cada curso. Navigator los lee, los indexa y construye un knowledge base propio para ese curso.",
-    bullets: ["PDFs, diapositivas y apuntes", "Enlaces de video y web", "Indexado por curso, en segundos"],
+    bullets: [
+      "PDFs, diapositivas y apuntes",
+      "Enlaces de video y web",
+      "Indexado por curso, en segundos",
+    ],
   },
   {
     kicker: "Navigator lo entiende",
@@ -39,7 +43,11 @@ const STEPS: Step[] = [
     kicker: "El Asistente",
     title: "Pregúntale a tu material.",
     body: "El asistente con IA resuelve tus dudas al instante y siempre cita la fuente dentro de tus propios documentos, para que estudies con confianza.",
-    bullets: ["Respuestas con cita a la fuente", "Explica cualquier concepto", "Te acompaña mientras estudias"],
+    bullets: [
+      "Respuestas con cita a la fuente",
+      "Explica cualquier concepto",
+      "Te acompaña mientras estudias",
+    ],
   },
 ]
 
@@ -223,7 +231,8 @@ export function Bienvenida({ onFinish }: { onFinish: () => void }) {
   const back = () => setStep(Math.max(0, step - 1))
   const goTo = (i: number) => setStep(i)
 
-  const nextLabel = step === 3 ? "Empezar a estudiar" : step === 0 ? "Ver cómo funciona" : "Continuar"
+  const nextLabel =
+    step === 3 ? "Empezar a estudiar" : step === 0 ? "Ver cómo funciona" : "Continuar"
 
   return (
     <div
@@ -309,7 +318,16 @@ export function Bienvenida({ onFinish }: { onFinish: () => void }) {
                   border: "1px solid rgba(63,191,132,0.4)",
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5BE39A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#5BE39A"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <circle cx="12" cy="12" r="9"></circle>
                   <polygon points="15.5 8.5 11 11 8.5 15.5 13 13"></polygon>
                 </svg>
@@ -361,7 +379,16 @@ export function Bienvenida({ onFinish }: { onFinish: () => void }) {
                           border: "1px solid rgba(63,191,132,0.25)",
                         }}
                       >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#5BE39A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <svg
+                          width="11"
+                          height="11"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#5BE39A"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
                           <polyline points="20 6 9 17 4 12"></polyline>
                         </svg>
                       </span>

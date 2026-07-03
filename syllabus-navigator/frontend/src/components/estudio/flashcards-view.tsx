@@ -15,7 +15,14 @@ interface Props {
   dueKeys?: string[]
 }
 
-export function FlashcardsView({ title, courseLabel, cards: rawCards, onBack, syllabusId, dueKeys }: Props) {
+export function FlashcardsView({
+  title,
+  courseLabel,
+  cards: rawCards,
+  onBack,
+  syllabusId,
+  dueKeys,
+}: Props) {
   // Order due (spaced-repetition) cards first, preserving relative order otherwise.
   const cards = useMemo(() => {
     if (!dueKeys || dueKeys.length === 0) return rawCards

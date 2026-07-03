@@ -30,9 +30,7 @@ export function rrfFuse(lists: RetrievedChunk[][], k = RRF_K): RetrievedChunk[] 
       if (!obj.has(c.id)) obj.set(c.id, c)
     })
   }
-  return [...score.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([id]) => obj.get(id)!)
+  return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => obj.get(id)!)
 }
 
 export type GenScope = { kind: "doc"; id: string } | { kind: "course"; id: string; userId: string }
@@ -52,7 +50,13 @@ async function denseAndLexical(
   }
   const [dense, lex] = await Promise.all([
     ChunkRepository.searchByCourse(scope.userId, scope.id, queryEmbedding, candidates),
-    ChunkRepository.searchLexicalByCourse(scope.userId, scope.id, query, queryEmbedding, candidates),
+    ChunkRepository.searchLexicalByCourse(
+      scope.userId,
+      scope.id,
+      query,
+      queryEmbedding,
+      candidates,
+    ),
   ])
   return rrfFuse([dense, lex])
 }

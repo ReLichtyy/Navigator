@@ -115,7 +115,8 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   }, [])
 
   const fetchStage = useCallback(
-    (s: number, b: number) => fetchQuizStage(scope, { stage: s, boost: b, excludeIds: excludeList() }),
+    (s: number, b: number) =>
+      fetchQuizStage(scope, { stage: s, boost: b, excludeIds: excludeList() }),
     [scope],
   )
 
@@ -367,7 +368,11 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     const pct = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0
     const emoji = pct >= 80 ? "🏆" : pct >= 50 ? "💪" : "📚"
     const heading =
-      pct >= 80 ? "¡Excelente dominio!" : pct >= 50 ? "Vas por buen camino" : "A repasar un poco más"
+      pct >= 80
+        ? "¡Excelente dominio!"
+        : pct >= 50
+          ? "Vas por buen camino"
+          : "A repasar un poco más"
     return (
       <div className="mx-auto max-w-2xl">
         <BackButton onBack={onBack} />
@@ -404,9 +409,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
           : { emoji: "📚", head: "A reforzar" }
     // Advice keyed on WHAT was missed: name the most-failed topics so the tip is
     // actionable, not a generic accuracy message. Falls back when topics are absent.
-    const missed = [...failedTopics.current.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([t]) => t)
+    const missed = [...failedTopics.current.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)
     const topMissed = missed.slice(0, 3)
     const advice =
       failed === 0

@@ -71,6 +71,9 @@ function handle(err: unknown, op: string) {
   if (err instanceof ApiErrorResponse) {
     return NextResponse.json({ error: err.message }, { status: err.status })
   }
-  logError("api.study.quiz_review_error", { op, error: err instanceof Error ? err.message : String(err) })
+  logError("api.study.quiz_review_error", {
+    op,
+    error: err instanceof Error ? err.message : String(err),
+  })
   return NextResponse.json({ error: "Failed to update review queue." }, { status: 500 })
 }

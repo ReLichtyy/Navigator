@@ -16,18 +16,33 @@ export const JobRepository = {
    * Enqueue a job, deduplicating on syllabusId: if a pending or processing job
    * for the same type + syllabusId already exists, returns the existing job's id
    * instead of inserting a duplicate.
+   *
+   * `kickIfPending` is for user-initiated retries (e.g. the Reprocess button):
+   * on a dedupe-hit against a 'pending' job it resets `scheduled_at` to now so
+   * the job is claimable immediately instead of waiting out the retry backoff.
+   * Automatic callers must not set it — they respect the backoff window.
    */
-  async enqueue(type: string, payload: Record<string, unknown>): Promise<string> {
+  async enqueue(
+    type: string,
+    payload: Record<string, unknown>,
+    opts?: { kickIfPending?: boolean },
+  ): Promise<string> {
     const syllabusId = payload.syllabusId as string | undefined
     if (syllabusId) {
       const existing = await sql`
-        SELECT id FROM jobs
+        SELECT id, status FROM jobs
         WHERE type = ${type}
           AND payload->>'syllabusId' = ${syllabusId}
           AND status IN ('pending', 'processing')
         LIMIT 1
       `
-      if (existing.length > 0) return (existing[0] as { id: string }).id
+      if (existing.length > 0) {
+        const job = existing[0] as { id: string; status: string }
+        if (opts?.kickIfPending && job.status === "pending") {
+          await sql`UPDATE jobs SET scheduled_at = now() WHERE id = ${job.id}::uuid`
+        }
+        return job.id
+      }
     }
 
     const rows = await sql`
@@ -44,14 +59,19 @@ export const JobRepository = {
    * nothing to do. The UPDATE ... RETURNING is the lock: two concurrent workers
    * can't grab the same row. Pending jobs are only claimed once `scheduled_at`
    * is due, which is how retry backoff is enforced (see `fail`).
+   *
+   * `syllabusId` narrows the claim to that syllabus's job (targeted drain for
+   * user-initiated reprocess); omitted → global queue order.
    */
-  async claimNext(type: string, staleMinutes = 10): Promise<DbJob | null> {
+  async claimNext(type: string, staleMinutes = 10, syllabusId?: string): Promise<DbJob | null> {
+    const syllabusFilter = syllabusId ?? null
     const rows = await sql`
       UPDATE jobs
       SET status = 'processing', started_at = now(), attempts = attempts + 1
       WHERE id = (
         SELECT id FROM jobs
         WHERE type = ${type}
+          AND (${syllabusFilter}::text IS NULL OR payload->>'syllabusId' = ${syllabusFilter})
           AND (
             (status = 'pending' AND scheduled_at <= now())
             OR (status = 'processing' AND started_at < now() - (${staleMinutes} || ' minutes')::interval)

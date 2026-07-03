@@ -2,12 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { ArrowRight, Loader2, RotateCcw, Inbox } from "lucide-react"
-import {
-  fetchQuizReview,
-  resolveQuizReview,
-  recordMastery,
-  type QuizQuestionAPI,
-} from "@/lib/api"
+import { fetchQuizReview, resolveQuizReview, recordMastery, type QuizQuestionAPI } from "@/lib/api"
 import { BackButton } from "./flashcards-view"
 
 type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
@@ -176,7 +171,10 @@ export function QuizReviewView({ courseLabel, scope, syllabusId, onBack }: Props
       </div>
 
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
-        <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full bg-accent transition-[width] duration-300"
+          style={{ width: `${pct}%` }}
+        />
       </div>
 
       <div className="mt-6 rounded-2xl border border-border bg-card p-6">

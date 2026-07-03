@@ -32,10 +32,7 @@ export const recordReviewTool: Tool<RecordReviewArgs, { recorded: true }> = {
     required: ["cardKey", "known"],
     additionalProperties: false,
   },
-  async execute(
-    args: RecordReviewArgs,
-    ctx: ToolContext,
-  ): Promise<ToolResult<{ recorded: true }>> {
+  async execute(args: RecordReviewArgs, ctx: ToolContext): Promise<ToolResult<{ recorded: true }>> {
     const syllabusId = args.syllabusId ?? ctx.syllabusId
     if (!syllabusId) return { ok: false, error: "no syllabus in scope" }
     await StudyService.recordReview(ctx.userId, syllabusId, args.cardKey, args.known)

@@ -31,7 +31,9 @@ export async function POST(req: Request) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })
     }
-    logError("api.study.quiz_seen_error", { error: err instanceof Error ? err.message : String(err) })
+    logError("api.study.quiz_seen_error", {
+      error: err instanceof Error ? err.message : String(err),
+    })
     return NextResponse.json({ error: "Failed to record seen items." }, { status: 500 })
   }
 }

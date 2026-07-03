@@ -5,16 +5,6 @@ import {
   Plus,
   Minus,
   Maximize,
-  MousePointer2,
-  SquarePlus,
-  Spline,
-  Type,
-  MoreHorizontal,
-  Palette,
-  LayoutGrid,
-  Lock,
-  Download,
-  Trash2,
   Pencil,
   Sparkles,
   X,
@@ -35,8 +25,6 @@ const PALETTE = ["#5BE39A", "#6FB6F0", "#C9A0F0", "#F0C27C"]
 const C_ANCHOR = { x: 200, y: 274 }
 // Cap visible branches so the radial fan stays legible.
 const MAX_BRANCHES = 8
-
-type Tool = "select" | "add" | "connect" | "text" | "color" | "layout" | "lock" | "export" | "del"
 
 // rgba() from a #rrggbb hex + alpha.
 function hexA(hex: string, a: number): string {
@@ -88,8 +76,6 @@ export function MindMapCanvas({
   const [selNode, setSelNode] = useState<string | null>(null)
   const [exp, setExp] = useState<Record<string, boolean>>({})
   // chrome
-  const [tool, setTool] = useState<Tool>("select")
-  const [toolsOpen, setToolsOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [focus, setFocus] = useState<string[]>([])
   const [editText, setEditText] = useState("")
@@ -157,20 +143,6 @@ export function MindMapCanvas({
   const sel = selNode
   const centerSel = sel === "center"
 
-  const toolBtn = (active: boolean): CSSProperties => ({
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    border: `1px solid ${active ? "rgba(63,191,132,0.45)" : "rgba(255,255,255,0.07)"}`,
-    background: active ? "rgba(63,191,132,0.16)" : "transparent",
-    color: active ? "#9FEDC4" : "#9AA39E",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    transition: "all .15s",
-  })
-
   const worldStyle: CSSProperties = {
     position: "absolute",
     left: 0,
@@ -181,12 +153,6 @@ export function MindMapCanvas({
     transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`,
     transition: drag ? "none" : "transform .18s ease",
   }
-
-  // minimap viewport rect
-  const mmW = Math.min(152, 152 / zoom)
-  const mmH = Math.min(86, 86 / zoom)
-  const mmLeft = Math.max(0, Math.min(152 - mmW, -pan.x * 0.152))
-  const mmTop = Math.max(0, Math.min(86 - mmH, -pan.y * 0.152))
 
   const subtitle = [courseCode, courseName].filter(Boolean).join(" · ") || mindmap.center
 
@@ -457,10 +423,7 @@ export function MindMapCanvas({
         {/* edit button */}
         {onRegenerate && (
           <button
-            onClick={() => {
-              setEditOpen((o) => !o)
-              setToolsOpen(false)
-            }}
+            onClick={() => setEditOpen((o) => !o)}
             className="absolute right-4 top-4 flex items-center gap-1.5 rounded-[11px] px-[15px] py-[9px] text-[12.5px] font-bold"
             style={{
               backdropFilter: "blur(6px)",
@@ -671,153 +634,6 @@ export function MindMapCanvas({
           </span>
         </div>
 
-        {/* toolbar */}
-        <div
-          className="absolute bottom-[18px] left-1/2 flex -translate-x-1/2 items-center gap-1.5 p-2"
-          style={{
-            borderRadius: 16,
-            background: "rgba(12,16,14,0.9)",
-            border: "1px solid rgba(255,255,255,0.09)",
-            backdropFilter: "blur(8px)",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
-          }}
-        >
-          <button
-            onClick={() => setTool("select")}
-            title="Seleccionar"
-            style={toolBtn(tool === "select")}
-          >
-            <MousePointer2 className="h-[18px] w-[18px]" />
-          </button>
-          <button
-            onClick={() => setTool("add")}
-            title="Añadir nodo"
-            style={toolBtn(tool === "add")}
-          >
-            <SquarePlus className="h-[18px] w-[18px]" />
-          </button>
-          <button
-            onClick={() => setTool("connect")}
-            title="Conectar"
-            style={toolBtn(tool === "connect")}
-          >
-            <Spline className="h-[18px] w-[18px]" />
-          </button>
-          <button
-            onClick={() => setTool("text")}
-            title="Texto / nota"
-            style={toolBtn(tool === "text")}
-          >
-            <Type className="h-[18px] w-[18px]" />
-          </button>
-          <div
-            style={{ width: 1, height: 26, background: "rgba(255,255,255,0.1)", margin: "0 2px" }}
-          />
-          <div className="relative">
-            <button
-              onClick={() => setToolsOpen((o) => !o)}
-              title="Más herramientas"
-              style={toolBtn(toolsOpen)}
-            >
-              <MoreHorizontal className="h-[18px] w-[18px]" />
-            </button>
-            {toolsOpen && (
-              <div
-                className="absolute bottom-[52px] right-0 flex w-[180px] flex-col gap-0.5 p-1.5"
-                style={{
-                  borderRadius: 14,
-                  background: "rgba(14,18,16,0.97)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
-                  backdropFilter: "blur(8px)",
-                  animation: "navPop .18s ease both",
-                }}
-              >
-                <ToolMenuItem
-                  icon={<Palette className="h-4 w-4 text-[#9FEDC4]" />}
-                  label="Color de nodo"
-                  onClick={() => setTool("color")}
-                />
-                <ToolMenuItem
-                  icon={<LayoutGrid className="h-4 w-4 text-[#9FEDC4]" />}
-                  label="Auto-organizar"
-                  onClick={() => setTool("layout")}
-                />
-                <ToolMenuItem
-                  icon={<Lock className="h-4 w-4 text-[#9FEDC4]" />}
-                  label="Bloquear lienzo"
-                  onClick={() => setTool("lock")}
-                />
-                <ToolMenuItem
-                  icon={<Download className="h-4 w-4 text-[#9FEDC4]" />}
-                  label="Exportar imagen"
-                  onClick={() => setTool("export")}
-                />
-                <ToolMenuItem
-                  icon={<Trash2 className="h-4 w-4 text-[#F0A6A6]" />}
-                  label="Eliminar nodo"
-                  danger
-                  onClick={() => setTool("del")}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* minimap */}
-        <div
-          className="absolute bottom-[18px] right-[18px] overflow-hidden"
-          style={{
-            width: 168,
-            height: 100,
-            borderRadius: 13,
-            border: "1px solid rgba(255,255,255,0.1)",
-            background: "rgba(8,11,9,0.92)",
-            backdropFilter: "blur(6px)",
-          }}
-        >
-          <div className="absolute" style={{ inset: 7 }}>
-            <div
-              className="absolute"
-              style={{
-                left: 17,
-                top: 42,
-                width: 7,
-                height: 7,
-                borderRadius: 2,
-                background: "#5BE39A",
-              }}
-            />
-            {branches.map((b, i) => (
-              <div
-                key={i}
-                className="absolute"
-                style={{
-                  left: 60 + (i % 4) * 28,
-                  top: 12 + Math.floor(i / 4) * 30 + (i % 2) * 18,
-                  width: 7,
-                  height: 7,
-                  borderRadius: 2,
-                  background: PALETTE[i % 4],
-                }}
-              />
-            ))}
-            <div
-              className="absolute"
-              style={{
-                left: mmLeft,
-                top: mmTop,
-                width: mmW,
-                height: mmH,
-                borderRadius: 4,
-                border: "1.5px solid rgba(91,227,154,0.8)",
-                background: "rgba(63,191,132,0.08)",
-                pointerEvents: "none",
-              }}
-            />
-          </div>
-        </div>
-
         {/* processing overlay */}
         {loading && (
           <div
@@ -845,28 +661,5 @@ export function MindMapCanvas({
         )}
       </div>
     </div>
-  )
-}
-
-function ToolMenuItem({
-  icon,
-  label,
-  onClick,
-  danger,
-}: {
-  icon: React.ReactNode
-  label: string
-  onClick: () => void
-  danger?: boolean
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-[11px] rounded-[9px] px-[11px] py-[9px] text-left text-[12.5px] font-semibold transition-colors hover:bg-white/[0.06]"
-      style={{ color: danger ? "#F0A6A6" : "#C9D2CD" }}
-    >
-      {icon}
-      {label}
-    </button>
   )
 }

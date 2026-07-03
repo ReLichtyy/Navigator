@@ -97,7 +97,10 @@ async function callOnce(
   // OpenRouter (Claude/Gemini/…): no strict schema → instruct + parse.
   const res = await chatCompletion(
     [
-      { role: "system", content: `${c.system}\n\nRespond ONLY with a single valid JSON object that matches the requested shape. No prose, no markdown fences.` },
+      {
+        role: "system",
+        content: `${c.system}\n\nRespond ONLY with a single valid JSON object that matches the requested shape. No prose, no markdown fences.`,
+      },
       { role: "user", content: c.user },
     ],
     { provider, model, temperature: c.temperature ?? 0.6 },

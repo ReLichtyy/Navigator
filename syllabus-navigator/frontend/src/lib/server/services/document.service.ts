@@ -42,8 +42,7 @@ interface IngestResult {
   status: IngestStatus
 }
 
-const GUEST_EXPIRY = () =>
-  new Date(Date.now() + GUEST_TTL_HOURS * 3600 * 1000).toISOString()
+const GUEST_EXPIRY = () => new Date(Date.now() + GUEST_TTL_HOURS * 3600 * 1000).toISOString()
 
 // "%PDF-" — the magic signature every PDF starts with (allowing a small leading
 // offset, which some valid PDFs have before the header).

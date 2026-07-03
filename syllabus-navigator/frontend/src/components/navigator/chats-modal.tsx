@@ -29,8 +29,7 @@ export function ChatsModal({
     const q = query.trim().toLowerCase()
     if (!q) return chats
     return chats.filter(
-      (c) =>
-        c.title.toLowerCase().includes(q) || (c.syllabusName ?? "").toLowerCase().includes(q),
+      (c) => c.title.toLowerCase().includes(q) || (c.syllabusName ?? "").toLowerCase().includes(q),
     )
   }, [chats, query])
 
@@ -99,9 +98,7 @@ export function ChatsModal({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
-                    <span className="truncate text-sm font-bold text-foreground">
-                      {chat.title}
-                    </span>
+                    <span className="truncate text-sm font-bold text-foreground">{chat.title}</span>
                     {chat.syllabusName && (
                       <span className="shrink-0 rounded-[5px] border border-accent/20 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-bright">
                         {chat.syllabusName}

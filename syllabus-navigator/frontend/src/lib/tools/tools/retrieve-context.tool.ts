@@ -32,10 +32,7 @@ export const retrieveContextTool: Tool<RetrieveArgs, RetrieveData> = {
     required: ["query"],
     additionalProperties: false,
   },
-  async execute(
-    args: RetrieveArgs,
-    ctx: ToolContext,
-  ): Promise<ToolResult<RetrieveData>> {
+  async execute(args: RetrieveArgs, ctx: ToolContext): Promise<ToolResult<RetrieveData>> {
     const result = ctx.syllabusId
       ? await RetrievalService.retrieve(ctx.syllabusId, args.query)
       : await RetrievalService.retrieveForUser(ctx.userId, args.query)

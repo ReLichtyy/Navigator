@@ -97,7 +97,7 @@ export const GraphService = {
     }
 
     await DocumentRepository.setGraphStatus(syllabusId, "pending", null)
-    await JobRepository.enqueue("ingest", { syllabusId })
+    await JobRepository.enqueue("ingest", { syllabusId }, { kickIfPending: true })
 
     return this.getGraph(userId, syllabusId)
   },
