@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSyllabus } from "@/context/SyllabusContext"
 import { RotateCcw, X } from "lucide-react"
-import { MindMapCanvas, type Mindmap } from "@/components/estudio/mind-map-canvas"
+import { MindMapCanvas, type Mindmap, type BranchEdit } from "@/components/estudio/mind-map-canvas"
+import { applyBranchEdits } from "@/lib/ui/graph-edit"
+import { updateGraph } from "@/lib/api"
 
 type GraphNode = { id: string; label: string; weight_percent?: number }
 type GraphEdge = { source: string; target: string }
@@ -48,6 +50,7 @@ function toMindmap(nodes: GraphNode[], edges: GraphEdge[], center: string): Mind
   return {
     center,
     branches: roots.map((r) => ({
+      id: r.id,
       label: r.label,
       items: (children[r.id] ?? []).map((cid) => labelOf[cid]).filter(Boolean),
     })),
@@ -67,6 +70,7 @@ export default function GraphCanvas({
   onReprocess,
   editable = false,
   syllabusId,
+  onSaved,
   centerTitle,
 }: Props) {
   const { queryTopicInChat } = useSyllabus()
@@ -95,6 +99,19 @@ export default function GraphCanvas({
   }, [syllabusId, runLoad])
 
   const loading = selfLoading || graphStatus === "processing" || graphStatus === "pending"
+
+  // Structural branch edits → PATCH the full replacement graph. The server
+  // re-keys node ids (external_id → fresh UUIDs), so the caller must consume
+  // the returned graph via onSaved. Thrown errors (e.g. 400 cycle) surface in
+  // the drawer.
+  const saveBranches = useCallback(
+    async (branches: BranchEdit[]) => {
+      if (!syllabusId) return
+      const saved = await updateGraph(syllabusId, applyBranchEdits(nodes, edges, branches))
+      onSaved?.({ nodes: saved.nodes, edges: saved.edges })
+    },
+    [syllabusId, nodes, edges, onSaved],
+  )
 
   // Failed graph generation — offer a retry.
   if (graphStatus === "failed") {
@@ -143,6 +160,7 @@ export default function GraphCanvas({
             }
           : undefined
       }
+      onSaveBranches={editable && syllabusId ? saveBranches : undefined}
     />
   )
 }

@@ -11,6 +11,8 @@ export interface ScheduleEvent {
   event_date: string | null // yyyy-mm-dd
   week_label: string | null
   weight_percent: number | null
+  /** Course term start (yyyy-mm-dd) — lets services resolve "Semana N" → date. */
+  term_start: string | null
 }
 
 export const ScheduleRepository = {
@@ -43,9 +45,11 @@ export const ScheduleRepository = {
       SELECT se.id, se.syllabus_id, su.original_filename AS course_name,
              se.event_type, se.title, se.description,
              to_char(se.event_date, 'YYYY-MM-DD') AS event_date,
-             se.week_label, se.weight_percent
+             se.week_label, se.weight_percent,
+             to_char(uc.term_start, 'YYYY-MM-DD') AS term_start
       FROM schedule_events se
       JOIN syllabus_uploads su ON su.id = se.syllabus_id
+      LEFT JOIN user_courses uc ON uc.id = su.course_id
       WHERE se.syllabus_id = ${syllabusId}::uuid
       ORDER BY se.event_date ASC NULLS LAST, se.created_at ASC
     `) as ScheduleEvent[]
@@ -61,9 +65,11 @@ export const ScheduleRepository = {
       SELECT se.id, se.syllabus_id, su.original_filename AS course_name,
              se.event_type, se.title, se.description,
              to_char(se.event_date, 'YYYY-MM-DD') AS event_date,
-             se.week_label, se.weight_percent
+             se.week_label, se.weight_percent,
+             to_char(uc.term_start, 'YYYY-MM-DD') AS term_start
       FROM schedule_events se
       JOIN syllabus_uploads su ON su.id = se.syllabus_id
+      LEFT JOIN user_courses uc ON uc.id = su.course_id
       WHERE se.user_id = ${userId}
         AND (se.event_date IS NULL OR se.event_date >= ${fromDate}::date)
       ORDER BY se.event_date ASC NULLS LAST, se.created_at ASC

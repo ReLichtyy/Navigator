@@ -75,6 +75,27 @@ export const CreateCourseSchema = z.object({
   color: z.string().trim().max(32).nullish(),
 })
 
+// Update a course folder: rename and/or set the term start ("Semana N" → date
+// resolution anchor; null clears it). At least one field required.
+export const UpdateCourseSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "El nombre es obligatorio")
+      .max(120, "Nombre demasiado largo")
+      .optional(),
+    term_start: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (YYYY-MM-DD)")
+      .nullable()
+      .optional(),
+  })
+  .refine((d) => d.name !== undefined || d.term_start !== undefined, {
+    message: "Nada que actualizar",
+  })
+export type UpdateCourseInput = z.infer<typeof UpdateCourseSchema>
+
 // Act on a document's pending course suggestion. For 'confirm' the caller may
 // target an existing course (course_id), create a new one (new_course_name), or
 // pass neither to accept the standing suggestion as-is.

@@ -46,6 +46,20 @@ function resolveVectorBackend(raw: string | undefined): VectorBackend {
   return "pgvector"
 }
 
+/**
+ * Parse a language code (BCP-47-ish, e.g. "es", "en", "pt-BR"), falling back to
+ * the given default. Today this only feeds the Study Engine's output-language
+ * directive; when per-user language preferences land, that preference should
+ * override this app-wide default.
+ */
+function resolveLanguage(raw: string | undefined, fallback: string): string {
+  if (!raw) return fallback
+  const value = raw.trim()
+  if (/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/.test(value)) return value
+  warn(`STUDY_LANGUAGE="${raw}" is not a valid language code; using "${fallback}".`)
+  return fallback
+}
+
 /** Parse a boolean flag. Anything but "false"/"0"/"off" (case-insensitive) is true. */
 function resolveBool(raw: string | undefined, fallback: boolean): boolean {
   if (raw === undefined || raw.trim() === "") return fallback
@@ -68,6 +82,12 @@ export interface FeatureFlags {
    * the streamed answer. Turn on with TOOLS_ENABLED=true.
    */
   toolsEnabled: boolean
+  /**
+   * Default output language for the study area (Study Engine generators +
+   * web-search augmentation). App-wide for now (STUDY_LANGUAGE env, default
+   * "es"); planned to become a per-user preference that overrides this.
+   */
+  studyLanguage: string
 }
 
 export const flags: FeatureFlags = {
@@ -76,6 +96,7 @@ export const flags: FeatureFlags = {
   vectorBackend: resolveVectorBackend(process.env.VECTOR_BACKEND),
   ragEnabled: resolveBool(process.env.RAG_ENABLED, true),
   toolsEnabled: resolveBool(process.env.TOOLS_ENABLED, false),
+  studyLanguage: resolveLanguage(process.env.STUDY_LANGUAGE, "es"),
 }
 
 // Exported for tests so resolution logic can be exercised without mutating env.
@@ -83,4 +104,5 @@ export const __testing = {
   resolveProvider,
   resolveVectorBackend,
   resolveBool,
+  resolveLanguage,
 }

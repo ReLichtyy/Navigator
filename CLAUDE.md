@@ -79,7 +79,7 @@ Cross-cutting helpers used by services:
 | `src/components/ui/` | shadcn-style primitives (via `@base-ui` / Radix). **Use these; don't hand-roll.** |
 | `src/components/navigator/` | App shell: `app-sidebar`, `top-header`, `history-sidebar`, `chat-thread`, `chat-composer` |
 | `src/components/` | Feature components: `GraphCanvas` (wraps the custom `estudio/mind-map-canvas` — xyflow was removed), `SelectionAsk`, `ClientProviders`; feature dirs `agenda/`, `estudio/` (incl. `cross-course-view`), `auth/`, `bienvenida/` |
-| `src/lib/ui/` | Pure UI helpers (unit-testable): `course-group`, `doc-status`, `combine-study` |
+| `src/lib/ui/` | Pure UI helpers (unit-testable): `course-group`, `doc-status`, `combine-study`, `graph-edit` (branch edits → PATCH-graph payload) |
 | `src/context/` | `UserContext`, `AuthModalContext`, `SyllabusContext` |
 | `src/features/chat/` | `context/ChatContext` (`useChatWorkspace`), `hooks/` (chat orchestration) |
 | `src/hooks/` | `useChatWorkspace`, `use-mobile`, `use-toast` |
@@ -97,9 +97,9 @@ Cross-cutting helpers used by services:
 | `chat/models` | Available models for the user's tier |
 | `upload` (POST multipart ≤4MB), `upload/blob` + `upload/from-blob` (client→Vercel Blob for big files), `upload/link`, `upload/text` | Ingest sources (PDF/docx/pptx/xlsx, URL, pasted text) |
 | `upload/list`, `upload/[id]` (PATCH/DELETE), `upload/[id]/process` (POST), `upload/[id]/course` (POST) | Manage docs; fire slow enrichment (graph/schedule/inference); act on course suggestion |
-| `courses` (GET/POST), `courses/[id]` (PATCH/DELETE) | Course Intelligence Layer: real course folders (docs survive course deletion) |
-| `graph/[syllabusId]` (GET/PATCH), `graph/[syllabusId]/reprocess` (POST), `graph/cross` (GET) | Read graph; PATCH saves an edited graph (cycle-validated) — **backend live but no UI calls it today**; re-enqueue ingest; cross-course graph |
-| `schedule` (GET), `recommendations` (GET) | Cronograma agenda (all courses / `?syllabusId=`); weekly plan (assessments + this-week topics + review hints) |
+| `courses` (GET/POST), `courses/[id]` (PATCH/DELETE) | Course Intelligence Layer: real course folders (docs survive course deletion). PATCH = `{name?, term_start?}` — `term_start` anchors "Semana N" → real dates |
+| `graph/[syllabusId]` (GET/PATCH), `graph/[syllabusId]/reprocess` (POST), `graph/cross` (GET) | Read graph; PATCH saves an edited graph (cycle-validated) — UI: structural editor in the canvas drawer, wired from the `/knowledge` preview (`GraphCanvas` + `src/lib/ui/graph-edit.ts`); re-enqueue ingest; cross-course graph |
+| `schedule` (GET), `recommendations` (GET) | Cronograma agenda (all courses / `?syllabusId=`); weekly plan (assessments + this-week topics + review hints). Both resolve `week_label` → dates at serve time via `lib/server/rag/week-date.ts` when the course has `term_start` (never persisted) |
 | `study/[syllabusId]`, `study/course/[courseId]` (GET) | Study set (bank-assembled; `?refresh&difficulty&topic&web`) per doc or whole course |
 | `study/[syllabusId]/quiz-stage`, `study/course/[courseId]/quiz-stage` (GET) | Staged quiz (3 escalating stages, lazy bank generation) |
 | `study/quiz-review` (GET/POST/PATCH), `study/quiz-seen` (POST) | Repaso queue (failed questions) / mark served questions |
@@ -192,6 +192,7 @@ npm run knip           # report unused files/exports/deps (review, don't blind-d
 | `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` | no | Defaults: `openai` / `gpt-4o-mini` (see `lib/config/flags.ts`) |
 | `RAG_ENABLED` / `TOOLS_ENABLED` | no | Master switches: RAG retrieval (default on) / chat tool-calling (default off) |
 | `RAG_MAX_DISTANCE` | no | Cosine cutoff for retrieval relevance gate (default `0.9`) |
+| `STUDY_LANGUAGE` | no | Output language for the study area (Study Engine + `?web=1` search), default `es`. App-wide for now (`flags.studyLanguage`); planned to become a per-user preference via `StudyGenOptions.language` |
 | `ADMIN_EMAILS` | no | Comma-separated emails auto-promoted to admin |
 | `RATE_LIMIT_ENABLED`, `LOG_LEVEL` | no | Ops toggles |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Omit → in-memory cache + rate-limit (per-instance, resets on cold start) |

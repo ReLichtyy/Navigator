@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod"
+import { flags } from "@/lib/config/flags"
 
 // ---------- public shape (what the UI consumes) ----------
 
@@ -46,7 +47,7 @@ export interface StudyGuideSection {
  * The versioned cache reuses a stored set only when its schema_version matches,
  * so a bump invalidates every cached set after deploy.
  */
-export const STUDY_SCHEMA_VERSION = 2
+export const STUDY_SCHEMA_VERSION = 3
 
 export interface StudySet {
   flashcards: Flashcard[]
@@ -109,7 +110,8 @@ export const SUBJECT_GROUNDING_POLICY =
   "dates, weeks/session numbers, exam or assignment weights/percentages, grading policy, instructor, " +
   "bibliography entries, or 'what the syllabus/program says'. Stay strictly ON the course's topics: do " +
   "not drift to unrelated subjects, and do not fabricate course-specific particulars (made-up figures, " +
-  "fake citations, invented data presented as if from the material). Preserve the language of the material."
+  "fake citations, invented data presented as if from the material). Write everything in the OUTPUT " +
+  "LANGUAGE directive when one is given; otherwise preserve the language of the material."
 
 /**
  * Validate + normalize a raw model object into a safe StudySet.
@@ -203,6 +205,12 @@ export type Difficulty = "facil" | "medio" | "dificil"
 export interface StudyGenOptions {
   /** Tunes how demanding the generated quiz/flashcards are. Default "medio". */
   difficulty?: Difficulty
+  /**
+   * Output language for all generated study material (BCP-47-ish code, e.g.
+   * "es"). Defaults to the app-wide `flags.studyLanguage`. There is no per-user
+   * language system yet — when one lands, pass the user's preference here.
+   */
+  language?: string
   /** When set, focus the material on this specific topic (from the cronograma). */
   topic?: string
   /** Course graph topics + exam weights â€” bias generation & order the study guide by importance. */
@@ -223,9 +231,15 @@ const DIFFICULTY_HINT: Record<Difficulty, string> = {
     "DIFFICULTY: HARD. Emphasize reasoning, edge cases, application and analysis over recall. Quiz distractors must be subtle and tempting; explanations must justify why each is wrong.",
 }
 
-/** Build the extra instruction block from difficulty + optional topic focus. Pure â†’ testable. */
+/** Build the extra instruction block from language + difficulty + optional topic focus. Pure â†’ testable. */
 export function buildDirectives(opts: StudyGenOptions): string {
-  const lines = [DIFFICULTY_HINT[opts.difficulty ?? "medio"]]
+  const lang = (opts.language ?? flags.studyLanguage).trim() || flags.studyLanguage
+  const lines = [
+    `OUTPUT LANGUAGE: "${lang}". Write ALL generated content (flashcards, quiz questions, options, ` +
+      `explanations, summary, mind-map labels, study guide) in this language, regardless of the ` +
+      `material's language. Keep proper nouns and established technical terms as commonly used.`,
+    DIFFICULTY_HINT[opts.difficulty ?? "medio"],
+  ]
   const topic = opts.topic?.trim()
   if (topic) {
     lines.push(

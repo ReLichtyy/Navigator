@@ -7,6 +7,8 @@ export interface DbCourse {
   description: string | null
   subject_tags: string[] | null
   color: string | null
+  /** yyyy-mm-dd — anchor to resolve "Semana N" events into real dates. */
+  term_start: string | null
   created_at: string
   updated_at: string
 }
@@ -21,8 +23,10 @@ export interface CreateCourseInput {
 export const CourseRepository = {
   /** All of a user's courses, with how many documents are confirmed in each. */
   async listByUser(userId: string): Promise<(DbCourse & { document_count: number })[]> {
+    // to_char AFTER c.* so the text yyyy-mm-dd wins over the raw DATE column.
     const rows = await sql`
-      SELECT c.*, COUNT(s.id)::int AS document_count
+      SELECT c.*, to_char(c.term_start, 'YYYY-MM-DD') AS term_start,
+             COUNT(s.id)::int AS document_count
       FROM user_courses c
       LEFT JOIN syllabus_uploads s ON s.course_id = c.id
       WHERE c.user_id = ${userId}::uuid
@@ -34,7 +38,7 @@ export const CourseRepository = {
 
   async findByIdAndUser(courseId: string, userId: string): Promise<DbCourse | undefined> {
     const rows = await sql`
-      SELECT * FROM user_courses
+      SELECT *, to_char(term_start, 'YYYY-MM-DD') AS term_start FROM user_courses
       WHERE id = ${courseId}::uuid AND user_id = ${userId}::uuid
     `
     return rows[0] as DbCourse | undefined
@@ -56,12 +60,24 @@ export const CourseRepository = {
     return rows[0] as DbCourse
   },
 
-  async rename(courseId: string, userId: string, name: string): Promise<DbCourse | undefined> {
+  /**
+   * Partial update (rename and/or term_start). `termStart: undefined` leaves
+   * the column untouched; `null` clears it. Ownership-scoped.
+   */
+  async update(
+    courseId: string,
+    userId: string,
+    patch: { name?: string; termStart?: string | null },
+  ): Promise<DbCourse | undefined> {
+    const touchTerm = patch.termStart !== undefined
     const rows = await sql`
       UPDATE user_courses
-      SET name = ${name}, updated_at = now()
+      SET name = COALESCE(${patch.name ?? null}, name),
+          term_start = CASE WHEN ${touchTerm} THEN ${patch.termStart ?? null}::date
+                            ELSE term_start END,
+          updated_at = now()
       WHERE id = ${courseId}::uuid AND user_id = ${userId}::uuid
-      RETURNING *
+      RETURNING *, to_char(term_start, 'YYYY-MM-DD') AS term_start
     `
     return rows[0] as DbCourse | undefined
   },

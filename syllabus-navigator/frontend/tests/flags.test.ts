@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { __testing } from "@/lib/config/flags"
 
-const { resolveProvider, resolveVectorBackend, resolveBool } = __testing
+const { resolveProvider, resolveVectorBackend, resolveBool, resolveLanguage } = __testing
 
 describe("flags.resolveProvider", () => {
   it("defaults to openai when unset", () => {
@@ -49,5 +49,22 @@ describe("flags.resolveBool", () => {
     for (const v of ["true", "1", "on", "yes", "enabled"]) {
       expect(resolveBool(v, false)).toBe(true)
     }
+  })
+})
+
+describe("flags.resolveLanguage", () => {
+  it("uses the fallback when unset", () => {
+    expect(resolveLanguage(undefined, "es")).toBe("es")
+    expect(resolveLanguage("", "es")).toBe("es")
+  })
+
+  it("accepts simple and region-tagged codes", () => {
+    expect(resolveLanguage("en", "es")).toBe("en")
+    expect(resolveLanguage(" pt-BR ", "es")).toBe("pt-BR")
+  })
+
+  it("rejects invalid values and falls back", () => {
+    expect(resolveLanguage("español!", "es")).toBe("es")
+    expect(resolveLanguage("e", "es")).toBe("es")
   })
 })

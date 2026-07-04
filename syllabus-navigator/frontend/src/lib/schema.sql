@@ -352,6 +352,12 @@ CREATE TABLE IF NOT EXISTS user_courses (
 );
 CREATE INDEX IF NOT EXISTS idx_user_courses_user ON user_courses(user_id);
 
+-- "Semana N" → fecha real: inicio del semestre por curso (lunes de la semana 1).
+-- Los eventos con week_label pero sin event_date se resuelven al SERVIR
+-- (term_start + (N-1)*7 días) — nunca se persisten, así corregir term_start
+-- recalcula todo.
+ALTER TABLE user_courses ADD COLUMN IF NOT EXISTS term_start DATE;
+
 -- Now that user_courses exists, point syllabus_uploads.course_id at it (idempotent).
 DO $$ BEGIN
   ALTER TABLE syllabus_uploads ADD CONSTRAINT syllabus_uploads_course_fk

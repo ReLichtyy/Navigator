@@ -17,6 +17,7 @@ import {
   createCourse,
   deleteCourse,
   renameCourse,
+  updateCourse,
   setDocumentCourse,
   processDocument,
   findOrCreateChatForDoc,
@@ -47,6 +48,7 @@ import {
   Link2,
   Type,
   GripVertical,
+  CalendarDays,
 } from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
@@ -115,6 +117,11 @@ export default function KnowledgeBasePage() {
   const [renamingCourseId, setRenamingCourseId] = useState<string | null>(null)
   const [courseRenameValue, setCourseRenameValue] = useState("")
   const [savingCourseRename, setSavingCourseRename] = useState(false)
+
+  // Term-start editor ("Semana N" → real dates) — per course folder.
+  const [editingTermCourseId, setEditingTermCourseId] = useState<string | null>(null)
+  const [termValue, setTermValue] = useState("")
+  const [savingTerm, setSavingTerm] = useState(false)
 
   // Drag & drop: the document being dragged, and the folder currently hovered.
   const [draggingDoc, setDraggingDoc] = useState<SyllabusUploadAPI | null>(null)
@@ -513,6 +520,32 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  // ----- course term start ("Semana N" → fecha real) -----
+  const startTermEdit = (courseId: string) => {
+    setEditingTermCourseId(courseId)
+    setTermValue(courses.find((c) => c.id === courseId)?.term_start ?? "")
+  }
+  const commitTermStart = async (courseId: string) => {
+    const term = termValue || null
+    setSavingTerm(true)
+    // Optimistic: the calendar/recommendations re-derive from this on refetch.
+    setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, term_start: term } : c)))
+    try {
+      await updateCourse(courseId, { term_start: term })
+      toast.success(
+        term
+          ? "Inicio del semestre guardado. Los eventos 'Semana N' ya tienen fecha."
+          : "Inicio del semestre borrado.",
+      )
+    } catch (err: any) {
+      toast.error(err?.message ?? "No se pudo guardar la fecha.")
+      await fetchUploads(true)
+    } finally {
+      setEditingTermCourseId(null)
+      setSavingTerm(false)
+    }
+  }
+
   // ----- drag & drop: move a document between folders, or onto the trash zone -----
   const onDocDragStart = (doc: SyllabusUploadAPI) => (e: React.DragEvent) => {
     setDraggingDoc(doc)
@@ -776,6 +809,21 @@ export default function KnowledgeBasePage() {
                         <Button
                           size="icon-sm"
                           variant="ghost"
+                          onClick={() => startTermEdit(course.id!)}
+                          className={`h-8 w-8 ${
+                            courses.find((c) => c.id === course.id)?.term_start
+                              ? "text-accent"
+                              : "text-muted-foreground hover:text-accent"
+                          }`}
+                          title="Inicio del semestre (ubica los eventos 'Semana N' en el calendario)"
+                        >
+                          <CalendarDays className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {course.id && (
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
                           onClick={() => startCourseRename(course.id!, course.name)}
                           className="h-8 w-8 text-muted-foreground hover:text-accent"
                           title="Renombrar curso"
@@ -797,7 +845,57 @@ export default function KnowledgeBasePage() {
                         </Button>
                       )}
                     </div>
-                    {renamingCourseId === course.id && course.id ? (
+                    {editingTermCourseId === course.id && course.id ? (
+                      <div className="flex items-center gap-2 px-4 py-3 pr-24 sm:pr-40">
+                        <div
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
+                          style={
+                            course.color ? { backgroundColor: `${course.color}22` } : undefined
+                          }
+                        >
+                          <CalendarDays className="h-[18px] w-[18px] text-accent" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-xs font-medium text-muted-foreground">
+                            Inicio del semestre (lunes de la semana 1) — ubica los eventos
+                            &ldquo;Semana N&rdquo; en el calendario
+                          </span>
+                          <Input
+                            autoFocus
+                            type="date"
+                            value={termValue}
+                            onChange={(e) => setTermValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitTermStart(course.id!)
+                              if (e.key === "Escape") setEditingTermCourseId(null)
+                            }}
+                            className="mt-1 h-8 max-w-[200px]"
+                          />
+                        </div>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => commitTermStart(course.id!)}
+                          disabled={savingTerm}
+                          className="text-accent"
+                          title="Guardar"
+                        >
+                          {savingTerm ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => setEditingTermCourseId(null)}
+                          title="Cancelar"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ) : renamingCourseId === course.id && course.id ? (
                       <div className="flex items-center gap-2 px-4 py-3 pr-24 sm:pr-40">
                         <div
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"

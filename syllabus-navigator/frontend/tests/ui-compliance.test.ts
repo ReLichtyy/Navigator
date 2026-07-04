@@ -132,6 +132,26 @@ describe("Mapa mental window", () => {
   })
 })
 
+describe("Editable knowledge graph (PATCH /graph wiring)", () => {
+  it("GraphCanvas maps branch edits onto the graph and persists via updateGraph", () => {
+    const f = src("src/components/GraphCanvas.tsx")
+    expect(f).toContain("applyBranchEdits")
+    expect(f).toContain("updateGraph")
+    expect(f).toContain("onSaveBranches")
+  })
+  it("the canvas drawer exposes the structural editor + save error surface", () => {
+    const f = src("src/components/estudio/mind-map-canvas.tsx")
+    expect(f).toContain("onSaveBranches")
+    expect(f).toContain("Guardar cambios")
+    expect(f).toContain("saveErr")
+  })
+  it("knowledge preview passes the editable wiring (syllabusId + onSaved)", () => {
+    const f = src("app/knowledge/page.tsx")
+    expect(f).toContain("editable")
+    expect(f).toContain("onSaved")
+  })
+})
+
 describe("UI-13 Streak wiring", () => {
   it("sidebar consumes the real /api/study/stats endpoint", () => {
     const f = src("src/components/navigator/app-sidebar.tsx")

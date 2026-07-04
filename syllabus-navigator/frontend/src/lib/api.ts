@@ -359,12 +359,20 @@ export async function setDocumentCourse(
   })
 }
 
-/** Rename a course. */
-export async function renameCourse(courseId: string, name: string) {
+/** Update a course: rename and/or set its term start ("Semana N" anchor). */
+export async function updateCourse(
+  courseId: string,
+  patch: { name?: string; term_start?: string | null },
+) {
   return request<{ course: CourseAPI }>(`/courses/${encodeURIComponent(courseId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(patch),
   })
+}
+
+/** Rename a course. */
+export async function renameCourse(courseId: string, name: string) {
+  return updateCourse(courseId, { name })
 }
 
 /** Delete a course; its documents survive and become uncategorised. */
@@ -418,6 +426,23 @@ export async function submitFeedback(messageId: string, vote: "up" | "down", com
 
 export async function fetchGraph(syllabusId: string) {
   return request<GraphResponseAPI>(`/graph/${syllabusId}`, { method: "GET", json: false })
+}
+
+export interface GraphUpdatePayload {
+  nodes: { id: string; label: string; weight_percent?: number | null }[]
+  edges: { source: string; target: string }[]
+}
+
+/**
+ * Replace the graph with a user-edited version (manual mind-map edits).
+ * Node ids are the existing topic UUIDs, or temp ids for new nodes — the
+ * server re-keys them, so consume the returned graph. 400 = cycle.
+ */
+export async function updateGraph(syllabusId: string, graph: GraphUpdatePayload) {
+  return request<GraphResponseAPI>(`/graph/${syllabusId}`, {
+    method: "PATCH",
+    body: JSON.stringify(graph),
+  })
 }
 
 // ----- Cross-course prerequisite graph (Sprint 4) -----

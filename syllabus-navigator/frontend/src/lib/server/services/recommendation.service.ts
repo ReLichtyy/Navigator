@@ -10,6 +10,7 @@
 
 import { ScheduleRepository, type ScheduleEvent } from "../repositories/schedule.repo"
 import { GraphRepository } from "../repositories/graph.repo"
+import { resolveEventWeekDates, isoAddDays } from "../rag/week-date"
 
 const ASSESSMENT_TYPES = new Set(["quiz", "exam", "assignment", "project"])
 const HORIZON_DAYS = 21
@@ -60,10 +61,20 @@ export const RecommendationService = {
     const today = todayISO(now)
     const { start: week_start, end: week_end } = weekRange(now)
 
-    const [events, topics] = await Promise.all([
+    const [rawEvents, topics] = await Promise.all([
       ScheduleRepository.listAgendaByUser(userId, today, 100),
       GraphRepository.listUserTopicsWithPrereqs(userId),
     ])
+    // Resolve "Semana N" → real dates (course term_start). A resolved date is
+    // the MONDAY of that week, so it stays relevant until its week fully
+    // passes (cutoff = today - 6 days); older ones must not surface as
+    // "upcoming". Events dated in the repo pass through (the repo already
+    // applied its own >= today cutoff).
+    const datedInRepo = new Set(rawEvents.filter((e) => e.event_date != null).map((e) => e.id))
+    const weekCutoff = isoAddDays(today, -6)
+    const events = resolveEventWeekDates(rawEvents).filter(
+      (e) => e.event_date === null || datedInRepo.has(e.id) || e.event_date >= weekCutoff,
+    )
 
     // Topic label → prereqs, scoped per syllabus, lowercased for matching.
     const topicsBySyllabus = new Map<string, { label: string; prereqs: string[] }[]>()
@@ -106,7 +117,9 @@ export const RecommendationService = {
         event_date: e.event_date,
         week_label: e.week_label,
         weight_percent: e.weight_percent,
-        days_until: e.event_date ? daysBetween(today, e.event_date) : null,
+        // Clamped ≥ 0: a week-resolved date (Monday) can sit earlier in the
+        // current week without the assessment being "past".
+        days_until: e.event_date ? Math.max(0, daysBetween(today, e.event_date)) : null,
         review_first: reviewFor(e.syllabus_id, e.title),
       }))
 

@@ -65,8 +65,13 @@ export const CourseService = {
     return CourseRepository.createOrGet(userId, input)
   },
 
-  async renameCourse(courseId: string, userId: string, name: string) {
-    const updated = await CourseRepository.rename(courseId, userId, name)
+  /** Rename and/or set the term start (anchor to resolve "Semana N" → dates). */
+  async updateCourse(
+    courseId: string,
+    userId: string,
+    patch: { name?: string; termStart?: string | null },
+  ) {
+    const updated = await CourseRepository.update(courseId, userId, patch)
     if (!updated) throw new ApiErrorResponse("Course not found.", 404)
     return updated
   },

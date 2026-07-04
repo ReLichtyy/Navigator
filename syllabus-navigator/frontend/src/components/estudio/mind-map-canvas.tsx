@@ -14,9 +14,16 @@ import {
   Loader2,
   Expand,
   Shrink,
+  Trash2,
+  Check,
 } from "lucide-react"
 
-export type Mindmap = { center: string; branches: { label: string; items: string[] }[] }
+export type Mindmap = {
+  center: string
+  branches: { id?: string; label: string; items: string[] }[]
+}
+/** One branch as edited in the structural editor (id null = newly added). */
+export type BranchEdit = { id: string | null; label: string }
 export type MindCourse = { id: string; code: string; label: string }
 
 // Branch palette — matches the Navigator design (green / blue / purple / amber).
@@ -51,6 +58,7 @@ export function MindMapCanvas({
   courseName,
   loading = false,
   onRegenerate,
+  onSaveBranches,
   onTopicDouble,
 }: {
   mindmap: Mindmap
@@ -62,6 +70,11 @@ export function MindMapCanvas({
   courseName?: string
   loading?: boolean
   onRegenerate?: (opts: { focus: string[]; instructions: string }) => void
+  /**
+   * Structural editing (rename / delete / add branch). Resolve on saved (the
+   * caller persists + refetches); reject with an Error to show its message.
+   */
+  onSaveBranches?: (branches: BranchEdit[]) => Promise<void>
   /** Double-click a node → send its label to the chat. */
   onTopicDouble?: (label: string) => void
 }) {
@@ -79,6 +92,12 @@ export function MindMapCanvas({
   const [editOpen, setEditOpen] = useState(false)
   const [focus, setFocus] = useState<string[]>([])
   const [editText, setEditText] = useState("")
+  // structural editor (drawer): draft of every branch (full list, not the
+  // display-capped one) + pending "add" input + save state
+  const [draft, setDraft] = useState<BranchEdit[]>([])
+  const [newBranch, setNewBranch] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
 
   const branches = mindmap.branches.slice(0, MAX_BRANCHES)
   const n = branches.length
@@ -139,6 +158,41 @@ export function MindMapCanvas({
     setEditOpen(false)
     onRegenerate?.({ focus, instructions: editText.trim() })
   }
+
+  // Opening the drawer re-seeds the structural draft from the current map.
+  const toggleDrawer = () => {
+    setEditOpen((o) => {
+      if (!o) {
+        setDraft(mindmap.branches.map((b) => ({ id: b.id ?? null, label: b.label })))
+        setNewBranch("")
+        setSaveErr(null)
+      }
+      return !o
+    })
+  }
+
+  const addBranch = () => {
+    const label = newBranch.trim()
+    if (!label) return
+    setDraft((d) => [...d, { id: null, label }])
+    setNewBranch("")
+  }
+
+  const saveBranches = async () => {
+    if (!onSaveBranches || saving) return
+    setSaving(true)
+    setSaveErr(null)
+    try {
+      await onSaveBranches(draft.map((b) => ({ id: b.id, label: b.label.trim() })))
+      setEditOpen(false)
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : "No se pudo guardar el mapa.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const draftValid = draft.length > 0 && draft.every((b) => b.label.trim().length > 0)
 
   const sel = selNode
   const centerSel = sel === "center"
@@ -421,9 +475,9 @@ export function MindMapCanvas({
         )}
 
         {/* edit button */}
-        {onRegenerate && (
+        {(onRegenerate || onSaveBranches) && (
           <button
-            onClick={() => setEditOpen((o) => !o)}
+            onClick={toggleDrawer}
             className="absolute right-4 top-4 flex items-center gap-1.5 rounded-[11px] px-[15px] py-[9px] text-[12.5px] font-bold"
             style={{
               backdropFilter: "blur(6px)",
@@ -467,7 +521,7 @@ export function MindMapCanvas({
                 </span>
                 <div>
                   <div className="text-[14.5px] font-extrabold text-[#F2F6F4]">
-                    Regenerar con IA
+                    {onRegenerate ? "Regenerar con IA" : "Editar mapa"}
                   </div>
                   <div className="mt-px text-[11px] text-[#7C8983]">{subtitle}</div>
                 </div>
@@ -488,102 +542,191 @@ export function MindMapCanvas({
             </div>
 
             <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-[18px]">
-              {/* focus topics */}
-              <div>
-                <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
-                  Enfócate en temas
-                </div>
-                <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
-                  Selecciona los temas que quieres expandir con más detalle.
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {branches.map((b) => {
-                    const on = focus.includes(b.label)
-                    return (
-                      <button
-                        key={b.label}
-                        onClick={() => toggleFocus(b.label)}
-                        className="rounded-[9px] px-3 py-1.5 text-xs font-semibold"
+              {/* structural editor: rename / delete / add branches */}
+              {onSaveBranches && (
+                <div>
+                  <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                    Ramas del mapa
+                  </div>
+                  <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
+                    Renombra, elimina o añade ramas y guarda los cambios.
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {draft.map((b, i) => (
+                      <div key={b.id ?? `new-${i}`} className="flex items-center gap-2">
+                        <input
+                          value={b.label}
+                          onChange={(e) =>
+                            setDraft((d) =>
+                              d.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)),
+                            )
+                          }
+                          aria-label="Nombre de la rama"
+                          className="min-w-0 flex-1 rounded-[9px] px-3 py-2 text-xs font-semibold text-[#E8EDEA] outline-none"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.1)",
+                            background: "rgba(255,255,255,0.02)",
+                          }}
+                        />
+                        <button
+                          onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
+                          title="Eliminar rama"
+                          className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-lg text-[#9AA39E] transition-colors hover:text-[#F0A0A0]"
+                          style={{ border: "1px solid rgba(255,255,255,0.09)" }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={newBranch}
+                        onChange={(e) => setNewBranch(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && addBranch()}
+                        placeholder="Nueva rama…"
+                        className="min-w-0 flex-1 rounded-[9px] px-3 py-2 text-xs font-semibold text-[#E8EDEA] outline-none"
                         style={{
-                          border: `1px solid ${on ? "rgba(63,191,132,0.45)" : "rgba(255,255,255,0.1)"}`,
-                          background: on ? "rgba(63,191,132,0.14)" : "transparent",
-                          color: on ? "#9FEDC4" : "#9AA39E",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          background: "rgba(255,255,255,0.02)",
                         }}
+                      />
+                      <button
+                        onClick={addBranch}
+                        disabled={!newBranch.trim()}
+                        title="Añadir rama"
+                        className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-lg text-[#9FEDC4] disabled:opacity-40"
+                        style={{ border: "1px solid rgba(63,191,132,0.35)" }}
                       >
-                        {b.label}
+                        <Plus className="h-3.5 w-3.5" />
                       </button>
-                    )
-                  })}
+                    </div>
+                  </div>
+                  {saveErr && (
+                    <div className="mt-2 text-[11.5px] leading-[1.4] text-[#F0A0A0]">{saveErr}</div>
+                  )}
+                  <button
+                    onClick={saveBranches}
+                    disabled={saving || !draftValid}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-[10px] text-[12.5px] font-bold disabled:opacity-50"
+                    style={{
+                      border: "1px solid rgba(63,191,132,0.45)",
+                      background: "rgba(63,191,132,0.14)",
+                      color: "#9FEDC4",
+                    }}
+                  >
+                    {saving ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5" />
+                    )}
+                    Guardar cambios
+                  </button>
                 </div>
-              </div>
+              )}
 
-              {/* recommendations */}
-              <div>
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
-                  Recomendaciones
-                </div>
-                <div className="flex flex-col gap-2">
-                  {[
-                    `Profundiza en ${(branches[0]?.label ?? "el tema").toLowerCase()} con ejemplos.`,
-                    "Conecta los temas con casos de la prueba corta.",
-                    "Añade un nivel más de subtemas a cada rama.",
-                  ].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setEditText(t)}
-                      className="flex items-start gap-2.5 rounded-[11px] px-[13px] py-[11px] text-left text-[12.5px] font-medium leading-[1.4] text-[#C9D2CD]"
+              {/* AI-regenerate controls (only when the caller can regenerate) */}
+              {onRegenerate && (
+                <>
+                  {/* focus topics */}
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                      Enfócate en temas
+                    </div>
+                    <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
+                      Selecciona los temas que quieres expandir con más detalle.
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {branches.map((b) => {
+                        const on = focus.includes(b.label)
+                        return (
+                          <button
+                            key={b.label}
+                            onClick={() => toggleFocus(b.label)}
+                            className="rounded-[9px] px-3 py-1.5 text-xs font-semibold"
+                            style={{
+                              border: `1px solid ${on ? "rgba(63,191,132,0.45)" : "rgba(255,255,255,0.1)"}`,
+                              background: on ? "rgba(63,191,132,0.14)" : "transparent",
+                              color: on ? "#9FEDC4" : "#9AA39E",
+                            }}
+                          >
+                            {b.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* recommendations */}
+                  <div>
+                    <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                      Recomendaciones
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        `Profundiza en ${(branches[0]?.label ?? "el tema").toLowerCase()} con ejemplos.`,
+                        "Conecta los temas con casos de la prueba corta.",
+                        "Añade un nivel más de subtemas a cada rama.",
+                      ].map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setEditText(t)}
+                          className="flex items-start gap-2.5 rounded-[11px] px-[13px] py-[11px] text-left text-[12.5px] font-medium leading-[1.4] text-[#C9D2CD]"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: "rgba(255,255,255,0.015)",
+                          }}
+                        >
+                          <Lightbulb className="mt-px h-3.5 w-3.5 flex-none text-[#7CE0AC]" />
+                          <span>{t}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* instructions */}
+                  <div>
+                    <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                      Instrucciones
+                    </div>
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      placeholder="Escribe cómo quieres regenerar el mapa… ej. enfatiza las relaciones entre conceptos, usa lenguaje sencillo."
+                      className="min-h-[88px] w-full resize-y rounded-xl px-[13px] py-3 text-[13px] leading-[1.5] text-[#E8EDEA] outline-none"
                       style={{
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        background: "rgba(255,255,255,0.015)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: "rgba(255,255,255,0.02)",
                       }}
-                    >
-                      <Lightbulb className="mt-px h-3.5 w-3.5 flex-none text-[#7CE0AC]" />
-                      <span>{t}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* instructions */}
-              <div>
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
-                  Instrucciones
-                </div>
-                <textarea
-                  value={editText}
-                  onChange={(e) => setEditText(e.target.value)}
-                  placeholder="Escribe cómo quieres regenerar el mapa… ej. enfatiza las relaciones entre conceptos, usa lenguaje sencillo."
-                  className="min-h-[88px] w-full resize-y rounded-xl px-[13px] py-3 text-[13px] leading-[1.5] text-[#E8EDEA] outline-none"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    background: "rgba(255,255,255,0.02)",
-                  }}
-                />
-              </div>
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
-            <div
-              className="flex-none px-5 py-4"
-              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
-            >
-              <button
-                onClick={regenerate}
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-2.5 rounded-xl py-[13px] text-sm font-bold disabled:opacity-60"
-                style={{
-                  background: "linear-gradient(135deg,#3FBF84,#2c9a66)",
-                  color: "#06140D",
-                  boxShadow: "0 6px 20px rgba(63,191,132,0.25)",
-                }}
+            {onRegenerate && (
+              <div
+                className="flex-none px-5 py-4"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
               >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-4 w-4" />
-                )}
-                Regenerar mapa
-              </button>
-            </div>
+                <button
+                  onClick={regenerate}
+                  disabled={loading}
+                  className="flex w-full items-center justify-center gap-2.5 rounded-xl py-[13px] text-sm font-bold disabled:opacity-60"
+                  style={{
+                    background: "linear-gradient(135deg,#3FBF84,#2c9a66)",
+                    color: "#06140D",
+                    boxShadow: "0 6px 20px rgba(63,191,132,0.25)",
+                  }}
+                >
+                  {loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                  Regenerar mapa
+                </button>
+              </div>
+            )}
           </div>
         )}
 

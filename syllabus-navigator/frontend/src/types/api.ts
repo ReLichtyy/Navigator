@@ -76,6 +76,8 @@ export interface CourseAPI {
   description: string | null
   subject_tags: string[] | null
   color: string | null
+  /** yyyy-mm-dd term start — anchors "Semana N" events to real dates. */
+  term_start: string | null
   document_count: number
   created_at: string
   updated_at: string

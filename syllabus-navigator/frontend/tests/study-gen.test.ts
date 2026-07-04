@@ -99,6 +99,20 @@ describe("buildDirectives (difficulty + topic)", () => {
   })
 })
 
+describe("buildDirectives (output language)", () => {
+  it("emits the default study language when none given", () => {
+    expect(buildDirectives({})).toContain('OUTPUT LANGUAGE: "es"')
+  })
+
+  it("uses an explicit language override", () => {
+    expect(buildDirectives({ language: "en" })).toContain('OUTPUT LANGUAGE: "en"')
+  })
+
+  it("falls back to the default when the override is blank", () => {
+    expect(buildDirectives({ language: "   " })).toContain('OUTPUT LANGUAGE: "es"')
+  })
+})
+
 describe("normalizeStudySet (Sprint 4: topic + studyGuide)", () => {
   it("carries a quiz topic when present and omits it when absent", () => {
     const withTopic = normalizeStudySet({

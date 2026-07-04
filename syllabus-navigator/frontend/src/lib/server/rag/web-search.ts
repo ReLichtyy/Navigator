@@ -9,6 +9,7 @@
  */
 
 import OpenAI from "openai"
+import { flags } from "@/lib/config/flags"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 let _client: OpenAI | null = null
@@ -32,9 +33,12 @@ const MAX_WEB_CHARS = 6_000
 /**
  * Run a web search and return a concise, grounded summary to use as extra study
  * context, or null when search is unavailable / yields nothing. `lang` nudges the
- * output to match the course material's language (e.g. "es").
+ * output language (e.g. "es"); defaults to the app-wide study language flag.
  */
-export async function webSearchContext(query: string, lang = "es"): Promise<string | null> {
+export async function webSearchContext(
+  query: string,
+  lang: string = flags.studyLanguage,
+): Promise<string | null> {
   const q = query.trim()
   if (q.length < 3) return null
 
