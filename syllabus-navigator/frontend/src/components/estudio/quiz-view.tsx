@@ -13,6 +13,7 @@ import {
   type StudyDifficulty,
 } from "@/lib/api"
 import { BackButton, EmptyMode } from "./flashcards-view"
+import { heatFor, stageTier, stageAdvice, topMissedTopics, type Heat } from "@/lib/ui/quiz-stage-ui"
 
 /** Correct answers required to clear a stage (mirrors STAGE_SIZE on the server). */
 const STAGE_SIZE = 15
@@ -44,16 +45,6 @@ const DIFFICULTY_LABEL: Record<StudyDifficulty, string> = {
   dificil: "Difícil",
 }
 
-/**
- * Visual "heat" for the difficulty indicator. Difícil escalates by boost: a base
- * difícil reads elegant orange, and a boosted (very hard) difícil turns red — both
- * are still the difícil stage, the colour just signals how demanding it has become.
- */
-type Heat = "base" | "warn" | "hot"
-function heatFor(difficulty: StudyDifficulty, boost: number): Heat {
-  if (difficulty !== "dificil") return "base"
-  return boost >= 2 ? "hot" : "warn"
-}
 const HEAT_CHIP: Record<Heat, string> = {
   base: "border-accent/30 bg-accent/10 text-accent",
   warn: "border-orange-500/40 bg-orange-500/10 text-orange-400",
@@ -401,22 +392,8 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     const failed = Math.max(attemptsInStage - clearedInStage, 0)
     const acc = attemptsInStage > 0 ? clearedInStage / attemptsInStage : 0
     const accPct = Math.round(acc * 100)
-    const tier =
-      acc >= 0.9
-        ? { emoji: "🎯", head: "Dominio sólido" }
-        : acc >= 0.7
-          ? { emoji: "💪", head: "Buen ritmo" }
-          : { emoji: "📚", head: "A reforzar" }
-    // Advice keyed on WHAT was missed: name the most-failed topics so the tip is
-    // actionable, not a generic accuracy message. Falls back when topics are absent.
-    const missed = [...failedTopics.current.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t)
-    const topMissed = missed.slice(0, 3)
-    const advice =
-      failed === 0
-        ? "Etapa perfecta, sin fallos. Vas listo para subir el nivel."
-        : topMissed.length > 0
-          ? `Consejo: refuerza ${topMissed.join(", ")} — esas preguntas pasaron a tu Repaso. Domínalas antes de avanzar.`
-          : "Consejo: vuelve a tu Repaso y reintenta las preguntas falladas hasta dominarlas."
+    const tier = stageTier(acc)
+    const advice = stageAdvice(failed, topMissedTopics(failedTopics.current))
     const heat = heatFor(difficulty, boost)
     // Each stage escalates; there's still room to climb unless already at the top
     // (difícil with full boost).

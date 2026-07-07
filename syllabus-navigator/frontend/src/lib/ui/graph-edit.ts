@@ -1,11 +1,14 @@
 /**
- * Pure helpers to apply branch-level mind-map edits (rename / delete / add)
- * onto the raw knowledge graph (topics + prerequisite edges), producing the
- * full replacement payload `PATCH /api/graph/[syllabusId]` expects.
+ * Pure helpers to apply branch-level mind-map edits (rename / delete / add /
+ * reorder) onto the raw knowledge graph (topics + prerequisite edges),
+ * producing the full replacement payload `PATCH /api/graph/[syllabusId]`
+ * expects.
  *
  * The radial canvas only exposes root topics (no prerequisites) as editable
  * branches, so edits are applied at the root level: non-root nodes and their
- * edges are preserved untouched unless their root is deleted.
+ * edges are preserved untouched unless their root is deleted. The order of
+ * `edits` IS the branch order: the server inserts topics in payload order and
+ * serves them back `created_at ASC`, so it round-trips.
  */
 
 export type GraphNodeDTO = { id: string; label: string; weight_percent?: number | null }
@@ -36,7 +39,9 @@ export function rootIds(nodes: GraphNodeDTO[], edges: GraphEdgeDTO[]): Set<strin
  * - a root absent from `edits` is deleted along with every edge touching it
  *   (its orphaned children become roots on the next render);
  * - an edit with `id: null` adds a fresh node (unique `new-N` temp id — the
- *   server maps it to `external_id` and assigns a real UUID) with no edges.
+ *   server maps it to `external_id` and assigns a real UUID) with no edges;
+ * - branches come out in `edits` order (that order persists — see header),
+ *   with the untouched non-root nodes after them in their original order.
  */
 export function applyBranchEdits(
   nodes: GraphNodeDTO[],
@@ -47,24 +52,31 @@ export function applyBranchEdits(
   const keptById = new Map(edits.filter((e) => e.id !== null).map((e) => [e.id as string, e]))
   const removed = new Set([...roots].filter((id) => !keptById.has(id)))
 
-  const outNodes: GraphNodeDTO[] = nodes
-    .filter((n) => !removed.has(n.id))
-    .map((n) => {
-      const edit = keptById.get(n.id)
-      const label = edit?.label.trim()
-      return label ? { ...n, label } : { ...n }
-    })
-
-  const taken = new Set(outNodes.map((n) => n.id))
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const taken = new Set(nodes.filter((n) => !removed.has(n.id)).map((n) => n.id))
+  const emitted = new Set<string>()
+  const outNodes: GraphNodeDTO[] = []
   let seq = 1
+
   for (const e of edits) {
-    if (e.id !== null) continue
-    const label = e.label.trim()
-    if (!label) continue
-    let id = `new-${seq++}`
-    while (taken.has(id)) id = `new-${seq++}`
-    taken.add(id)
-    outNodes.push({ id, label })
+    if (e.id !== null) {
+      const node = byId.get(e.id)
+      if (!node || removed.has(node.id) || emitted.has(node.id)) continue
+      emitted.add(node.id)
+      const label = e.label.trim()
+      outNodes.push(label ? { ...node, label } : { ...node })
+    } else {
+      const label = e.label.trim()
+      if (!label) continue
+      let id = `new-${seq++}`
+      while (taken.has(id)) id = `new-${seq++}`
+      taken.add(id)
+      outNodes.push({ id, label })
+    }
+  }
+  for (const n of nodes) {
+    if (removed.has(n.id) || emitted.has(n.id)) continue
+    outNodes.push({ ...n })
   }
 
   const outEdges = edges.filter((e) => !removed.has(e.source) && !removed.has(e.target))

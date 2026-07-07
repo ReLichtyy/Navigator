@@ -377,6 +377,11 @@ CREATE TABLE IF NOT EXISTS course_suggestions (
 );
 CREATE INDEX IF NOT EXISTS idx_course_suggestions_doc ON course_suggestions(document_id);
 
+-- Inicio de semestre inferido del propio sílabo (lunes de la semana 1). Se
+-- aplica a user_courses.term_start SOLO al confirmar el curso y solo si el
+-- curso aún no tiene uno (el valor puesto por el usuario siempre gana).
+ALTER TABLE course_suggestions ADD COLUMN IF NOT EXISTS term_start DATE;
+
 -- Cached WHOLE-COURSE study set: aggregates the chunks of every PDF in a course
 -- into one set. Keyed by course (vs study_sets, keyed per single syllabus).
 -- Regenerated on demand (?refresh=1). Cascades when the course is deleted.

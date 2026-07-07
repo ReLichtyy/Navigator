@@ -42,6 +42,7 @@ export const CourseService = {
       suggestedName: inf.suggestedName,
       confidence: inf.confidence,
       method: inf.method,
+      termStart: inf.termStart,
     })
     await DocumentRepository.setInference(
       syllabusId,
@@ -98,6 +99,7 @@ export const CourseService = {
     },
   ) {
     let courseId: string
+    const suggestion = await CourseSuggestionRepository.latestForDocument(docId)
 
     if (opts.newCourse?.name?.trim()) {
       const created = await CourseRepository.createOrGet(userId, {
@@ -111,7 +113,6 @@ export const CourseService = {
       if (!course) throw new ApiErrorResponse("Course not found.", 404)
       courseId = course.id
     } else {
-      const suggestion = await CourseSuggestionRepository.latestForDocument(docId)
       if (!suggestion) throw new ApiErrorResponse("No suggestion to confirm.", 409)
       if (suggestion.suggested_course_id) {
         courseId = suggestion.suggested_course_id
@@ -126,6 +127,16 @@ export const CourseService = {
     const updated = await DocumentRepository.assignCourse(docId, userId, courseId, "confirmed")
     if (!updated) throw new ApiErrorResponse("Document not found.", 404)
     await CourseSuggestionRepository.resolve(docId, true)
+
+    // Term start inferred from the syllabus itself: apply it only now (course
+    // confirmed) and only if the course has none — a user-set value always wins.
+    if (suggestion?.term_start) {
+      const course = await CourseRepository.findByIdAndUser(courseId, userId)
+      if (course && !course.term_start) {
+        await CourseRepository.update(courseId, userId, { termStart: suggestion.term_start })
+        logInfo("course.term_start_inferred", { courseId, termStart: suggestion.term_start })
+      }
+    }
 
     logInfo("course.confirmed", { docId, userId, courseId })
     return updated

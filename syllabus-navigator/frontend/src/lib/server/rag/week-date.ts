@@ -37,6 +37,19 @@ export function resolveWeekDate(termStart: string, weekLabel: string): string | 
   return toISO(d)
 }
 
+/**
+ * Monday of the week containing the given ISO date. Used to normalize an
+ * inferred term-start (the anchor is defined as the Monday of week 1).
+ * Null on malformed input.
+ */
+export function mondayOf(iso: string): string | null {
+  if (!ISO_DATE_RE.test(iso)) return null
+  const d = new Date(iso + "T00:00:00")
+  if (Number.isNaN(d.getTime())) return null
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return toISO(d)
+}
+
 /** ISO date + n days (n may be negative). */
 export function isoAddDays(iso: string, n: number): string {
   const d = new Date(iso + "T00:00:00")

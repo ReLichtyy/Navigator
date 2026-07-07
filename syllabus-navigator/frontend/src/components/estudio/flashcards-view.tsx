@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, ChevronLeft, ChevronRight, RotateCcw, Check, X, Eye } from "lucide-react"
 import { recordFlashcardReview, flashcardKey, type FlashcardAPI } from "@/lib/api"
+import { orderDueFirst } from "@/lib/ui/study-cards"
 
 interface Props {
   title: string
@@ -24,15 +25,10 @@ export function FlashcardsView({
   dueKeys,
 }: Props) {
   // Order due (spaced-repetition) cards first, preserving relative order otherwise.
-  const cards = useMemo(() => {
-    if (!dueKeys || dueKeys.length === 0) return rawCards
-    const due = new Set(dueKeys)
-    return [...rawCards].sort((a, b) => {
-      const da = due.has(flashcardKey(a.front)) ? 0 : 1
-      const db = due.has(flashcardKey(b.front)) ? 0 : 1
-      return da - db
-    })
-  }, [rawCards, dueKeys])
+  const cards = useMemo(
+    () => orderDueFirst(rawCards, dueKeys, (c) => flashcardKey(c.front)),
+    [rawCards, dueKeys],
+  )
 
   const [i, setI] = useState(0)
   const [flipped, setFlipped] = useState(false)

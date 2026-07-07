@@ -106,4 +106,32 @@ describe("applyBranchEdits", () => {
     const out = applyBranchEdits(nodes, edges, [...keepAll, { id: null, label: "  " }])
     expect(out.nodes).toHaveLength(4)
   })
+
+  it("emits branches in edits order (reorder), non-roots after in original order", () => {
+    const out = applyBranchEdits(nodes, edges, [
+      { id: "b", label: "Cálculo" },
+      { id: "a", label: "Álgebra" },
+    ])
+    expect(out.nodes.map((n) => n.id)).toEqual(["b", "a", "c", "d"])
+    expect(out.edges).toEqual(edges)
+  })
+
+  it("new branches take their drawer position, not the end", () => {
+    const out = applyBranchEdits(nodes, edges, [
+      { id: "b", label: "Cálculo" },
+      { id: null, label: "Probabilidad" },
+      { id: "a", label: "Álgebra" },
+    ])
+    expect(out.nodes.map((n) => n.id)).toEqual(["b", "new-1", "a", "c", "d"])
+  })
+
+  it("a duplicated id in the edits is emitted once (first occurrence wins)", () => {
+    const out = applyBranchEdits(nodes, edges, [
+      { id: "a", label: "Primera" },
+      { id: "a", label: "Segunda" },
+      { id: "b", label: "Cálculo" },
+    ])
+    expect(out.nodes.filter((n) => n.id === "a")).toHaveLength(1)
+    expect(out.nodes.find((n) => n.id === "a")?.label).toBe("Primera")
+  })
 })

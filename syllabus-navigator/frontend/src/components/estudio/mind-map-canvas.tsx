@@ -16,6 +16,8 @@ import {
   Shrink,
   Trash2,
   Check,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react"
 
 export type Mindmap = {
@@ -176,6 +178,17 @@ export function MindMapCanvas({
     if (!label) return
     setDraft((d) => [...d, { id: null, label }])
     setNewBranch("")
+  }
+
+  // Reorder a branch one slot up/down; the draft order is the saved order.
+  const moveBranch = (i: number, delta: -1 | 1) => {
+    setDraft((d) => {
+      const j = i + delta
+      if (j < 0 || j >= d.length) return d
+      const next = [...d]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
   }
 
   const saveBranches = async () => {
@@ -549,7 +562,7 @@ export function MindMapCanvas({
                     Ramas del mapa
                   </div>
                   <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
-                    Renombra, elimina o añade ramas y guarda los cambios.
+                    Renombra, reordena, elimina o añade ramas y guarda los cambios.
                   </div>
                   <div className="flex flex-col gap-2">
                     {draft.map((b, i) => (
@@ -568,6 +581,27 @@ export function MindMapCanvas({
                             background: "rgba(255,255,255,0.02)",
                           }}
                         />
+                        <div
+                          className="flex h-[30px] flex-none flex-col overflow-hidden rounded-lg"
+                          style={{ border: "1px solid rgba(255,255,255,0.09)" }}
+                        >
+                          <button
+                            onClick={() => moveBranch(i, -1)}
+                            disabled={i === 0}
+                            title="Subir rama"
+                            className="flex h-[15px] w-[26px] items-center justify-center text-[#9AA39E] transition-colors hover:text-[#9FEDC4] disabled:opacity-30"
+                          >
+                            <ChevronUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => moveBranch(i, 1)}
+                            disabled={i === draft.length - 1}
+                            title="Bajar rama"
+                            className="flex h-[15px] w-[26px] items-center justify-center text-[#9AA39E] transition-colors hover:text-[#9FEDC4] disabled:opacity-30"
+                          >
+                            <ChevronDown className="h-3 w-3" />
+                          </button>
+                        </div>
                         <button
                           onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
                           title="Eliminar rama"

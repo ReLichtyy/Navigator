@@ -8,6 +8,8 @@ export interface DbCourseSuggestion {
   confidence: number
   method: string
   accepted: boolean | null
+  /** Inferred term start (Monday of week 1), yyyy-mm-dd. */
+  term_start: string | null
   created_at: string
 }
 
@@ -20,13 +22,14 @@ export const CourseSuggestionRepository = {
     suggestedName: string
     confidence: number
     method: SuggestionMethod
+    termStart?: string | null
   }): Promise<DbCourseSuggestion> {
     const rows = await sql`
       INSERT INTO course_suggestions
-        (document_id, suggested_course_id, suggested_name, confidence, method)
+        (document_id, suggested_course_id, suggested_name, confidence, method, term_start)
       VALUES (${input.documentId}::uuid, ${input.suggestedCourseId}, ${input.suggestedName},
-              ${input.confidence}, ${input.method})
-      RETURNING *
+              ${input.confidence}, ${input.method}, ${input.termStart ?? null}::date)
+      RETURNING *, to_char(term_start, 'YYYY-MM-DD') AS term_start
     `
     return rows[0] as DbCourseSuggestion
   },
@@ -34,7 +37,7 @@ export const CourseSuggestionRepository = {
   /** Latest suggestion for a document (the one currently shown to the user). */
   async latestForDocument(documentId: string): Promise<DbCourseSuggestion | undefined> {
     const rows = await sql`
-      SELECT * FROM course_suggestions
+      SELECT *, to_char(term_start, 'YYYY-MM-DD') AS term_start FROM course_suggestions
       WHERE document_id = ${documentId}::uuid
       ORDER BY created_at DESC
       LIMIT 1

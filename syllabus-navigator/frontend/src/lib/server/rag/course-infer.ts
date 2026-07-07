@@ -11,6 +11,7 @@
 import { z } from "zod"
 import { gatewayJson, extractJson } from "@/lib/llm/gateway-generate"
 import { logError } from "@/lib/observability/logger"
+import { mondayOf } from "./week-date"
 
 export interface ExistingCourse {
   id: string
@@ -29,6 +30,11 @@ export interface CourseInference {
   subjectTags: string[]
   /** Which signal drove the suggestion. */
   method: "filename" | "content" | "combined"
+  /**
+   * ISO date of the term start (Monday of week 1) when the document states it,
+   * normalized to that week's Monday. Null when absent/unclear.
+   */
+  termStart: string | null
 }
 
 const InferenceSchema = z.object({
@@ -36,6 +42,13 @@ const InferenceSchema = z.object({
   suggested_name: z.string().min(1),
   confidence: z.number().min(0).max(1),
   subject_tags: z.array(z.string()),
+  // Lenient: older prompts/models may omit it or return junk — never fail the
+  // whole inference over the optional date.
+  term_start: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullish()
+    .catch(null),
 })
 
 const SYSTEM_PROMPT =
@@ -44,9 +57,12 @@ const SYSTEM_PROMPT =
   "courses. If the document clearly belongs to one of the existing courses, return its id as " +
   "matched_course_id and reuse its name. Otherwise set matched_course_id to null and propose a " +
   "concise new course name (in the document's language) plus 2-5 subject tags. Base confidence " +
-  "on how clearly the subject is identifiable; be conservative when unsure.\n\n" +
+  "on how clearly the subject is identifiable; be conservative when unsure. Also extract " +
+  "term_start: the date classes/week 1 begin, if the document clearly states it (look for " +
+  "'inicio de clases', 'semana 1', a dated schedule, etc.), as ISO YYYY-MM-DD; " +
+  "null when absent or ambiguous — never guess.\n\n" +
   'JSON shape: {"matched_course_id":string|null,"suggested_name":string,' +
-  '"confidence":number,"subject_tags":string[]}'
+  '"confidence":number,"subject_tags":string[],"term_start":string|null}'
 
 // Keep the prompt cheap/bounded; the first pages carry the course identity.
 const MAX_INFER_CHARS = 6000
@@ -85,6 +101,9 @@ export async function inferCourse(
       confidence: parsed.confidence,
       subjectTags: matchedCourseId ? [] : parsed.subject_tags.map((t) => t.trim()).filter(Boolean),
       method: matchedCourseId ? "combined" : "content",
+      // Anchor is defined as the Monday of week 1 → snap whatever day the
+      // syllabus states to its week's Monday.
+      termStart: parsed.term_start ? mondayOf(parsed.term_start) : null,
     }
   } catch (err) {
     logError("rag.course_infer.error", { error: err instanceof Error ? err.message : String(err) })

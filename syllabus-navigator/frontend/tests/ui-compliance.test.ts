@@ -145,10 +145,82 @@ describe("Editable knowledge graph (PATCH /graph wiring)", () => {
     expect(f).toContain("Guardar cambios")
     expect(f).toContain("saveErr")
   })
+  it("the drawer can reorder branches (v2)", () => {
+    const f = src("src/components/estudio/mind-map-canvas.tsx")
+    expect(f).toContain("moveBranch(")
+    expect(f).toContain('title="Subir rama"')
+    expect(f).toContain('title="Bajar rama"')
+  })
   it("knowledge preview passes the editable wiring (syllabusId + onSaved)", () => {
     const f = src("app/knowledge/page.tsx")
     expect(f).toContain("editable")
     expect(f).toContain("onSaved")
+  })
+})
+
+describe("Estudio sub-vistas (flashcards / quiz / repaso)", () => {
+  it("flashcards-view orders due cards via the pure helper and records reviews", () => {
+    const f = src("src/components/estudio/flashcards-view.tsx")
+    expect(f).toContain("@/lib/ui/study-cards")
+    expect(f).toContain("orderDueFirst(")
+    expect(f).toContain("recordFlashcardReview")
+    // Self-grade + session summary surfaces stay in place.
+    expect(f).toContain("¿Sabías la respuesta?")
+    expect(f).toContain("¡Sesión completa!")
+  })
+  it("quiz-view delegates heat/tier/advice to the pure quiz-stage-ui helper", () => {
+    const f = src("src/components/estudio/quiz-view.tsx")
+    expect(f).toContain("@/lib/ui/quiz-stage-ui")
+    for (const helper of ["heatFor(", "stageTier(", "stageAdvice(", "topMissedTopics("]) {
+      expect(f).toContain(helper)
+    }
+    // The presentation logic no longer lives inline in the component.
+    expect(f).not.toContain("Dominio sólido")
+    expect(f).not.toContain("Etapa perfecta")
+  })
+  it("quiz-view keeps the staged flow wiring (stage fetch, seen-marking, repaso fallback)", () => {
+    const f = src("src/components/estudio/quiz-view.tsx")
+    for (const s of ["fetchQuizStage", "markQuizSeen", "recordQuizFail", "fetchQuizReview"]) {
+      expect(f).toContain(s)
+    }
+  })
+  it("review-view resolves repaso items and feeds mastery", () => {
+    const f = src("src/components/estudio/review-view.tsx")
+    expect(f).toContain("fetchQuizReview")
+    expect(f).toContain("resolveQuizReview")
+    expect(f).toContain("recordMastery")
+  })
+  it("sub-views share BackButton/EmptyMode instead of hand-rolling them", () => {
+    for (const p of [
+      "src/components/estudio/quiz-view.tsx",
+      "src/components/estudio/review-view.tsx",
+    ]) {
+      expect(src(p)).toContain('from "./flashcards-view"')
+    }
+  })
+})
+
+describe("Agenda sub-vistas (month-calendar / day-notes-panel)", () => {
+  it("month-calendar exposes pure helpers and takes the note-marker wiring", () => {
+    const f = src("src/components/agenda/month-calendar.tsx")
+    expect(f).toContain("export function bucketEventsByDate")
+    expect(f).toContain("export function courseColorIndex")
+    expect(f).toContain("onSelectDay")
+    expect(f).toContain("noteDates")
+  })
+  it("day-notes-panel uses ui primitives + shared agenda-format meta (no raw controls)", () => {
+    const f = src("src/components/agenda/day-notes-panel.tsx")
+    expect(f).toContain("@/components/ui/button")
+    expect(f).toContain("@/components/ui/badge")
+    expect(f).toContain("@/components/ui/textarea")
+    expect(f).toContain("@/lib/ui/agenda-format")
+    expect(f).not.toMatch(/<button\b/)
+    expect(f).not.toMatch(/<textarea\b/)
+  })
+  it("agenda page wires the calendar and the day panel together", () => {
+    const f = src("app/agenda/page.tsx")
+    expect(f).toContain("MonthCalendar")
+    expect(f).toContain("DayNotesPanel")
   })
 })
 

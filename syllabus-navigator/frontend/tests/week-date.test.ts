@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest"
-import { parseWeekNumber, resolveWeekDate, resolveEventWeekDates } from "@/lib/server/rag/week-date"
+import {
+  parseWeekNumber,
+  resolveWeekDate,
+  resolveEventWeekDates,
+  mondayOf,
+} from "@/lib/server/rag/week-date"
 
 describe("parseWeekNumber", () => {
   it("parses the common label shapes", () => {
@@ -18,6 +23,26 @@ describe("parseWeekNumber", () => {
     expect(parseWeekNumber("Semana 0")).toBeNull()
     expect(parseWeekNumber("Semana tres")).toBeNull()
     expect(parseWeekNumber("")).toBeNull()
+  })
+})
+
+describe("mondayOf (inferred term_start normalization)", () => {
+  it("a Monday stays put", () => {
+    expect(mondayOf("2026-03-02")).toBe("2026-03-02")
+  })
+
+  it("mid-week and Sunday snap back to that week's Monday", () => {
+    expect(mondayOf("2026-03-04")).toBe("2026-03-02") // Wednesday
+    expect(mondayOf("2026-03-08")).toBe("2026-03-02") // Sunday
+  })
+
+  it("snapping crosses month/year boundaries", () => {
+    expect(mondayOf("2026-01-01")).toBe("2025-12-29") // Thursday → prior year's Monday
+  })
+
+  it("rejects malformed input", () => {
+    expect(mondayOf("03/02/2026")).toBeNull()
+    expect(mondayOf("")).toBeNull()
   })
 })
 
