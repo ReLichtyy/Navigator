@@ -570,10 +570,29 @@ export interface StudySetAPI {
   syllabus_id: string
   flashcards: FlashcardAPI[]
   quiz: QuizQuestionAPI[]
-  summary: { intro: string; points: { title: string; body: string }[] }
-  mindmap: { center: string; branches: { label: string; items: string[] }[] }
+  summary: {
+    titulo: string
+    temaPrincipal: string
+    introduccion: string
+    ideasPrincipales: string[]
+    conceptos: { termino: string; definicion: string }[]
+    conclusion: string
+  }
+  mindmap: MindmapAPI
   /** Weight-ordered study guide (Sprint 4). Absent on old cached sets. */
   studyGuide?: StudyGuideSectionAPI[]
+}
+
+/** Mind-map presentation mode — see study-gen.ts#pickMindMode for how it's chosen. */
+export type MindMapMode = "radial" | "profundidad" | "ideas" | "bloques"
+
+export interface MindmapAPI {
+  mode: MindMapMode
+  center: string
+  /** Populated for radial/profundidad/ideas; empty for bloques. */
+  branches: { label: string; items: string[] }[]
+  /** Populated only when mode === "bloques". */
+  blocks?: { header: string; cards: { title: string; body: string }[] }[]
 }
 
 export type StudyDifficulty = "facil" | "medio" | "dificil"
@@ -587,6 +606,8 @@ export interface StudySetOptions {
   topic?: string
   /** Augment generation with a live web search (always fresh, never cached). */
   web?: boolean
+  /** Explicit mind-map presentation mode override. Auto-picked server-side when omitted. */
+  mindMode?: MindMapMode
 }
 
 /**
@@ -600,6 +621,7 @@ export async function fetchStudySet(syllabusId: string, opts: StudySetOptions = 
   if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
   if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
   if (opts.web) qs.set("web", "1")
+  if (opts.mindMode) qs.set("mindMode", opts.mindMode)
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
   return request<StudySetAPI>(`/study/${encodeURIComponent(syllabusId)}${suffix}`, {
     method: "GET",
@@ -617,11 +639,35 @@ export async function fetchCourseStudySet(courseId: string, opts: StudySetOption
   if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
   if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
   if (opts.web) qs.set("web", "1")
+  if (opts.mindMode) qs.set("mindMode", opts.mindMode)
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
   return request<StudySetAPI>(`/study/course/${encodeURIComponent(courseId)}${suffix}`, {
     method: "GET",
     json: false,
   })
+}
+
+/** Light study status for the estudio menu (SQL-only server side, never generates). */
+export interface StudyStatusAPI {
+  /** The default (medio) set is cached and fresh — safe to hydrate silently. */
+  cached: boolean
+  /** Bank item counts for the scope. */
+  flashcards: number
+  quiz: number
+}
+
+/**
+ * Fetch the study status for a PDF or a whole course: bank counts + whether the
+ * default set is cached. Cheap — lets the menu render before anything generates.
+ */
+export async function fetchStudyStatus(
+  scope: { kind: "doc"; docId: string } | { kind: "course"; courseId: string },
+) {
+  const base =
+    scope.kind === "doc"
+      ? `/study/${encodeURIComponent(scope.docId)}/status`
+      : `/study/course/${encodeURIComponent(scope.courseId)}/status`
+  return request<StudyStatusAPI>(base, { method: "GET", json: false })
 }
 
 export interface StudyStatsAPI {

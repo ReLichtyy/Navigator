@@ -13,6 +13,7 @@ import { CourseRepository, type CreateCourseInput } from "../repositories/course
 import { CourseSuggestionRepository } from "../repositories/course-suggestion.repo"
 import { DocumentRepository } from "../repositories/document.repo"
 import { inferCourse } from "../rag/course-infer"
+import { delBlob } from "../storage/blob"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { logInfo } from "@/lib/observability/logger"
 
@@ -77,10 +78,20 @@ export const CourseService = {
     return updated
   },
 
-  /** Delete a course; its documents survive (course_id → NULL). */
+  /**
+   * Delete a course AND its documents (cascade). The documents' dependent rows
+   * (chunks, topics, schedule, study material) follow via their own FKs. The
+   * UI warns before calling this — it is irreversible.
+   */
   async deleteCourse(courseId: string, userId: string) {
-    const ok = await CourseRepository.deleteByIdAndUser(courseId, userId)
-    if (!ok) throw new ApiErrorResponse("Course not found.", 404)
+    // Ownership check first so an unowned id can't delete anything.
+    const course = await CourseRepository.findByIdAndUser(courseId, userId)
+    if (!course) throw new ApiErrorResponse("Course not found.", 404)
+    const { count, fileUrls } = await DocumentRepository.deleteByCourse(courseId, userId)
+    await CourseRepository.deleteByIdAndUser(courseId, userId)
+    // Stored files go too (best-effort: a failure only leaves orphan blobs).
+    await Promise.all(fileUrls.map((url) => delBlob(url)))
+    logInfo("course.deleted_cascade", { courseId, removedDocs: count, removedBlobs: fileUrls.length })
   },
 
   /**

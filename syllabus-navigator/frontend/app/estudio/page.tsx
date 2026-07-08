@@ -13,17 +13,20 @@ import {
   fetchRecommendations,
   fetchStudyStats,
   fetchStudySession,
-  fetchQuizStage,
+  fetchStudyStatus,
   type SyllabusUploadAPI,
   type CourseAPI,
   type StudySetAPI,
   type StudyDifficulty,
+  type MindMapMode,
   type ScheduleEventAPI,
   type WeeklyPlanAPI,
   type StudyStatsAPI,
+  type StudyStatusAPI,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
 import { combineStudySets, type NamedStudySet } from "@/lib/ui/combine-study"
+import { toast } from "sonner"
 import { Textarea } from "@/components/ui/textarea"
 import { pickWeekTopics } from "@/lib/ui/week-topics"
 import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
@@ -84,6 +87,32 @@ const cleanName = (f: string) => f.replace(/\.pdf$/i, "")
 // Stable key for a course folder (the "Sin curso" bucket has a null id).
 const folderKey = (g: RealCourseGroup) => g.id ?? "__none__"
 
+// Last course/scope selection, restored on return visits — a student expects to
+// pick up where they left off, not to be reset to the first PDF of the list.
+const LAST_SELECTION_KEY = "estudio:last-selection"
+type StoredSelection = { keys: string[]; scope: Scope | null }
+
+function readLastSelection(): StoredSelection | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.localStorage.getItem(LAST_SELECTION_KEY)
+    return raw ? (JSON.parse(raw) as StoredSelection) : null
+  } catch {
+    return null
+  }
+}
+
+function writeLastSelection(sel: StoredSelection) {
+  try {
+    window.localStorage.setItem(LAST_SELECTION_KEY, JSON.stringify(sel))
+  } catch {
+    // storage blocked/full — non-fatal, the default picker still works
+  }
+}
+
+/** How the current focus (topic/web) relates to the loaded material. */
+type FocusState = "none" | "pending" | "applied"
+
 function EstudioContent() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
@@ -121,6 +150,9 @@ function EstudioContent() {
   const [webSearch, setWebSearch] = useState(false)
   // The (scope|difficulty|topic) signature the currently-loaded `set` was generated with.
   const [loadedKey, setLoadedKey] = useState<string | null>(null)
+  // Light status for the active scope: bank counts + whether the default set is
+  // cached. Lets the menu render instantly without generating anything.
+  const [studyStatus, setStudyStatus] = useState<StudyStatusAPI | null>(null)
   // The selected scope's cronograma events + the user's weekly plan (for week-topic chips).
   const [courseEvents, setCourseEvents] = useState<ScheduleEventAPI[]>([])
   const [plan, setPlan] = useState<WeeklyPlanAPI | null>(null)
@@ -215,15 +247,26 @@ function EstudioContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, status])
 
-  // Pick an initial folder once groups are available (honoring ?course=<docId|courseId>).
+  // Pick an initial folder once groups are available: ?course deep link first,
+  // then the folders of the last visit (localStorage), then the first group.
   useEffect(() => {
     if (selectedKeys.length > 0 || groups.length === 0) return
     const wanted = params.get("course")
     // ?course may be a document id (from the "Estudiar" link) or a course id.
     const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted))
     const byCourse = groups.find((g) => g.id === wanted)
-    const pick = byDoc ?? byCourse ?? groups[0]
-    if (pick) setSelectedKeys([folderKey(pick)])
+    const linked = byDoc ?? byCourse
+    if (linked) {
+      setSelectedKeys([folderKey(linked)])
+      return
+    }
+    const storedKeys =
+      readLastSelection()?.keys.filter((k) => groups.some((g) => folderKey(g) === k)) ?? []
+    if (storedKeys.length > 0) {
+      setSelectedKeys(storedKeys)
+      return
+    }
+    setSelectedKeys([folderKey(groups[0])])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
 
@@ -245,8 +288,27 @@ function EstudioContent() {
     }
     const wanted = params.get("course")
     const wantedDoc = readyDocs.find((d) => d.id === wanted)
+    // Restore the last visit's scope when it belongs to this same folder
+    // selection and its targets are still ready.
+    const stored = readLastSelection()
+    const storedScope =
+      stored && stored.keys.slice().sort().join("|") === selKey ? stored.scope : null
+    const validStored =
+      storedScope?.kind === "doc" && readyDocs.some((d) => d.id === storedScope.docId)
+        ? storedScope
+        : storedScope?.kind === "docs" &&
+            storedScope.docIds.length > 0 &&
+            storedScope.docIds.every((id) => readyDocs.some((d) => d.id === id))
+          ? storedScope
+          : storedScope?.kind === "course" &&
+              canWholeCourse &&
+              selectedGroup.id === storedScope.courseId
+            ? storedScope
+            : null
     if (wantedDoc) {
       setScope({ kind: "doc", docId: wantedDoc.id })
+    } else if (validStored) {
+      setScope(validStored)
     } else if (readyDocs[0]) {
       setScope({ kind: "doc", docId: readyDocs[0].id })
     } else if (canWholeCourse && selectedGroup.id) {
@@ -259,6 +321,12 @@ function EstudioContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selKey])
 
+  // Remember the selection so the next visit resumes here (not the first PDF).
+  useEffect(() => {
+    if (selectedKeys.length === 0) return
+    writeLastSelection({ keys: selectedKeys, scope })
+  }, [selectedKeys, scope])
+
   // Load (or regenerate) the study set for the active scope, honoring difficulty/topic.
   const loadSet = useCallback(
     async (
@@ -268,21 +336,34 @@ function EstudioContent() {
         difficulty?: StudyDifficulty
         topic?: string | null
         web?: boolean
+        // Explicit mind-map mode override (from the mind-map edit drawer). Auto-picked
+        // server-side when omitted.
+        mindMode?: MindMapMode
         // Keep the current set visible and show an inline spinner instead of the
         // full-screen loader (used by the "Aplicar enfoque" button).
         inline?: boolean
+        // Background hydration (cached set only): no loaders, errors swallowed.
+        silent?: boolean
       } = {},
     ) => {
       const d = opts.difficulty ?? "medio"
       const t = opts.topic ?? null
       const w = opts.web ?? false
-      if (opts.refresh || opts.inline) setRegenerating(true)
+      if (opts.silent) {
+        // no loading flags — the menu stays interactive
+      } else if (opts.refresh || opts.inline) setRegenerating(true)
       else {
         setSetLoading(true)
         setSet(null)
       }
-      setSetError(null)
-      const fetchOpts = { refresh: opts.refresh, difficulty: d, topic: t ?? undefined, web: w }
+      if (!opts.silent) setSetError(null)
+      const fetchOpts = {
+        refresh: opts.refresh,
+        difficulty: d,
+        topic: t ?? undefined,
+        web: w,
+        mindMode: opts.mindMode,
+      }
       // Fetch a single folder's whole-course set (or its first PDF for "Sin curso").
       const fetchFolder = (g: RealCourseGroup) =>
         g.id
@@ -315,20 +396,53 @@ function EstudioContent() {
         }
         setSet(data)
         setLoadedKey(scopeKey(s, d, t, w))
+        return true
       } catch (e) {
-        setSetError(e instanceof Error ? e.message : "No se pudo generar el material de estudio.")
+        if (!opts.silent) {
+          setSetError(
+            e instanceof Error ? e.message : "No se pudo generar el material de estudio.",
+          )
+        }
+        return false
       } finally {
-        setSetLoading(false)
-        setRegenerating(false)
+        if (!opts.silent) {
+          setSetLoading(false)
+          setRegenerating(false)
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [groups, uploads],
   )
 
-  // Base set for the menu (medium). Reloads whenever the active scope changes.
+  // Scope change → menu renders instantly; NOTHING generates until a mode is
+  // opened. We only fetch the light status (bank counts + cached flag), and when
+  // a fresh default set is already cached we hydrate it silently (cache hit —
+  // no LLM cost). Cold scopes generate on demand in `launchMode`.
   useEffect(() => {
-    if (scope) loadSet(scope, { difficulty: "medio", topic: null })
+    // Drop the previous scope's material so stale counts/sets never leak.
+    setSet(null)
+    setLoadedKey(null)
+    setSetError(null)
+    setStudyStatus(null)
+    const qs =
+      scope?.kind === "doc"
+        ? ({ kind: "doc", docId: scope.docId } as const)
+        : scope?.kind === "course"
+          ? ({ kind: "course", courseId: scope.courseId } as const)
+          : null
+    if (!qs || !scope) return
+    let alive = true
+    fetchStudyStatus(qs)
+      .then((st) => {
+        if (!alive) return
+        setStudyStatus(st)
+        if (st.cached) loadSet(scope, { difficulty: "medio", topic: null, silent: true })
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, loadSet])
 
@@ -367,27 +481,6 @@ function EstudioContent() {
     }
   }, [activeDocId])
 
-  // Pre-warm the staged quiz: when a scope settles, kick stage-1 generation in
-  // the background (debounced, once per scope) so the bank is hot by the time the
-  // user opens the Quiz — hides the cold-start latency behind menu browsing.
-  const warmedScopes = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    const qs =
-      scope?.kind === "doc"
-        ? ({ kind: "doc", docId: scope.docId } as const)
-        : scope?.kind === "course"
-          ? ({ kind: "course", courseId: scope.courseId } as const)
-          : null
-    if (!qs) return
-    const key = qs.kind === "doc" ? `doc:${qs.docId}` : `course:${qs.courseId}`
-    if (warmedScopes.current.has(key)) return
-    const t = setTimeout(() => {
-      warmedScopes.current.add(key)
-      fetchQuizStage(qs, { stage: 0 }).catch(() => {})
-    }, 1500)
-    return () => clearTimeout(t)
-  }, [scope])
-
   // Weekly plan (today + week range), once — used to rank week-relevant topics.
   useEffect(() => {
     let alive = true
@@ -418,11 +511,37 @@ function EstudioContent() {
   // Load the set with the current focus applied. A topic makes it a "custom" set,
   // which the server always generates fresh (never cached) — so no refresh flag is
   // needed. With no topic (General) this just returns the cached default set.
-  const applyFocus = () => {
-    if (scope) loadSet(scope, { difficulty, topic, web: webSearch, inline: true })
+  const applyFocus = async () => {
+    if (!scope) return
+    const ok = await loadSet(scope, { difficulty, topic, web: webSearch, inline: true })
+    if (ok) {
+      toast.success(
+        topic
+          ? `Enfoque aplicado: ${topic}`
+          : webSearch
+            ? "Material regenerado con búsqueda web"
+            : "Material general restaurado",
+      )
+    }
   }
 
-  // Launch a mode, regenerating the set for the chosen difficulty/topic if needed.
+  // Focus lifecycle for the UI: nothing set → none; set but the loaded material
+  // doesn't match it yet → pending (Aplicar, or launching a mode, regenerates);
+  // loaded material matches → applied.
+  const focusState: FocusState =
+    !topic && !webSearch
+      ? "none"
+      : scope && loadedKey === scopeKey(scope, difficulty, topic, webSearch)
+        ? "applied"
+        : "pending"
+
+  // Modes that consume the generated set. Quiz/Simulacro/Repaso stream from
+  // their own staged/queue endpoints and never touch it, so they open instantly.
+  const SET_MODES: Mode[] = ["flash", "resumen", "mind"]
+
+  // Launch a mode, generating the set on demand (first open) or regenerating it
+  // for the chosen difficulty/topic if needed. This is where the heavy work now
+  // happens — never on scope selection.
   const launchMode = async (m: Mode) => {
     // The mind map has its own page, but only single PDFs have a stored graph.
     // Whole-course renders the aggregated mindmap inline instead.
@@ -430,25 +549,29 @@ function EstudioContent() {
       router.push(`/mapa?course=${scope.docId}`)
       return
     }
-    if (scope && loadedKey !== scopeKey(scope, difficulty, topic, webSearch)) {
+    if (
+      SET_MODES.includes(m) &&
+      scope &&
+      loadedKey !== scopeKey(scope, difficulty, topic, webSearch)
+    ) {
       await loadSet(scope, { difficulty, topic, web: webSearch })
     }
     setSelectorsOpen(false)
     setMode(m)
   }
 
-  // Honor ?mode= deep links once a set is available.
+  // Honor ?mode= deep links once a scope resolves (launchMode loads material
+  // on demand). Fires once.
+  const deepLinked = useRef(false)
   useEffect(() => {
+    if (deepLinked.current || !scope) return
+    deepLinked.current = true
     const m = params.get("mode") as Mode | null
-    if (m === "mind" && scope?.kind === "doc") {
-      router.push(`/mapa?course=${scope.docId}`)
-      return
-    }
-    if (m && set && ["flash", "repaso", "quiz", "simulacro", "resumen", "mind"].includes(m)) {
-      setMode(m)
+    if (m && ["flash", "repaso", "quiz", "simulacro", "resumen", "mind"].includes(m)) {
+      launchMode(m)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [set])
+  }, [scope])
 
   const backToMenu = () => setMode("menu")
 
@@ -586,34 +709,49 @@ function EstudioContent() {
                   <GenerationProgress pct={genProgress.pct} />
                 ) : setError ? (
                   <SetError message={setError} onRetry={() => scope && loadSet(scope)} />
-                ) : set && scope ? (
+                ) : scope ? (
                   <SelectionAsk onAsk={ask} enabled={mode !== "menu"}>
-                    <ModeRouter
-                      mode={mode}
-                      set={set}
-                      scope={scope}
-                      syllabusId={activeDocId}
-                      dueKeys={dueCardKeys}
-                      scopeLabel={scopeLabel}
-                      mindCourses={mindCourses}
-                      onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
-                      onAsk={ask}
-                      regenerating={regenerating}
-                      onRegenerate={() =>
-                        scope &&
-                        loadSet(scope, { refresh: true, difficulty, topic, web: webSearch })
-                      }
-                      setMode={setMode}
-                      onLaunch={launchMode}
-                      backToMenu={backToMenu}
-                      topic={topic}
-                      weekTopics={weekTopics}
-                      suggestion={suggestion}
-                      onTopic={applyTopic}
-                      onApplyFocus={applyFocus}
-                      web={webSearch}
-                      onWeb={setWebSearch}
-                    />
+                    {/* keyed on mode → gentle fade when entering/leaving an activity */}
+                    <div key={mode} className="animate-fade-in">
+                      <ModeRouter
+                        mode={mode}
+                        set={set}
+                        status={studyStatus}
+                        focusState={focusState}
+                        scope={scope}
+                        syllabusId={activeDocId}
+                        dueKeys={dueCardKeys}
+                        scopeLabel={scopeLabel}
+                        mindCourses={mindCourses}
+                        onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
+                        onAsk={ask}
+                        regenerating={regenerating}
+                        onRegenerate={() =>
+                          scope &&
+                          loadSet(scope, { refresh: true, difficulty, topic, web: webSearch })
+                        }
+                        onMindRegenerate={(opts) =>
+                          scope &&
+                          loadSet(scope, {
+                            refresh: true,
+                            difficulty,
+                            topic,
+                            web: webSearch,
+                            mindMode: opts.mode,
+                          })
+                        }
+                        setMode={setMode}
+                        onLaunch={launchMode}
+                        backToMenu={backToMenu}
+                        topic={topic}
+                        weekTopics={weekTopics}
+                        suggestion={suggestion}
+                        onTopic={applyTopic}
+                        onApplyFocus={applyFocus}
+                        web={webSearch}
+                        onWeb={setWebSearch}
+                      />
+                    </div>
                   </SelectionAsk>
                 ) : null}
               </div>
@@ -725,6 +863,8 @@ function ScopeRow({
 function ModeRouter({
   mode,
   set,
+  status,
+  focusState,
   scope,
   syllabusId,
   dueKeys,
@@ -734,6 +874,7 @@ function ModeRouter({
   onAsk,
   regenerating,
   onRegenerate,
+  onMindRegenerate,
   setMode,
   onLaunch,
   backToMenu,
@@ -746,7 +887,11 @@ function ModeRouter({
   onWeb,
 }: {
   mode: Mode
-  set: StudySetAPI
+  /** Null until a set-consuming mode first loads it (or a cached set hydrates). */
+  set: StudySetAPI | null
+  /** Light bank counts for the menu metadata (null while loading / combined scopes). */
+  status: StudyStatusAPI | null
+  focusState: FocusState
   scope: Scope
   /** The PDF id when scope is a single doc; null for whole-course (no per-doc tracking). */
   syllabusId: string | null
@@ -758,6 +903,7 @@ function ModeRouter({
   onAsk: (text: string) => void
   regenerating: boolean
   onRegenerate: () => void
+  onMindRegenerate: (opts: { mode?: MindMapMode }) => void
   setMode: (m: Mode) => void
   onLaunch: (m: Mode) => void
   backToMenu: () => void
@@ -785,17 +931,67 @@ function ModeRouter({
     />
   )
 
+  // Set-consuming modes can't render without material (e.g. a failed load) —
+  // fall back to the menu view instead of crashing.
+  const menu = (
+    <Menu
+      set={set}
+      status={status}
+      focusState={focusState}
+      syllabusId={syllabusId}
+      onLaunch={onLaunch}
+      topic={topic}
+      weekTopics={weekTopics}
+      suggestion={suggestion}
+      onTopic={onTopic}
+      onApplyFocus={onApplyFocus}
+      regenerating={regenerating}
+      web={web}
+      onWeb={onWeb}
+    />
+  )
+
+  // Active-focus chips shown inside set-consuming modes, so the student always
+  // sees what the current material was narrowed to (topic and/or web).
+  const focusBanner =
+    topic || web ? (
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        {topic && (
+          <span
+            className="flex max-w-[18rem] items-center gap-1.5 rounded-full border border-accent/30 bg-accent/[0.06] px-2.5 py-1 text-[11px] font-medium text-accent"
+            title={`Material enfocado en: ${topic}`}
+          >
+            <Sparkles className="h-3 w-3 flex-none" />
+            <span className="truncate">{topic}</span>
+          </span>
+        )}
+        {web && (
+          <span
+            className="flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/[0.06] px-2.5 py-1 text-[11px] font-medium text-accent"
+            title="Material enriquecido con búsqueda web"
+          >
+            <Globe className="h-3 w-3" />
+            web
+          </span>
+        )}
+      </div>
+    ) : null
+
   switch (mode) {
     case "flash":
+      if (!set) return menu
       return (
-        <FlashcardsView
-          title="Tarjetas dinámicas"
-          courseLabel={scopeLabel}
-          cards={set.flashcards}
-          onBack={backToMenu}
-          syllabusId={syllabusId ?? undefined}
-          dueKeys={dueKeys}
-        />
+        <div>
+          {focusBanner}
+          <FlashcardsView
+            title="Tarjetas dinámicas"
+            courseLabel={scopeLabel}
+            cards={set.flashcards}
+            onBack={backToMenu}
+            syllabusId={syllabusId ?? undefined}
+            dueKeys={dueKeys}
+          />
+        </div>
       )
     case "repaso":
       if (!quizScope) return narrowScopeNotice
@@ -821,60 +1017,68 @@ function ModeRouter({
       )
     }
     case "mind":
+      if (!set) return menu
       return (
-        <MindView
-          courseCode=""
-          courseLabel={scopeLabel}
-          mindmap={set.mindmap}
-          courses={scope.kind === "doc" ? mindCourses : []}
-          activeCourseId={syllabusId ?? ""}
-          onPickCourse={onPickDoc}
-          onTopicDouble={onAsk}
-          regenerating={regenerating}
-          onRegenerate={onRegenerate}
-          onBack={backToMenu}
-        />
+        <div>
+          {focusBanner}
+          <MindView
+            courseCode=""
+            courseLabel={scopeLabel}
+            mindmap={set.mindmap}
+            courses={scope.kind === "doc" ? mindCourses : []}
+            activeCourseId={syllabusId ?? ""}
+            onPickCourse={onPickDoc}
+            onTopicDouble={onAsk}
+            regenerating={regenerating}
+            onRegenerate={onMindRegenerate}
+            onBack={backToMenu}
+          />
+        </div>
       )
     case "resumen":
+      if (!set) return menu
       return (
-        <ResumenView
-          courseName={scopeLabel}
-          summary={set.summary}
-          studyGuide={set.studyGuide}
-          regenerating={regenerating}
-          onRegenerate={onRegenerate}
-          onFlash={() => setMode("flash")}
-          onQuiz={() => setMode("quiz")}
-          onBack={backToMenu}
-        />
+        <div>
+          {focusBanner}
+          <ResumenView
+            courseName={scopeLabel}
+            summary={set.summary}
+            studyGuide={set.studyGuide}
+            regenerating={regenerating}
+            onRegenerate={onRegenerate}
+            onFlash={() => setMode("flash")}
+            onQuiz={() => setMode("quiz")}
+            onBack={backToMenu}
+          />
+        </div>
       )
     default:
-      return (
-        <Menu
-          set={set}
-          syllabusId={syllabusId}
-          onLaunch={onLaunch}
-          topic={topic}
-          weekTopics={weekTopics}
-          suggestion={suggestion}
-          onTopic={onTopic}
-          onApplyFocus={onApplyFocus}
-          regenerating={regenerating}
-          web={web}
-          onWeb={onWeb}
-        />
-      )
+      return menu
   }
 }
+
+// Server-side cap on flashcards surfaced per assembled set (study.service SET_FLASHCARDS).
+const SET_FLASHCARDS_CAP = 14
 
 const MODES: {
   key: Mode
   title: string
   Icon: typeof HelpCircle
-  meta: (s: StudySetAPI) => string
+  meta: (s: StudySetAPI | null, st: StudyStatusAPI | null) => string
 }[] = [
   { key: "quiz", title: "Quiz", Icon: HelpCircle, meta: () => "3 etapas · 45 preguntas" },
-  { key: "flash", title: "Tarjetas", Icon: Layers, meta: (s) => `${s.flashcards.length} tarjetas` },
+  {
+    key: "flash",
+    title: "Tarjetas",
+    Icon: Layers,
+    // Real count once the set is loaded; bank count before that; generic when cold.
+    meta: (s, st) =>
+      s
+        ? `${s.flashcards.length} tarjetas`
+        : st && st.flashcards > 0
+          ? `${Math.min(st.flashcards, SET_FLASHCARDS_CAP)} tarjetas`
+          : "tarjetas dinámicas",
+  },
   { key: "repaso", title: "Repaso", Icon: RotateCcw, meta: () => "tus fallos" },
   { key: "simulacro", title: "Simulacro", Icon: Timer, meta: () => "cronometrado" },
   { key: "mind", title: "Mapa mental", Icon: Network, meta: () => "visual" },
@@ -886,6 +1090,8 @@ const MAX_TOPIC = 160
 
 function Menu({
   set,
+  status,
+  focusState,
   syllabusId,
   onLaunch,
   topic,
@@ -897,7 +1103,9 @@ function Menu({
   web,
   onWeb,
 }: {
-  set: StudySetAPI
+  set: StudySetAPI | null
+  status: StudyStatusAPI | null
+  focusState: FocusState
   syllabusId: string | null
   onLaunch: (m: Mode) => void
   topic: string | null
@@ -939,7 +1147,7 @@ function Menu({
                 </div>
                 <div className="mt-4 text-sm font-semibold text-foreground">{m.title}</div>
                 <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-                  {m.meta(set)}
+                  {m.meta(set, status)}
                 </div>
               </button>
             </Card>
@@ -961,6 +1169,22 @@ function Menu({
             </span>
           )}
           {!focusOpen && web && <Globe className="h-3.5 w-3.5 flex-none text-accent" />}
+          {focusState === "pending" && (
+            <span
+              className="flex-none rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500"
+              title="El material actual aún no refleja este enfoque. Pulsa Aplicar o abre un modo para regenerarlo."
+            >
+              pendiente
+            </span>
+          )}
+          {focusState === "applied" && (
+            <span
+              className="flex-none rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"
+              title="El material actual ya refleja este enfoque."
+            >
+              ✓ aplicado
+            </span>
+          )}
           <ChevronDown
             className="ml-auto h-4 w-4 flex-none text-muted-foreground transition-transform"
             style={{ transform: focusOpen ? "rotate(180deg)" : "rotate(0deg)" }}
@@ -973,6 +1197,13 @@ function Menu({
               <Textarea
                 value={topic ?? ""}
                 onChange={(e) => onTopic(e.target.value.trimStart() || null)}
+                onKeyDown={(e) => {
+                  // Enter = Aplicar (Shift+Enter keeps the newline).
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    if (!regenerating) onApplyFocus()
+                  }
+                }}
                 maxLength={MAX_TOPIC}
                 placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
                 className="min-h-[4.5rem] resize-none pb-6 text-[13px]"

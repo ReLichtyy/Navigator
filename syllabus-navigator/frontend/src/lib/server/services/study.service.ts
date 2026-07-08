@@ -39,10 +39,12 @@ import { logError } from "@/lib/observability/logger"
 import {
   STUDY_SCHEMA_VERSION,
   shuffleQuizOptions,
+  pickMindMode,
   type StudySet,
   type Difficulty,
   type Flashcard,
   type QuizQuestion,
+  type MindMode,
 } from "../rag/study-gen"
 
 /** Serve-time option shuffle for a whole set's quiz (bank items have biased `answer`). */
@@ -300,7 +302,14 @@ export const StudyService = {
   async getStudySet(
     userId: string,
     syllabusId: string,
-    opts: { refresh?: boolean; difficulty?: Difficulty; topic?: string; web?: boolean } = {},
+    opts: {
+      refresh?: boolean
+      difficulty?: Difficulty
+      topic?: string
+      web?: boolean
+      /** Explicit mind-map mode override (from the edit drawer). Auto-picked when omitted. */
+      mindMode?: MindMode
+    } = {},
   ): Promise<StudySet> {
     const doc = await DocumentRepository.findByIdAndUser(syllabusId, userId)
     if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
@@ -308,8 +317,9 @@ export const StudyService = {
     const topic = opts.topic?.trim() || undefined
     const difficulty = opts.difficulty ?? "medio"
     // Web-augmented sets pull live external context → always fresh, never cached
-    // (so they can't clobber the canonical doc-only default set).
-    const custom = !!topic || difficulty !== "medio" || !!opts.web
+    // (so they can't clobber the canonical doc-only default set). An explicit mind
+    // mode override is likewise a one-off request, not the canonical default.
+    const custom = !!topic || difficulty !== "medio" || !!opts.web || !!opts.mindMode
     const scope: StudyScope = { kind: "doc", id: syllabusId }
     const fingerprint = await ChunkRepository.contentFingerprint(syllabusId)
 
@@ -356,12 +366,15 @@ export const StudyService = {
       if (web) text = appendWebContext(text, web)
     }
 
-    // Step 3+4: specialized agents (flashcard/inquisitor/synth) + answer-correctness
-    // gate, instead of one mega-call.
+    // Step 3+4: specialized agents (flashcard/inquisitor/synth/mindmap) + answer-
+    // correctness gate, instead of one mega-call. Mind-map mode: an explicit
+    // override wins, else a heuristic picks the presentation that best fits this
+    // scope's content (see pickMindMode).
+    const mindMode = opts.mindMode ?? pickMindMode({ topic, weightedTopics })
     const excludeSeen = await seenTexts(scope)
     const set = await orchestrateStudySet(
       text,
-      { difficulty, topic, weightedTopics, excludeSeen },
+      { difficulty, topic, weightedTopics, excludeSeen, mindMode },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
     if (!set) {
@@ -387,7 +400,13 @@ export const StudyService = {
   async getCourseStudySet(
     userId: string,
     courseId: string,
-    opts: { refresh?: boolean; difficulty?: Difficulty; topic?: string; web?: boolean } = {},
+    opts: {
+      refresh?: boolean
+      difficulty?: Difficulty
+      topic?: string
+      web?: boolean
+      mindMode?: MindMode
+    } = {},
   ): Promise<StudySet> {
     const course = await CourseRepository.findByIdAndUser(courseId, userId)
     if (!course) throw new ApiErrorResponse("Course not found", 404)
@@ -395,7 +414,7 @@ export const StudyService = {
     const topic = opts.topic?.trim() || undefined
     const difficulty = opts.difficulty ?? "medio"
     // Web-augmented sets are always fresh (see getStudySet).
-    const custom = !!topic || difficulty !== "medio" || !!opts.web
+    const custom = !!topic || difficulty !== "medio" || !!opts.web || !!opts.mindMode
     const scope: StudyScope = { kind: "course", id: courseId }
     const fingerprint = await ChunkRepository.contentFingerprintByCourse(userId, courseId)
 
@@ -424,10 +443,11 @@ export const StudyService = {
       if (web) text = appendWebContext(text, web)
     }
 
+    const mindMode = opts.mindMode ?? pickMindMode({ topic, weightedTopics: [] })
     const excludeSeen = await seenTexts(scope)
     const set = await orchestrateStudySet(
       text,
-      { difficulty, topic, weightedTopics: [], excludeSeen },
+      { difficulty, topic, weightedTopics: [], excludeSeen, mindMode },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
     if (!set) {
@@ -439,6 +459,36 @@ export const StudyService = {
     if (!custom)
       await StudyRepository.upsertByCourse(courseId, served, fingerprint, STUDY_SCHEMA_VERSION)
     return served
+  },
+
+  /**
+   * Light status for the estudio menu: whether the default set is already cached
+   * (fresh fingerprint + schema) and how many bank items exist per type. Pure SQL —
+   * no LLM call — so the menu can render instantly and defer generation to the
+   * moment a mode is actually opened.
+   */
+  async getStudyStatus(
+    userId: string,
+    scope: StudyScope,
+  ): Promise<{ cached: boolean; flashcards: number; quiz: number }> {
+    const s = await assertScopeOwned(userId, scope)
+    const cachedSet =
+      s.kind === "doc"
+        ? await StudyRepository.get(
+            s.id,
+            await ChunkRepository.contentFingerprint(s.id),
+            STUDY_SCHEMA_VERSION,
+          )
+        : await StudyRepository.getByCourse(
+            s.id,
+            await ChunkRepository.contentFingerprintByCourse(userId, s.id),
+            STUDY_SCHEMA_VERSION,
+          )
+    const [flashcards, quiz] = await Promise.all([
+      StudyItemsRepository.countByType(s, "flashcard"),
+      StudyItemsRepository.countByType(s, "quiz"),
+    ])
+    return { cached: cachedSet !== undefined, flashcards, quiz }
   },
 
   /**

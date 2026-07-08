@@ -19,6 +19,8 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react"
+import type { MindMapMode } from "@/lib/api"
+import { MIND_MODE_OPTIONS } from "./mind-mode-options"
 
 export type Mindmap = {
   center: string
@@ -53,6 +55,7 @@ function branchPos(i: number, n: number): { x: number; y: number } {
 
 export function MindMapCanvas({
   mindmap,
+  mode = "radial",
   courses = [],
   activeCourseId,
   onPickCourse,
@@ -64,6 +67,8 @@ export function MindMapCanvas({
   onTopicDouble,
 }: {
   mindmap: Mindmap
+  /** The mode this map was generated with (preselects the chip in the edit drawer). */
+  mode?: MindMapMode
   /** Optional top course picker. Omit/empty to hide it (e.g. the /mapa page owns its own). */
   courses?: MindCourse[]
   activeCourseId?: string
@@ -71,7 +76,7 @@ export function MindMapCanvas({
   courseCode?: string
   courseName?: string
   loading?: boolean
-  onRegenerate?: (opts: { focus: string[]; instructions: string }) => void
+  onRegenerate?: (opts: { focus: string[]; instructions: string; mode?: MindMapMode }) => void
   /**
    * Structural editing (rename / delete / add branch). Resolve on saved (the
    * caller persists + refetches); reject with an Error to show its message.
@@ -94,6 +99,7 @@ export function MindMapCanvas({
   const [editOpen, setEditOpen] = useState(false)
   const [focus, setFocus] = useState<string[]>([])
   const [editText, setEditText] = useState("")
+  const [modeSel, setModeSel] = useState<MindMapMode>(mode)
   // structural editor (drawer): draft of every branch (full list, not the
   // display-capped one) + pending "add" input + save state
   const [draft, setDraft] = useState<BranchEdit[]>([])
@@ -158,16 +164,21 @@ export function MindMapCanvas({
 
   const regenerate = () => {
     setEditOpen(false)
-    onRegenerate?.({ focus, instructions: editText.trim() })
+    onRegenerate?.({
+      focus,
+      instructions: editText.trim(),
+      mode: modeSel !== mode ? modeSel : undefined,
+    })
   }
 
-  // Opening the drawer re-seeds the structural draft from the current map.
+  // Opening the drawer re-seeds the structural draft from the current map + mode.
   const toggleDrawer = () => {
     setEditOpen((o) => {
       if (!o) {
         setDraft(mindmap.branches.map((b) => ({ id: b.id ?? null, label: b.label })))
         setNewBranch("")
         setSaveErr(null)
+        setModeSel(mode)
       }
       return !o
     })
@@ -661,6 +672,36 @@ export function MindMapCanvas({
               {/* AI-regenerate controls (only when the caller can regenerate) */}
               {onRegenerate && (
                 <>
+                  {/* mind-map presentation mode */}
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                      Tipo de mapa
+                    </div>
+                    <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
+                      El automático se elige según el contenido; puedes forzar otro.
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {MIND_MODE_OPTIONS.map((o) => {
+                        const on = modeSel === o.mode
+                        return (
+                          <button
+                            key={o.mode}
+                            onClick={() => setModeSel(o.mode)}
+                            title={o.hint}
+                            className="rounded-[9px] px-3 py-1.5 text-xs font-semibold"
+                            style={{
+                              border: `1px solid ${on ? "rgba(63,191,132,0.45)" : "rgba(255,255,255,0.1)"}`,
+                              background: on ? "rgba(63,191,132,0.14)" : "transparent",
+                              color: on ? "#9FEDC4" : "#9AA39E",
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
                   {/* focus topics */}
                   <div>
                     <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">

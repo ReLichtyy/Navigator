@@ -6,7 +6,8 @@
 
 "use client"
 
-import { Compass, MessageSquare, History, SquarePen } from "lucide-react"
+import { ChevronDown, Compass, MessageSquare, History, SquarePen } from "lucide-react"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 
@@ -33,13 +34,27 @@ export function TopHeader({
   onSelectChat,
   onNewChat,
 }: TopHeaderProps) {
-  // Chat history rendered inside the sidebar drawer (mobile).
+  // Chat history rendered inside the sidebar drawer (mobile). Collapsible like
+  // the desktop sidebar so a long history never crowds the nav sections.
+  const [chatsOpen, setChatsOpen] = useState(true)
   const drawerHistory = (
     <>
       <div className="mb-2 flex items-center justify-between px-1">
-        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+        <button
+          type="button"
+          aria-expanded={chatsOpen}
+          // The drawer wrapper closes on any click; collapsing must not close it.
+          onClick={(e) => {
+            e.stopPropagation()
+            setChatsOpen((v) => !v)
+          }}
+          className="flex items-center gap-1 rounded-md py-0.5 pr-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronDown
+            className={cn("h-3 w-3 shrink-0 transition-transform", !chatsOpen && "-rotate-90")}
+          />
           Chats
-        </span>
+        </button>
         <button
           type="button"
           onClick={onNewChat}
@@ -49,7 +64,7 @@ export function TopHeader({
         </button>
       </div>
 
-      <div className="-mr-1 min-h-0 flex-1 overflow-y-auto pr-1">
+      <div className={cn("-mr-1 min-h-0 flex-1 overflow-y-auto pr-1", !chatsOpen && "hidden")}>
         {chats.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted-foreground">Aún no hay chats.</p>
         ) : (

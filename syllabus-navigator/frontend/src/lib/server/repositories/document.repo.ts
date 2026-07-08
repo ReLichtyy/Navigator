@@ -39,6 +39,29 @@ export const DocumentRepository = {
     `
   },
 
+  /**
+   * Delete every document assigned to a course (used by course deletion, which
+   * cascades to its contents). Chunks/graphs/etc. follow via their own FKs.
+   * Returns the stored-file URLs of the removed documents so the caller can
+   * clean up their blobs.
+   */
+  async deleteByCourse(
+    courseId: string,
+    userId: string,
+  ): Promise<{ count: number; fileUrls: string[] }> {
+    const rows = await sql`
+      DELETE FROM syllabus_uploads
+      WHERE course_id = ${courseId}::uuid AND user_id = ${userId}
+      RETURNING file_url
+    `
+    return {
+      count: rows.length,
+      fileUrls: (rows as { file_url: string | null }[])
+        .map((r) => r.file_url)
+        .filter((u): u is string => Boolean(u)),
+    }
+  },
+
   async listUploads(userId: string): Promise<DbDocument[]> {
     const rows = await sql`
       SELECT id, original_filename, source_type, source_url, status, graph_status,

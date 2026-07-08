@@ -24,12 +24,18 @@ export async function GET(req: Request, { params }: { params: Promise<{ syllabus
     const difficulty = d === "facil" || d === "medio" || d === "dificil" ? d : undefined
     const topic = sp.get("topic")?.slice(0, 160) || undefined
     const web = sp.get("web") === "1"
+    const mm = sp.get("mindMode")
+    const mindMode =
+      mm === "radial" || mm === "profundidad" || mm === "ideas" || mm === "bloques"
+        ? mm
+        : undefined
 
     const data = await StudyService.getStudySet(userId, syllabusId, {
       refresh,
       difficulty,
       topic,
       web,
+      mindMode,
     })
     return NextResponse.json({ syllabus_id: syllabusId, ...data })
   } catch (err) {

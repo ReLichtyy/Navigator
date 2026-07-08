@@ -6,6 +6,7 @@
 
 import { NextResponse } from "next/server"
 import { sql } from "@/lib/db"
+import { delBlob } from "@/lib/server/storage/blob"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
@@ -44,9 +45,12 @@ export async function GET(request: Request) {
     const expiredUploads = await sql`
       DELETE FROM syllabus_uploads
       WHERE expires_at IS NOT NULL AND expires_at < NOW()
-      RETURNING id
+      RETURNING id, file_url
     `
-    const expiredUploadsCount = (expiredUploads as { id: string }[]).length
+    const expiredRows = expiredUploads as { id: string; file_url: string | null }[]
+    const expiredUploadsCount = expiredRows.length
+    // Reclaim any stored files too (guest uploads normally have none — defensive).
+    await Promise.all(expiredRows.filter((r) => r.file_url).map((r) => delBlob(r.file_url!)))
 
     logInfo("cron.cleanup.success", {
       deleted_users: deletedCount,

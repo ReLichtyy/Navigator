@@ -10,7 +10,7 @@
  *    mind map + summary into one combined StudySet.
  */
 import type { Mindmap } from "@/components/estudio/mind-map-canvas"
-import type { StudySetAPI } from "@/lib/api"
+import type { StudySetAPI, MindmapAPI } from "@/lib/api"
 
 export type NamedMindmap = { name: string; mindmap: Mindmap }
 
@@ -19,12 +19,14 @@ export type NamedMindmap = { name: string; mindmap: Mindmap }
  * courses (so every course is represented before any course contributes a second
  * topic — important because the canvas caps visible branches). Topics that share
  * a label across courses are combined: their sub-items are unioned and the branch
- * is tagged with every course it came from.
+ * is tagged with every course it came from. Combining several courses always
+ * yields a radial map — the per-course mode (e.g. a "bloques" report) doesn't
+ * carry over, since fusing block reports across courses isn't well-defined yet.
  */
-export function fuseMindmaps(sources: NamedMindmap[]): Mindmap {
+export function fuseMindmaps(sources: NamedMindmap[]): MindmapAPI {
   const valid = sources.filter((s) => s.mindmap?.branches?.length)
-  if (valid.length === 0) return { center: "Sin temas", branches: [] }
-  if (valid.length === 1) return valid[0].mindmap
+  if (valid.length === 0) return { mode: "radial", center: "Sin temas", branches: [] }
+  if (valid.length === 1) return { mode: "radial", ...valid[0].mindmap }
 
   const byKey = new Map<string, { label: string; courses: Set<string>; items: string[] }>()
   const order: string[] = []
@@ -51,7 +53,7 @@ export function fuseMindmaps(sources: NamedMindmap[]): Mindmap {
     const e = byKey.get(k)!
     return { label: `${e.label} (${[...e.courses].join(" · ")})`, items: e.items }
   })
-  return { center: `${valid.length} cursos`, branches }
+  return { mode: "radial", center: `${valid.length} cursos`, branches }
 }
 
 export type NamedStudySet = { name: string; set: StudySetAPI }
@@ -68,8 +70,15 @@ export function combineStudySets(sets: NamedStudySet[]): StudySetAPI {
       syllabus_id: "combined",
       flashcards: [],
       quiz: [],
-      summary: { intro: "", points: [] },
-      mindmap: { center: "Sin temas", branches: [] },
+      summary: {
+        titulo: "",
+        temaPrincipal: "",
+        introduccion: "",
+        ideasPrincipales: [],
+        conceptos: [],
+        conclusion: "",
+      },
+      mindmap: { mode: "radial", center: "Sin temas", branches: [] },
       studyGuide: [],
     }
   }
@@ -80,10 +89,14 @@ export function combineStudySets(sets: NamedStudySet[]): StudySetAPI {
     flashcards: valid.flatMap((s) => s.set.flashcards),
     quiz: valid.flatMap((s) => s.set.quiz),
     summary: {
-      intro: `Material combinado de ${valid.length} cursos: ${valid.map((s) => s.name).join(", ")}.`,
-      points: valid.flatMap((s) =>
-        s.set.summary.points.map((p) => ({ title: `${p.title} · ${s.name}`, body: p.body })),
+      titulo: `${valid.length} cursos combinados`,
+      temaPrincipal: valid.map((s) => s.name).join(", "),
+      introduccion: `Material combinado de ${valid.length} cursos: ${valid.map((s) => s.name).join(", ")}.`,
+      ideasPrincipales: valid.flatMap((s) =>
+        s.set.summary.ideasPrincipales.map((i) => `${i} · ${s.name}`),
       ),
+      conceptos: valid.flatMap((s) => s.set.summary.conceptos),
+      conclusion: "",
     },
     mindmap: fuseMindmaps(valid.map((s) => ({ name: s.name, mindmap: s.set.mindmap }))),
     studyGuide: valid.flatMap((s) => s.set.studyGuide ?? []),

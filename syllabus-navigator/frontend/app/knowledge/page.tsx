@@ -78,13 +78,40 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import { getDocStatus, isChatReady, NEEDS_OCR_HINT } from "@/lib/ui/doc-status"
 import { groupByRealCourse, type RealCourse } from "@/lib/ui/course-group"
+
+/** Row icon by source kind: web link, pasted text, or an uploaded file. */
+function docRowIcon(sourceType?: string) {
+  if (sourceType === "link") return Link2
+  if (sourceType === "text") return Type
+  return FileText
+}
+
+/**
+ * Muted inline descriptor shown next to the document name: the domain for web
+ * links (the name is the page title, so the origin matters), "texto pegado"
+ * for pasted text. Files need none — their name already carries the extension.
+ */
+function docDescriptor(doc: SyllabusUploadAPI): string | null {
+  if (doc.source_type === "link" && doc.source_url) {
+    try {
+      return new URL(doc.source_url).hostname.replace(/^www\./, "")
+    } catch {
+      return doc.source_url
+    }
+  }
+  if (doc.source_type === "text") return "texto pegado"
+  return null
+}
 
 export default function KnowledgeBasePage() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
   const nav = useChatNav()
+  // In-app confirmation dialog (replaces the browser's native confirm()).
+  const { confirm, confirmDialog } = useConfirm()
 
   const [uploads, setUploads] = useState<SyllabusUploadAPI[]>([])
   const [courses, setCourses] = useState<CourseAPI[]>([])
@@ -102,6 +129,7 @@ export default function KnowledgeBasePage() {
     name: string
     fileUrl: string | null
     sourceType?: string
+    sourceUrl?: string | null
   } | null>(null)
   const [previewMode, setPreviewMode] = useState<"pdf" | "graph">("pdf")
   const [previewGraph, setPreviewGraph] = useState<GraphResponseAPI | null>(null)
@@ -185,7 +213,7 @@ export default function KnowledgeBasePage() {
         clearPolling()
       }
     } catch (err) {
-      if (isMountedRef.current && !silent) setError("Failed to load documents.")
+      if (isMountedRef.current && !silent) setError("No se pudieron cargar los documentos.")
     } finally {
       if (isMountedRef.current && !silent) setLoading(false)
     }
@@ -254,20 +282,23 @@ export default function KnowledgeBasePage() {
         continue
       }
       if (file.size === 0) {
-        toast.error(`${file.name} is empty.`)
+        toast.error(`${file.name} está vacío.`)
         continue
       }
       if (file.size > MAX_FILE_SIZE) {
-        toast.error(`${file.name} exceeds the 25MB limit.`)
+        toast.error(`${file.name} supera el límite de 25MB.`)
         continue
       }
 
       // Duplicate filename check — UX guard (backend handles hash-based dedup).
       const existingNames = new Set(uploads.map((u) => u.original_filename.toLowerCase()))
       if (existingNames.has(file.name.toLowerCase())) {
-        if (!confirm(`"${file.name}" ya existe en tu base de conocimiento. ¿Subir de nuevo?`)) {
-          continue
-        }
+        const ok = await confirm({
+          title: "Documento duplicado",
+          description: `"${file.name}" ya existe en tu biblioteca. ¿Subirlo de nuevo?`,
+          confirmLabel: "Subir de nuevo",
+        })
+        if (!ok) continue
       }
 
       // Optimistic row. Unique id per file (Date.now() alone collides when
@@ -382,14 +413,20 @@ export default function KnowledgeBasePage() {
   }
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete "${name}"?`)) return
+    const ok = await confirm({
+      title: `¿Eliminar "${name}"?`,
+      description: "Esta acción no se puede deshacer.",
+      confirmLabel: "Eliminar",
+      destructive: true,
+    })
+    if (!ok) return
     // Optimistic removal
     setUploads((prev) => prev.filter((u) => u.id !== id))
     try {
       await deleteSyllabus(id)
-      toast.success("Document deleted.")
+      toast.success("Documento eliminado.")
     } catch (err) {
-      toast.error("Failed to delete document.")
+      toast.error("No se pudo eliminar el documento.")
       // Revert on failure
       await fetchUploads(true)
     }
@@ -408,7 +445,13 @@ export default function KnowledgeBasePage() {
   const handlePreview = (doc: SyllabusUploadAPI) => {
     const fileUrl = doc.file_url ?? null
     const sourceType = doc.source_type
-    setPreviewDoc({ id: doc.id, name: doc.original_filename, fileUrl, sourceType })
+    setPreviewDoc({
+      id: doc.id,
+      name: doc.original_filename,
+      fileUrl,
+      sourceType,
+      sourceUrl: doc.source_url ?? null,
+    })
     setPreviewGraph(null)
     // Inline preview only works for PDFs; for other files jump straight to the graph.
     const inlineViewable = Boolean(fileUrl) && (!sourceType || sourceType === "pdf")
@@ -422,7 +465,7 @@ export default function KnowledgeBasePage() {
     try {
       setPreviewGraph(await fetchGraph(id))
     } catch {
-      toast.error("Failed to load graph preview.")
+      toast.error("No se pudo cargar el mapa.")
     } finally {
       setPreviewLoading(false)
     }
@@ -434,22 +477,24 @@ export default function KnowledgeBasePage() {
     if (previewDoc && !previewGraph && !previewLoading) loadGraphPreview(previewDoc.id)
   }
 
-  // Delete a course folder. The course entity is removed; its documents survive
-  // (course_id → NULL) and fall back to "Sin curso" rather than being deleted.
+  // Delete a course folder AND its documents (server cascades; irreversible).
   const handleDeleteCourse = async (courseId: string, name: string, docCount: number) => {
-    const msg =
-      docCount > 0
-        ? `¿Eliminar el curso "${name}"? Sus ${docCount} documento(s) se conservarán sin curso.`
-        : `¿Eliminar el curso "${name}"?`
-    if (!confirm(msg)) return
-    // Optimistic: drop the course + unassign its docs locally.
+    const ok = await confirm({
+      title: `¿Eliminar el curso "${name}"?`,
+      description:
+        docCount > 0
+          ? `Se eliminarán también ${docCount === 1 ? "su documento" : `sus ${docCount} documentos`} con todo su material de estudio. Esta acción no se puede deshacer.`
+          : "La carpeta se eliminará. Esta acción no se puede deshacer.",
+      confirmLabel: docCount > 0 ? "Eliminar todo" : "Eliminar curso",
+      destructive: true,
+    })
+    if (!ok) return
+    // Optimistic: drop the course AND its documents locally.
     setCourses((prev) => prev.filter((c) => c.id !== courseId))
-    setUploads((prev) =>
-      prev.map((u) => (u.course_id === courseId ? { ...u, course_id: null } : u)),
-    )
+    setUploads((prev) => prev.filter((u) => u.course_id !== courseId))
     try {
       await deleteCourse(courseId)
-      toast.success("Curso eliminado.")
+      toast.success(docCount > 0 ? "Curso y documentos eliminados." : "Curso eliminado.")
     } catch {
       toast.error("No se pudo eliminar el curso.")
       await fetchUploads(true)
@@ -583,9 +628,9 @@ export default function KnowledgeBasePage() {
     try {
       const data = await reprocessGraph(previewDoc.id)
       setPreviewGraph(data)
-      toast.success("Reprocessing started.")
+      toast.success("Reprocesamiento iniciado.")
     } catch {
-      toast.error("Failed to reprocess graph.")
+      toast.error("No se pudo reprocesar el mapa.")
     }
   }
 
@@ -595,10 +640,10 @@ export default function KnowledgeBasePage() {
     setReprocessingId(id)
     try {
       await reprocessGraph(id)
-      toast.success("Reprocessing started.")
+      toast.success("Reprocesamiento iniciado.")
       await fetchUploads(true)
     } catch {
-      toast.error("Failed to start reprocessing.")
+      toast.error("No se pudo iniciar el reprocesamiento.")
     } finally {
       setReprocessingId(null)
     }
@@ -628,9 +673,9 @@ export default function KnowledgeBasePage() {
       setUploads((prev) =>
         prev.map((u) => (u.id === id ? { ...u, original_filename: newName } : u)),
       )
-      toast.success("Document renamed.")
+      toast.success("Documento renombrado.")
     } catch {
-      toast.error("Failed to rename document.")
+      toast.error("No se pudo renombrar el documento.")
     } finally {
       setRenamingId(null)
       setIsSavingRename(false)
@@ -658,13 +703,25 @@ export default function KnowledgeBasePage() {
     )
   }
 
-  const filteredUploads = uploads.filter((u) =>
-    u.original_filename.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
   const realCourses: RealCourse[] = courses.map((c) => ({ id: c.id, name: c.name, color: c.color }))
-  // While searching, only surface course folders that still have a matching doc.
-  const visibleCourses = searchQuery
-    ? realCourses.filter((c) => filteredUploads.some((u) => u.course_id === c.id))
+  // Search matches BOTH document names and course names (as the placeholder
+  // promises): a course-name hit keeps the whole folder with all its documents.
+  const q = searchQuery.trim().toLowerCase()
+  const matchedCourseIds = new Set(
+    q ? realCourses.filter((c) => c.name.toLowerCase().includes(q)).map((c) => c.id) : [],
+  )
+  const filteredUploads = q
+    ? uploads.filter(
+        (u) =>
+          u.original_filename.toLowerCase().includes(q) ||
+          (u.course_id != null && matchedCourseIds.has(u.course_id)),
+      )
+    : uploads
+  // While searching, surface folders whose name matched or that kept a matching doc.
+  const visibleCourses = q
+    ? realCourses.filter(
+        (c) => matchedCourseIds.has(c.id) || filteredUploads.some((u) => u.course_id === c.id),
+      )
     : realCourses
   const courseGroups = groupByRealCourse(filteredUploads, visibleCourses)
 
@@ -768,8 +825,22 @@ export default function KnowledgeBasePage() {
               <p className="text-xs">
                 {searchQuery
                   ? "Prueba otro término de búsqueda."
-                  : "Sube el programa de tu curso en PDF para empezar."}
+                  : "Sube el programa de tu curso (PDF, Word, PowerPoint, un enlace o texto) para empezar."}
               </p>
+              {!searchQuery && (
+                <Button
+                  variant="accent"
+                  size="sm"
+                  className="mt-4"
+                  onClick={() => {
+                    setAddCourseId(null)
+                    setAddTab("pdf")
+                    setAddOpen(true)
+                  }}
+                >
+                  <Plus className="h-4 w-4" /> Añadir fuente
+                </Button>
+              )}
             </div>
           ) : (
             <Accordion type="multiple" className="flex flex-col gap-3">
@@ -799,7 +870,10 @@ export default function KnowledgeBasePage() {
                     <div className="absolute right-3 top-2.5 z-10 flex items-center gap-1.5">
                       {firstReady && (
                         <Button asChild size="sm" variant="secondary" className="h-8 gap-1.5">
-                          <Link href={`/estudio?course=${firstReady.id}`}>
+                          {/* Deep-link the COURSE (estudio picks the best scope: last
+                              used, else its default). Only the "Sin curso" bucket
+                              (no id) falls back to the first ready document. */}
+                          <Link href={`/estudio?course=${course.id ?? firstReady.id}`}>
                             <GraduationCap className="h-3.5 w-3.5 text-accent" />
                             <span className="hidden sm:inline">Estudiar</span>
                           </Link>
@@ -969,6 +1043,8 @@ export default function KnowledgeBasePage() {
                           const sv = getDocStatus(doc as any)
                           const optimistic = !!(doc as any)._optimistic
                           const canDrag = !optimistic && renamingId !== doc.id
+                          const RowIcon = docRowIcon(doc.source_type)
+                          const descriptor = docDescriptor(doc)
                           return (
                             <li
                               key={doc.id}
@@ -1022,12 +1098,21 @@ export default function KnowledgeBasePage() {
                                       aria-hidden
                                     />
                                   )}
-                                  <FileText className="h-4 w-4 shrink-0 text-accent/70" />
+                                  <RowIcon className="h-4 w-4 shrink-0 text-accent/70" />
                                   <span
                                     className="min-w-0 flex-1 truncate"
-                                    title={doc.original_filename}
+                                    title={
+                                      doc.source_type === "link" && doc.source_url
+                                        ? `${doc.original_filename} — ${doc.source_url}`
+                                        : doc.original_filename
+                                    }
                                   >
                                     {doc.original_filename}
+                                    {descriptor && (
+                                      <span className="ml-2 text-xs text-muted-foreground">
+                                        {descriptor}
+                                      </span>
+                                    )}
                                   </span>
                                   <Button
                                     size="icon-sm"
@@ -1147,6 +1232,9 @@ export default function KnowledgeBasePage() {
           Soltar aquí para eliminar
         </div>
       )}
+
+      {/* Confirmation dialog (delete document/course, duplicate upload) */}
+      {confirmDialog}
 
       {/* Create Course Dialog */}
       <Dialog
@@ -1372,7 +1460,10 @@ export default function KnowledgeBasePage() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <FileIcon className="h-3.5 w-3.5" /> PDF
+                  <FileIcon className="h-3.5 w-3.5" />{" "}
+                  {!previewDoc?.sourceType || previewDoc.sourceType === "pdf"
+                    ? "PDF"
+                    : "Documento"}
                 </button>
                 <button
                   onClick={showGraphPreview}
@@ -1419,7 +1510,18 @@ export default function KnowledgeBasePage() {
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
                   <FileIcon className="h-10 w-10 opacity-20" />
-                  <p>El archivo no está disponible para este documento.</p>
+                  <p>
+                    {previewDoc?.sourceType === "link"
+                      ? "Esta fuente es un enlace web — su contenido ya está indexado para el chat."
+                      : "El archivo no está disponible para este documento."}
+                  </p>
+                  {previewDoc?.sourceType === "link" && previewDoc.sourceUrl && (
+                    <Button variant="outline" size="sm" asChild>
+                      <a href={previewDoc.sourceUrl} target="_blank" rel="noopener noreferrer">
+                        <Link2 className="h-3.5 w-3.5" /> Abrir enlace original
+                      </a>
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" onClick={showGraphPreview}>
                     <NetworkIcon className="h-3.5 w-3.5" /> Ver el mapa
                   </Button>

@@ -41,7 +41,14 @@ const req = (url = "http://t/api/study/s1") => new Request(url)
 const SET = {
   flashcards: [{ front: "Q", back: "A" }],
   quiz: [{ question: "?", options: ["a", "b"], answer: 1, explanation: "x" }],
-  summary: { intro: "i", points: [{ title: "t", body: "b" }] },
+  summary: {
+    titulo: "T",
+    temaPrincipal: "TP",
+    introduccion: "i",
+    ideasPrincipales: ["idea"],
+    conceptos: [{ termino: "t", definicion: "d" }],
+    conclusion: "c",
+  },
   mindmap: { center: "C", branches: [{ label: "L", items: ["x"] }] },
 }
 

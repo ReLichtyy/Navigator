@@ -30,6 +30,7 @@ export type AgentProvider = LLMProvider | "bluesmind"
 export type AgentRole =
   | "router"
   | "synth"
+  | "mindmap"
   | "inquisitor"
   | "case"
   | "flashcard"
@@ -64,6 +65,7 @@ const RAW: Record<
   // Each role falls back to an OpenAI model when its primary errors / is down.
   router: { provider: OA, model: env("MODEL_ROUTER", "gpt-5-nano"), fallback: SAFE },
   synth: { provider: OA, model: env("MODEL_SYNTH", "gpt-4o-mini"), fallback: "gpt-5-mini" },
+  mindmap: { provider: OA, model: env("MODEL_MINDMAP", "gpt-4o-mini"), fallback: "gpt-5-mini" },
   flashcard: { provider: OA, model: env("MODEL_FLASHCARD", "gpt-4o-mini"), fallback: "gpt-5-mini" },
   inquisitor: { provider: OA, model: env("MODEL_INQUISITOR", "gpt-5-mini"), fallback: SAFE },
   case: { provider: OA, model: env("MODEL_CASE", "gpt-5-mini"), fallback: SAFE },

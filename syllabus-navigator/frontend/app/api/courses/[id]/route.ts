@@ -1,7 +1,7 @@
 /**
  * /api/courses/[id] — update or delete a user course.
  *   PATCH  { name?, term_start? } → rename and/or set the "Semana N" anchor
- *   DELETE                        → remove the course (its documents survive, course_id → NULL)
+ *   DELETE                        → remove the course AND its documents (cascade, irreversible)
  * Accounts only; guests get 403.
  */
 

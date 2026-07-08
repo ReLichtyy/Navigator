@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentRepository } from "@/lib/server/repositories/document.repo"
+import { delBlob } from "@/lib/server/storage/blob"
 import { logInfo, logError } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
 import { z } from "zod"
@@ -55,8 +56,10 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Upload not found" }, { status: 404 })
     }
 
-    // Delete the upload.
+    // Delete the upload, then its stored file (best-effort: a failed blob
+    // delete only leaves an orphan file, never a broken row).
     await DocumentRepository.deleteDocument(id, userId)
+    if (existing.file_url) await delBlob(existing.file_url)
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.deleted", { userId, uploadId: id })

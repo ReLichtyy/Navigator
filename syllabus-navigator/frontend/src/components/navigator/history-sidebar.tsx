@@ -203,6 +203,8 @@ export function HistorySidebar({
                       role="button"
                       tabIndex={0}
                       onClick={() => {
+                        // On touch there is no mouseleave to dismiss an open menu.
+                        if (menuOpenId) setMenuOpenId(null)
                         if (!isEditing) onSelect(chat.id)
                       }}
                       onKeyDown={(e) => {
@@ -261,7 +263,10 @@ export function HistorySidebar({
                           className={cn(
                             "ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded transition-opacity",
                             "text-muted-foreground/60 hover:text-foreground",
-                            isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                            // Touch screens have no hover — keep the button visible below md.
+                            isMenuOpen
+                              ? "opacity-100"
+                              : "opacity-100 md:opacity-0 md:group-hover:opacity-100",
                           )}
                         >
                           <MoreHorizontal className="h-3.5 w-3.5" />

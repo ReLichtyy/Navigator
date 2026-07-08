@@ -1,9 +1,10 @@
 "use client"
 
 import { RefreshCw } from "lucide-react"
-import type { StudySetAPI } from "@/lib/api"
+import type { MindMapMode, StudySetAPI } from "@/lib/api"
 import { BackButton, EmptyMode } from "./flashcards-view"
 import { MindMapCanvas, type MindCourse } from "./mind-map-canvas"
+import { MindBlocksView } from "./mind-blocks-view"
 
 export function MindView({
   courseCode,
@@ -25,10 +26,14 @@ export function MindView({
   onPickCourse: (id: string) => void
   onTopicDouble?: (label: string) => void
   regenerating?: boolean
-  onRegenerate?: () => void
+  onRegenerate?: (opts: { mode?: MindMapMode }) => void
   onBack: () => void
 }) {
-  if (!mindmap.center && mindmap.branches.length === 0) {
+  const isBlocks = mindmap.mode === "bloques"
+  const empty = isBlocks
+    ? !mindmap.blocks || mindmap.blocks.length === 0
+    : !mindmap.center && mindmap.branches.length === 0
+  if (empty) {
     return <EmptyMode onBack={onBack} label="No hay mapa mental para este curso." />
   }
   return (
@@ -42,17 +47,31 @@ export function MindView({
       </div>
 
       <div className="mt-3.5">
-        <MindMapCanvas
-          mindmap={mindmap}
-          courses={courses}
-          activeCourseId={activeCourseId}
-          onPickCourse={onPickCourse}
-          onTopicDouble={onTopicDouble}
-          courseCode={courseCode}
-          courseName={courseLabel}
-          loading={regenerating}
-          onRegenerate={() => onRegenerate?.()}
-        />
+        {isBlocks ? (
+          <MindBlocksView
+            center={mindmap.center}
+            blocks={mindmap.blocks ?? []}
+            mode={mindmap.mode}
+            courseCode={courseCode}
+            courseName={courseLabel}
+            loading={regenerating}
+            onRegenerate={onRegenerate}
+            onTopicDouble={onTopicDouble}
+          />
+        ) : (
+          <MindMapCanvas
+            mindmap={mindmap}
+            mode={mindmap.mode}
+            courses={courses}
+            activeCourseId={activeCourseId}
+            onPickCourse={onPickCourse}
+            onTopicDouble={onTopicDouble}
+            courseCode={courseCode}
+            courseName={courseLabel}
+            loading={regenerating}
+            onRegenerate={onRegenerate}
+          />
+        )}
       </div>
     </div>
   )
@@ -77,18 +96,23 @@ export function ResumenView({
   onQuiz: () => void
   onBack: () => void
 }) {
-  if (!summary.intro && summary.points.length === 0) {
+  if (!summary.introduccion && summary.ideasPrincipales.length === 0) {
     return <EmptyMode onBack={onBack} label="No hay resumen para este curso." />
   }
   return (
     <div>
       <BackButton onBack={onBack} />
       <div className="flex items-center gap-2.5">
-        <h1 className="text-2xl font-extrabold tracking-tight">Resumen</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight">
+          {summary.titulo || "Resumen"}
+        </h1>
         <span className="rounded-md bg-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-accent-foreground">
           Auto
         </span>
       </div>
+      {summary.temaPrincipal && (
+        <p className="mt-1.5 text-sm text-muted-foreground">{summary.temaPrincipal}</p>
+      )}
 
       <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border px-6 py-5">
@@ -108,22 +132,55 @@ export function ResumenView({
           </button>
         </div>
         <div className="p-6">
-          {summary.intro && (
-            <p className="mb-5 text-sm leading-relaxed text-foreground/90">{summary.intro}</p>
+          {summary.introduccion && (
+            <p className="mb-5 text-sm leading-relaxed text-foreground/90">
+              {summary.introduccion}
+            </p>
           )}
-          <div className="flex flex-col gap-4">
-            {summary.points.map((p, i) => (
-              <div key={i} className="flex gap-3.5">
-                <div className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-accent/10 font-mono text-xs font-semibold text-accent">
-                  {i + 1}
+
+          {summary.ideasPrincipales.length > 0 && (
+            <div className="flex flex-col gap-4">
+              <h3 className="text-sm font-extrabold tracking-tight text-foreground">
+                Ideas principales
+              </h3>
+              {summary.ideasPrincipales.map((idea, i) => (
+                <div key={i} className="flex gap-3.5">
+                  <div className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-accent/10 font-mono text-xs font-semibold text-accent">
+                    {i + 1}
+                  </div>
+                  <div className="text-sm leading-relaxed text-foreground/90">{idea}</div>
                 </div>
-                <div>
-                  <div className="text-sm font-bold text-foreground">{p.title}</div>
-                  <div className="mt-1 text-sm leading-relaxed text-muted-foreground">{p.body}</div>
-                </div>
+              ))}
+            </div>
+          )}
+
+          {summary.conceptos.length > 0 && (
+            <div className="mt-7">
+              <h3 className="mb-3 text-sm font-extrabold tracking-tight text-foreground">
+                Conceptos importantes
+              </h3>
+              <div className="flex flex-col gap-3">
+                {summary.conceptos.map((c, i) => (
+                  <div key={i} className="rounded-xl border border-border bg-secondary/30 p-4">
+                    <div className="text-sm font-bold text-foreground">{c.termino}</div>
+                    <div className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+                      {c.definicion}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
+
+          {summary.conclusion && (
+            <div className="mt-7">
+              <h3 className="mb-2 text-sm font-extrabold tracking-tight text-foreground">
+                Conclusión
+              </h3>
+              <p className="text-sm leading-relaxed text-foreground/90">{summary.conclusion}</p>
+            </div>
+          )}
+
           {studyGuide && studyGuide.length > 0 && (
             <div className="mt-7">
               <div className="mb-1 flex items-center gap-2">

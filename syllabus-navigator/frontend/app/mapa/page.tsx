@@ -11,6 +11,8 @@ import {
   fetchCourseStudySet,
   type SyllabusUploadAPI,
   type CourseAPI,
+  type MindmapAPI,
+  type MindMapMode,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
 import { fuseMindmaps, type NamedMindmap } from "@/lib/ui/combine-study"
@@ -27,7 +29,8 @@ import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"
 import { useAskInChat } from "@/hooks/use-ask-in-chat"
-import { MindMapCanvas, type Mindmap } from "@/components/estudio/mind-map-canvas"
+import { MindMapCanvas } from "@/components/estudio/mind-map-canvas"
+import { MindBlocksView } from "@/components/estudio/mind-blocks-view"
 import { CrossCourseView } from "@/components/estudio/cross-course-view"
 
 function isReady(d: SyllabusUploadAPI): boolean {
@@ -54,7 +57,7 @@ function MapaContent() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([])
   const [selectorsOpen, setSelectorsOpen] = useState(true)
 
-  const [mindmap, setMindmap] = useState<Mindmap | null>(null)
+  const [mindmap, setMindmap] = useState<MindmapAPI | null>(null)
   const [setLoading, setSetLoading] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -125,11 +128,12 @@ function MapaContent() {
 
   // Resolve a folder's mind map: whole-course set when it's a real course,
   // else the first ready PDF's set (the "Sin curso" bucket). `topic` focuses the
-  // regenerated map on specific branches (single-course only).
+  // regenerated map on specific branches (single-course only); `mindMode`
+  // overrides the presentation mode (also single-course only).
   const loadFolder = useCallback(
     async (
       g: RealCourseGroup,
-      opts: { refresh?: boolean; topic?: string } = {},
+      opts: { refresh?: boolean; topic?: string; mindMode?: MindMapMode } = {},
     ): Promise<NamedMindmap> => {
       const readyDocs = g.docs.filter(isReady)
       const set = g.id
@@ -146,7 +150,10 @@ function MapaContent() {
 
   // (Re)load + fuse the maps of every selected folder.
   const loadSelected = useCallback(
-    async (gs: RealCourseGroup[], opts: { refresh?: boolean; topic?: string } = {}) => {
+    async (
+      gs: RealCourseGroup[],
+      opts: { refresh?: boolean; topic?: string; mindMode?: MindMapMode } = {},
+    ) => {
       const seq = ++loadSeq.current
       if (gs.length === 0) {
         setMindmap(null)
@@ -159,7 +166,7 @@ function MapaContent() {
       }
       setError(null)
       try {
-        // `topic` only applies to a single course; fusing several drops it.
+        // `topic`/`mindMode` only apply to a single course; fusing several drops them.
         const perFolder = gs.length === 1 ? opts : { refresh: opts.refresh }
         const named = await Promise.all(gs.map((g) => loadFolder(g, perFolder)))
         if (seq !== loadSeq.current) return
@@ -322,24 +329,43 @@ function MapaContent() {
                       <ErrorBox message={error} onRetry={() => loadSelected(selectedGroups)} />
                     ) : mindmap ? (
                       <SelectionAsk onAsk={ask}>
-                        <MindMapCanvas
-                          mindmap={mindmap}
-                          courseName={combinedName}
-                          loading={regenerating}
-                          onTopicDouble={ask}
-                          // Regenerating from the AI panel only makes sense for a
-                          // single course; the combined view is read-only. Honor
-                          // the focus topics chosen in the edit drawer.
-                          onRegenerate={
-                            combining
-                              ? undefined
-                              : ({ focus }) =>
-                                  loadSelected(selectedGroups, {
-                                    refresh: true,
-                                    topic: focus[0],
-                                  })
-                          }
-                        />
+                        {mindmap.mode === "bloques" ? (
+                          <MindBlocksView
+                            center={mindmap.center}
+                            blocks={mindmap.blocks ?? []}
+                            mode={mindmap.mode}
+                            courseName={combinedName}
+                            loading={regenerating}
+                            onTopicDouble={ask}
+                            onRegenerate={
+                              combining
+                                ? undefined
+                                : ({ mode: m }) =>
+                                    loadSelected(selectedGroups, { refresh: true, mindMode: m })
+                            }
+                          />
+                        ) : (
+                          <MindMapCanvas
+                            mindmap={mindmap}
+                            mode={mindmap.mode}
+                            courseName={combinedName}
+                            loading={regenerating}
+                            onTopicDouble={ask}
+                            // Regenerating from the AI panel only makes sense for a
+                            // single course; the combined view is read-only. Honor
+                            // the focus topics / mode chosen in the edit drawer.
+                            onRegenerate={
+                              combining
+                                ? undefined
+                                : ({ focus, mode: m }) =>
+                                    loadSelected(selectedGroups, {
+                                      refresh: true,
+                                      topic: focus[0],
+                                      mindMode: m,
+                                    })
+                            }
+                          />
+                        )}
                       </SelectionAsk>
                     ) : null}
                   </div>
