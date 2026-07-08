@@ -180,16 +180,89 @@ export function htmlToText(html: string): string {
     .trim()
 }
 
+// ── SSRF guard ────────────────────────────────────────────────────────────────
+// User-supplied URLs are fetched server-side, so without a filter this endpoint
+// could be used to probe internal services (localhost, cloud metadata, private
+// ranges). We validate the URL of EVERY hop (redirects re-checked manually).
+// Limitation: hostname-based check — DNS-rebinding-grade attacks aren't covered
+// (would need a resolver-pinning HTTP client, not available in serverless fetch).
+
+const MAX_REDIRECTS = 5
+
+function isPrivateIpv4(host: string): boolean {
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (!m) return false
+  const [a, b] = [Number(m[1]), Number(m[2])]
+  if (a === 0 || a === 10 || a === 127) return true // this-net, private, loopback
+  if (a === 169 && b === 254) return true // link-local / cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true // private
+  if (a === 192 && b === 168) return true // private
+  if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+  return false
+}
+
+function isBlockedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, "")
+  if (host === "localhost" || host.endsWith(".localhost")) return true
+  if (host.endsWith(".local") || host.endsWith(".internal")) return true
+  if (isPrivateIpv4(host)) return true
+  // IPv6 literal (URL hostname keeps brackets off in Node's URL)
+  if (host.includes(":")) {
+    const h = host.replace(/^\[|\]$/g, "")
+    if (h === "::" || h === "::1") return true // unspecified / loopback
+    if (/^(fc|fd)/i.test(h)) return true // unique-local fc00::/7
+    if (/^fe[89ab]/i.test(h)) return true // link-local fe80::/10
+    if (h.startsWith("::ffff:")) return isPrivateIpv4(h.slice(7)) || true // v4-mapped
+  }
+  return false
+}
+
+/** Throws unless the URL is plain public http(s) without embedded credentials. */
+export function assertPublicHttpUrl(rawUrl: string): URL {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    throw new Error("URL inválida.")
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Solo se permiten enlaces http(s).")
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("No se permiten credenciales en la URL.")
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    throw new Error("El enlace apunta a una dirección no permitida.")
+  }
+  return parsed
+}
+
 /**
  * Fetch a URL and extract clean text + title. No headless browser: server-side
  * fetch + HTML strip, good enough for articles/syllabi pages. Throws on non-OK
  * responses or non-HTML content so the caller can surface a clear error.
+ * Every redirect hop is re-validated against the SSRF guard above.
  */
 export async function fetchUrlText(url: string, maxBytes = 2_000_000): Promise<ExtractedUrl> {
-  const res = await fetch(url, {
-    redirect: "follow",
-    headers: { "User-Agent": "SyllabusNavigator/1.0 (+content-ingest)" },
-  })
+  let current = assertPublicHttpUrl(url)
+  let res: Response | null = null
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    res = await fetch(current, {
+      redirect: "manual",
+      headers: { "User-Agent": "SyllabusNavigator/1.0 (+content-ingest)" },
+    })
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location")
+      if (!location) break
+      if (hop === MAX_REDIRECTS) throw new Error("Demasiadas redirecciones en el enlace.")
+      current = assertPublicHttpUrl(new URL(location, current).toString())
+      continue
+    }
+    break
+  }
+
+  if (!res) throw new Error("No se pudo acceder al enlace.")
   if (!res.ok) throw new Error(`No se pudo acceder al enlace (HTTP ${res.status}).`)
 
   const contentType = res.headers.get("content-type") ?? ""

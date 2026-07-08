@@ -10,7 +10,9 @@ import { StudyService } from "@/lib/server/services/study.service"
 import { logError } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // cold path generates via LLM agents before responding
+// Cold path generates via LLM agents before responding — see study/[syllabusId]
+// for the timeout rationale. 300s needs Fluid compute (default on Vercel).
+export const maxDuration = 300
 
 export async function GET(req: Request, { params }: { params: Promise<{ syllabusId: string }> }) {
   try {

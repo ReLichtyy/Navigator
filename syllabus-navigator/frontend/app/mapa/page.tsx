@@ -74,6 +74,23 @@ function MapaContent() {
   )
   const combining = selectedGroups.length > 1
 
+  // With a single course selected, bind asks to it → one dedicated chat per
+  // course. Combined/cross views stay unbound (they span several courses).
+  const single = !combining ? (selectedGroups[0] ?? null) : null
+  const ask = useCallback(
+    (text: string) =>
+      askInChat(
+        text,
+        single
+          ? {
+              courseId: single.id,
+              syllabusId: single.id ? null : (single.docs.find(isReady)?.id ?? null),
+            }
+          : undefined,
+      ),
+    [askInChat, single],
+  )
+
   useEffect(() => {
     if (!ready) return
     if (status === "anonymous" || status === "guest") {
@@ -304,12 +321,12 @@ function MapaContent() {
                     ) : error ? (
                       <ErrorBox message={error} onRetry={() => loadSelected(selectedGroups)} />
                     ) : mindmap ? (
-                      <SelectionAsk onAsk={askInChat}>
+                      <SelectionAsk onAsk={ask}>
                         <MindMapCanvas
                           mindmap={mindmap}
                           courseName={combinedName}
                           loading={regenerating}
-                          onTopicDouble={askInChat}
+                          onTopicDouble={ask}
                           // Regenerating from the AI panel only makes sense for a
                           // single course; the combined view is read-only. Honor
                           // the focus topics chosen in the edit drawer.

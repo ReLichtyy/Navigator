@@ -81,7 +81,7 @@ export function useChatOrchestrator({
   ])
 
   const sendMessage = useCallback(
-    async (text: string): Promise<boolean> => {
+    async (text: string, opts?: { syllabusId?: string | null }): Promise<boolean> => {
       if (!canMutateChat()) return false
 
       const trimmed = text.trim()
@@ -137,7 +137,8 @@ export function useChatOrchestrator({
       // 3. Backend Mutation via SSE Stream
       try {
         const data = await querySyllabus(
-          activeSyllabusId ?? null,
+          // An ask routed from the study/map views can pin its own RAG scope.
+          opts?.syllabusId !== undefined ? opts.syllabusId : (activeSyllabusId ?? null),
           trimmed,
           targetChatId,
           (chunk) => {

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowRight, Loader2, Layers } from "lucide-react"
+import { ArrowRight, Loader2, Layers, RotateCcw } from "lucide-react"
 import {
   recordMastery,
   recordQuizFail,
@@ -13,6 +13,7 @@ import {
   type StudyDifficulty,
 } from "@/lib/api"
 import { BackButton, EmptyMode } from "./flashcards-view"
+import { GenerationProgress, useGenerationProgress } from "./generation-progress"
 import { heatFor, stageTier, stageAdvice, topMissedTopics, type Heat } from "@/lib/ui/quiz-stage-ui"
 
 /** Correct answers required to clear a stage (mirrors STAGE_SIZE on the server). */
@@ -27,6 +28,52 @@ const RAMP_AT = STAGE_SIZE - 3 // 12
 const BUFFER_AHEAD = 3
 
 type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
+
+/**
+ * In-progress session persisted to localStorage (per scope). Leaving mid-quiz and
+ * coming back offers "continue where you left off" vs "restart". `remaining` holds
+ * the not-yet-answered buffered questions so resuming never re-asks an answered one.
+ */
+interface QuizSnapshot {
+  v: 1
+  stage: number
+  stages: number
+  difficulty: StudyDifficulty
+  boost: number
+  clearedInStage: number
+  attemptsInStage: number
+  totalCorrect: number
+  totalAttempts: number
+  stageDone: boolean
+  servedIds: string[]
+  remaining: QuizQuestionAPI[]
+  savedAt: number
+}
+
+const snapshotKey = (scope: Scope) =>
+  `sn:quiz:${scope.kind === "doc" ? `doc:${scope.docId}` : `course:${scope.courseId}`}`
+
+function loadSnapshot(key: string): QuizSnapshot | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return null
+    const s = JSON.parse(raw) as QuizSnapshot
+    if (s.v !== 1 || !Array.isArray(s.remaining) || !Array.isArray(s.servedIds)) return null
+    if (!(s.totalAttempts > 0)) return null // nothing answered → nothing to resume
+    return s
+  } catch {
+    return null
+  }
+}
+
+function clearSnapshot(key: string) {
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // storage unavailable → nothing to clear
+  }
+}
 
 interface Props {
   title: string
@@ -77,6 +124,10 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   const [finished, setFinished] = useState(false)
   const [stageDone, setStageDone] = useState(false) // showing a stage's results screen
   const [reviewOpen, setReviewOpen] = useState<number | null>(null) // Repaso count for the empty state
+  const [resume, setResume] = useState<QuizSnapshot | null>(null) // saved session → continue/restart screen
+  // 0→100% while the FIRST batch of questions generates (empty buffer); stage
+  // advances / background top-ups keep their inline spinners.
+  const genProgress = useGenerationProgress(loading && buffer.length === 0 && !error && !resume)
 
   const boostRef = useRef(0) // escalation boost carried across stages
   const servedIds = useRef<Set<string>>(new Set())
@@ -90,6 +141,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
 
   const excludeList = () => Array.from(servedIds.current)
   const stageKey = (s: number, b: number) => `${s}:${b}`
+  const storageKey = snapshotKey(scope)
 
   const ingest = useCallback((data: QuizStageAPI) => {
     for (const x of data.questions) if (x.id) servedIds.current.add(x.id)
@@ -140,8 +192,15 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     return p
   }, [fetchStage, stage])
 
-  // Initial stage.
+  // Initial load: a saved session for this scope offers continue/restart; otherwise
+  // start stage 0 fresh.
   useEffect(() => {
+    const snap = loadSnapshot(storageKey)
+    if (snap) {
+      setResume(snap)
+      setLoading(false)
+      return
+    }
     let alive = true
     setLoading(true)
     fetchStage(0, 0)
@@ -158,7 +217,117 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     return () => {
       alive = false
     }
-  }, [fetchStage, ingest])
+  }, [fetchStage, ingest, storageKey])
+
+  // Persist the in-progress session after every answer so an exit mid-quiz can be
+  // resumed. Cleared when the quiz finishes; untouched while the choice screen shows.
+  useEffect(() => {
+    if (resume) return
+    if (finished) {
+      clearSnapshot(storageKey)
+      return
+    }
+    if (totalAttempts === 0) return
+    const snap: QuizSnapshot = {
+      v: 1,
+      stage,
+      stages,
+      difficulty,
+      boost,
+      clearedInStage,
+      attemptsInStage,
+      totalCorrect,
+      totalAttempts,
+      stageDone,
+      servedIds: Array.from(servedIds.current),
+      remaining: buffer.slice(answered ? pos + 1 : pos),
+      savedAt: Date.now(),
+    }
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(snap))
+    } catch {
+      // storage full/unavailable → session just won't be resumable
+    }
+  }, [
+    resume,
+    finished,
+    totalAttempts,
+    buffer,
+    pos,
+    answered,
+    stage,
+    stages,
+    difficulty,
+    boost,
+    clearedInStage,
+    attemptsInStage,
+    totalCorrect,
+    stageDone,
+    storageKey,
+  ])
+
+  // Continue the saved session: restore counters + the unanswered remainder. If the
+  // buffer was left dry (answered the last buffered question), pull more for that stage.
+  const resumeSession = async () => {
+    const s = resume
+    if (!s) return
+    boostRef.current = s.boost
+    servedIds.current = new Set(s.servedIds)
+    setBoost(s.boost)
+    setStage(s.stage)
+    setStages(s.stages)
+    setDifficulty(s.difficulty)
+    setClearedInStage(s.clearedInStage)
+    setAttemptsInStage(s.attemptsInStage)
+    setTotalCorrect(s.totalCorrect)
+    setTotalAttempts(s.totalAttempts)
+    setStageDone(s.stageDone)
+    setResume(null)
+    if (s.remaining.length > 0 || s.stageDone) {
+      setBuffer(s.remaining)
+      setPos(0)
+      return
+    }
+    setLoading(true)
+    try {
+      const data = await fetchQuizStage(scope, {
+        stage: s.stage,
+        boost: s.boost,
+        excludeIds: s.servedIds,
+      })
+      const fresh = data.questions.filter((x) => x.id && !servedIds.current.has(x.id))
+      for (const x of fresh) if (x.id) servedIds.current.add(x.id)
+      if (fresh.length === 0) {
+        // Bank exhausted for this stage → close it with the restored tally.
+        if (s.stage >= s.stages - 1) setFinished(true)
+        else setStageDone(true)
+      } else {
+        setBuffer(fresh)
+        setPos(0)
+        setDifficulty(data.difficulty)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo cargar el quiz.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Discard the saved session and start over from stage 0.
+  const restartSession = () => {
+    clearSnapshot(storageKey)
+    setResume(null)
+    setLoading(true)
+    fetchStage(0, 0)
+      .then((d) => {
+        ingest(d)
+        setLoading(false)
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "No se pudo cargar el quiz.")
+        setLoading(false)
+      })
+  }
 
   const flushMastery = () => {
     const batch = outcomes.current
@@ -199,12 +368,12 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   // When the quiz comes up empty, find out whether there are Repaso items so the
   // empty state can point the user there instead of looking broken.
   useEffect(() => {
-    if (!loading && buffer.length === 0 && !error) {
+    if (!loading && buffer.length === 0 && !error && !resume) {
       fetchQuizReview(scope)
         .then((d) => setReviewOpen(d.questions.length))
         .catch(() => setReviewOpen(0))
     }
-  }, [loading, buffer.length, error, scope])
+  }, [loading, buffer.length, error, scope, resume])
 
   const q = buffer[pos]
 
@@ -329,28 +498,50 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     }
   }
 
-  if (loading && buffer.length === 0 && !error) {
+  // Saved session found → let the student choose before anything is fetched.
+  if (resume) {
     return (
       <div className="mx-auto max-w-2xl">
         <BackButton onBack={onBack} />
-        <div className="flex h-56 flex-col items-center justify-center gap-3 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
-          <p className="text-sm">Generando preguntas desde tu material…</p>
+        <div className="rounded-2xl border border-accent/25 bg-accent/5 p-10 text-center">
+          <div className="text-5xl">⏸️</div>
+          <h2 className="mt-3 text-2xl font-bold">Tienes un quiz en progreso</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Respondiste <b className="text-foreground">{resume.totalAttempts}</b>{" "}
+            {resume.totalAttempts === 1 ? "pregunta" : "preguntas"} · etapa {resume.stage + 1}/
+            {resume.stages} · {resume.totalCorrect}{" "}
+            {resume.totalCorrect === 1 ? "acierto" : "aciertos"}
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <button
+              onClick={resumeSession}
+              className="flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90"
+            >
+              Continuar <ArrowRight className="h-4 w-4" />
+            </button>
+            <button
+              onClick={restartSession}
+              className="flex items-center gap-2 rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
+            >
+              <RotateCcw className="h-4 w-4" /> Reiniciar
+            </button>
+          </div>
         </div>
+      </div>
+    )
+  }
+
+  if ((loading && buffer.length === 0 && !error) || genProgress.visible) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <BackButton onBack={onBack} />
+        <GenerationProgress pct={genProgress.pct} label="Generando preguntas desde tu material…" />
       </div>
     )
   }
 
   if (error) {
     return <EmptyMode onBack={onBack} label={error} />
-  }
-
-  if (buffer.length === 0) {
-    const label =
-      reviewOpen && reviewOpen > 0
-        ? "Ya respondiste las preguntas disponibles. Ve a Repaso para dominar las que fallaste."
-        : "No hay preguntas nuevas: completaste el banco disponible o el material aún no está listo."
-    return <EmptyMode onBack={onBack} label={label} />
   }
 
   if (finished) {
@@ -456,6 +647,16 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
         </div>
       </div>
     )
+  }
+
+  // After finished/stageDone: a resumed session can restore those screens with an
+  // empty buffer, so the empty state only applies to a live question view.
+  if (buffer.length === 0) {
+    const label =
+      reviewOpen && reviewOpen > 0
+        ? "Ya respondiste las preguntas disponibles. Ve a Repaso para dominar las que fallaste."
+        : "No hay preguntas nuevas: completaste el banco disponible o el material aún no está listo."
+    return <EmptyMode onBack={onBack} label={label} />
   }
 
   const stagePct = Math.round((clearedInStage / STAGE_SIZE) * 100)

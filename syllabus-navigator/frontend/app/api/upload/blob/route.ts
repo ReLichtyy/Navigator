@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client"
-import { requireAuth, requireRateLimit } from "@/lib/server/utils/auth-helpers"
+import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { logError } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
@@ -51,9 +51,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     logError("api.upload.blob_token.error", {
       error: err instanceof Error ? err.message : String(err),
     })
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Upload token error." },
-      { status: 400 },
-    )
+    if (err instanceof ApiErrorResponse) {
+      return NextResponse.json({ error: err.message }, { status: err.status })
+    }
+    // Never echo raw internal errors (SDK/env details) back to the client.
+    return NextResponse.json({ error: "No se pudo autorizar la subida." }, { status: 400 })
   }
 }

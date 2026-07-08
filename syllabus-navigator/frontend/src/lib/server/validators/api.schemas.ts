@@ -106,6 +106,26 @@ export const CourseActionSchema = z.object({
   new_course_tags: z.array(z.string().trim().min(1).max(40)).max(12).nullish(),
 })
 
+// User settings: closed enums / bounded strings — the previous handler stored
+// arbitrary `String(body[key])` values straight into the DB.
+export const UpdatePreferencesSchema = z
+  .object({
+    defaultProvider: z.enum(["openai", "deepseek", "openrouter"]).optional(),
+    defaultModel: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .regex(/^[\w./:-]+$/, "Modelo inválido")
+      .optional(),
+    theme: z.enum(["dark", "light", "system"]).optional(),
+    language: z.enum(["es", "en"]).optional(),
+  })
+  .refine((d) => Object.values(d).some((v) => v !== undefined), {
+    message: "No valid fields to update.",
+  })
+export type UpdatePreferencesInput = z.infer<typeof UpdatePreferencesSchema>
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export const CreateNoteSchema = z.object({

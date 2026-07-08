@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useCallback, useState, useRef, useEffect } from "react"
 import { toast } from "sonner"
 import type { AttachedFile, Chat, Message } from "@/types/models"
-import { useSyllabus } from "@/context/SyllabusContext"
+import { useSyllabus, type PendingAsk } from "@/context/SyllabusContext"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useChatList } from "../hooks/useChatList"
@@ -44,7 +44,7 @@ export interface ChatWorkspaceState {
   handleNewChat: () => void
   handleDeleteChat: (id: string) => void
   handleRenameChat: (id: string, title: string) => void
-  sendMessage: (text: string) => Promise<boolean>
+  sendMessage: (text: string, opts?: { syllabusId?: string | null }) => Promise<boolean>
   handleModelChange: (model: string) => void
 
   // Attachments & Knowledge
@@ -65,6 +65,34 @@ export interface ChatWorkspaceState {
 }
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceState | undefined>(undefined)
+
+// ── Dedicated ask-chat per course/doc ─────────────────────────────────────────
+// "Preguntar al chat" from the study/map views routes every question of the same
+// course (or document) into ONE chat. The chat is created lazily on the FIRST
+// ask — never upfront — and the scope→chat mapping lives in localStorage.
+const askChatKey = (ask: PendingAsk) =>
+  ask.courseId
+    ? `sn:ask-chat:course:${ask.courseId}`
+    : ask.syllabusId
+      ? `sn:ask-chat:doc:${ask.syllabusId}`
+      : null
+
+function readAskChat(key: string): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    return window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function storeAskChat(key: string, chatId: string) {
+  try {
+    window.localStorage.setItem(key, chatId)
+  } catch {
+    // storage unavailable → the next ask just creates a fresh chat
+  }
+}
 
 export function ChatWorkspaceProvider({ children }: { children: React.ReactNode }) {
   const { userId, ready: userReady, status: userStatus } = useUser()
@@ -186,12 +214,73 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     [activeChatId, setChats, setActiveChat],
   )
 
+  // An ask waiting for its target chat to become active (history loaded) before
+  // sending, so the optimistic bubbles append to the right thread.
+  const deferredAskRef = useRef<{ chatId: string; text: string; syllabusId: string | null } | null>(
+    null,
+  )
+
+  // Consume a stashed "Preguntar al chat" query. Bound to a course/doc → reuse
+  // that scope's dedicated chat (or create it now, on this first ask). Unbound →
+  // legacy behavior: send into the current chat / a new draft.
   useEffect(() => {
-    if (pendingQuery) {
-      sendMessage(pendingQuery)
-      setPendingQuery(null)
+    if (!pendingQuery || chatsLoading) return // wait for the list to validate the mapping
+    const ask = pendingQuery
+    setPendingQuery(null)
+
+    const key = askChatKey(ask)
+    if (!key) {
+      sendMessage(ask.text)
+      return
     }
-  }, [pendingQuery, sendMessage, setPendingQuery])
+
+    const storedId = readAskChat(key)
+    const existing = storedId ? chats.find((c) => c.id === storedId) : undefined
+    if (existing) {
+      // Reuse: switch to the course's chat; the deferred effect sends once its
+      // history has loaded.
+      deferredAskRef.current = {
+        chatId: existing.id,
+        text: ask.text,
+        syllabusId: ask.syllabusId ?? existing.syllabusId ?? null,
+      }
+      selectChat(existing.id)
+      return
+    }
+
+    // First ask for this scope (or its chat was deleted) → create the chat NOW
+    // and remember it for every later ask of the same course.
+    void (async () => {
+      const created = await createChat(undefined, ask.syllabusId ?? null)
+      if (!created) return
+      storeAskChat(key, created.id)
+      deferredAskRef.current = {
+        chatId: created.id,
+        text: ask.text,
+        syllabusId: ask.syllabusId ?? null,
+      }
+      setActiveChatId(created.id)
+      initializeSession({ ...created, messages: [] })
+      setTransitionKey((k) => k + 1)
+    })()
+  }, [
+    pendingQuery,
+    setPendingQuery,
+    chatsLoading,
+    chats,
+    sendMessage,
+    selectChat,
+    createChat,
+    initializeSession,
+  ])
+
+  // Fire the deferred ask once the target chat is active with its messages in.
+  useEffect(() => {
+    const d = deferredAskRef.current
+    if (!d || messagesLoading || activeChat?.id !== d.chatId) return
+    deferredAskRef.current = null
+    sendMessage(d.text, { syllabusId: d.syllabusId })
+  }, [activeChat, messagesLoading, sendMessage])
 
   // --- Attachments & Knowledge Base ---
   const addAttachment = useCallback(

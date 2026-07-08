@@ -1,8 +1,13 @@
 /**
- * GET /api/health — Comprehensive health check.
+ * GET /api/health — Health check.
  *
  * Checks: database, LLM provider, cache, system status.
  * Returns 200 if all OK, 503 if any subsystem is degraded.
+ *
+ * The route is PUBLIC (uptime monitors), so the public response is minimal:
+ * { status, timestamp } only. Per-subsystem details (error messages, table
+ * names, adapter names, environment) are returned ONLY with
+ * `Authorization: Bearer <CRON_SECRET>` — never to anonymous callers.
  */
 
 import { sql } from "@/lib/db"
@@ -29,7 +34,13 @@ const REQUIRED_TABLES = [
 
 const startTime = Date.now()
 
-export async function GET() {
+function isPrivileged(request: Request): boolean {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return false
+  return request.headers.get("authorization") === `Bearer ${secret}`
+}
+
+export async function GET(request: Request) {
   try {
     // Use a 10s cache to prevent health-check spam
     const result = await cached("health:status", 10, async () => {
@@ -114,14 +125,18 @@ export async function GET() {
     })
 
     const statusCode = result.status === "ok" ? 200 : 503
+
+    // Anonymous callers get status only — the detailed checks reveal DB error
+    // strings, table names, cache adapter and environment.
+    if (!isPrivileged(request)) {
+      return NextResponse.json(
+        { status: result.status, timestamp: result.timestamp },
+        { status: statusCode },
+      )
+    }
+
     return NextResponse.json(result, { status: statusCode })
-  } catch (err) {
-    return NextResponse.json(
-      {
-        error: "Health check failed entirely.",
-        details: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 },
-    )
+  } catch {
+    return NextResponse.json({ status: "error" }, { status: 500 })
   }
 }

@@ -5,6 +5,7 @@
 
 import { NextResponse } from "next/server"
 import { getAuthedUser } from "@/lib/server/utils/auth-helpers"
+import { UpdatePreferencesSchema } from "@/lib/server/validators/api.schemas"
 import { sql } from "@/lib/db"
 import { cached, invalidate } from "@/lib/cache"
 import { logError } from "@/lib/observability/logger"
@@ -52,17 +53,16 @@ export async function PATCH(request: Request) {
     }
 
     const userId = session.userId
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
 
-    const allowedFields = ["defaultProvider", "defaultModel", "theme", "language"]
-    const updates: Record<string, string> = {}
-    for (const key of allowedFields) {
-      if (body[key] !== undefined) updates[key] = String(body[key])
+    const parsed = UpdatePreferencesSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "No valid fields to update." },
+        { status: 400 },
+      )
     }
-
-    if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ error: "No valid fields to update." }, { status: 400 })
-    }
+    const updates = parsed.data
 
     // Upsert preferences
     const rows = await sql`

@@ -51,6 +51,10 @@ import { QuizReviewView } from "@/components/estudio/review-view"
 import { MindView, ResumenView } from "@/components/estudio/mind-resumen-view"
 import type { MindCourse } from "@/components/estudio/mind-map-canvas"
 import { MasteryPanel } from "@/components/estudio/mastery-panel"
+import {
+  GenerationProgress,
+  useGenerationProgress,
+} from "@/components/estudio/generation-progress"
 import { SelectionAsk } from "@/components/SelectionAsk"
 import { useAskInChat } from "@/hooks/use-ask-in-chat"
 import { Button } from "@/components/ui/button"
@@ -104,6 +108,8 @@ function EstudioContent() {
 
   const [set, setSet] = useState<StudySetAPI | null>(null)
   const [setLoading, setSetLoading] = useState(false)
+  // 0→100% while the study set generates; the material is revealed at 100.
+  const genProgress = useGenerationProgress(setLoading)
   const [setError, setSetError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
 
@@ -159,6 +165,13 @@ function EstudioContent() {
   // Resolve the active scope target → ids used by the views.
   const activeDocId = scope?.kind === "doc" ? scope.docId : null
   const activeDoc = activeDocId ? (readyDocs.find((d) => d.id === activeDocId) ?? null) : null
+  // Bind asks to the selected course (or PDF in the "Sin curso" bucket) so every
+  // question from this course lands in its ONE dedicated chat.
+  const ask = useCallback(
+    (text: string) =>
+      askInChat(text, { courseId: selectedGroup?.id ?? null, syllabusId: activeDocId }),
+    [askInChat, selectedGroup?.id, activeDocId],
+  )
   const scopeLabel =
     scope?.kind === "combo"
       ? `${selectedGroups.length} cursos combinados`
@@ -569,12 +582,12 @@ function EstudioContent() {
               )}
 
               <div className="mt-6">
-                {setLoading ? (
-                  <CenterSpinner label="Generando material de estudio…" />
+                {setLoading || genProgress.visible ? (
+                  <GenerationProgress pct={genProgress.pct} />
                 ) : setError ? (
                   <SetError message={setError} onRetry={() => scope && loadSet(scope)} />
                 ) : set && scope ? (
-                  <SelectionAsk onAsk={askInChat} enabled={mode !== "menu"}>
+                  <SelectionAsk onAsk={ask} enabled={mode !== "menu"}>
                     <ModeRouter
                       mode={mode}
                       set={set}
@@ -584,7 +597,7 @@ function EstudioContent() {
                       scopeLabel={scopeLabel}
                       mindCourses={mindCourses}
                       onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
-                      onAsk={askInChat}
+                      onAsk={ask}
                       regenerating={regenerating}
                       onRegenerate={() =>
                         scope &&
