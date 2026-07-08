@@ -16,14 +16,12 @@ import { BackButton, EmptyMode } from "./flashcards-view"
 import { GenerationProgress, useGenerationProgress } from "./generation-progress"
 import { heatFor, stageTier, stageAdvice, topMissedTopics, type Heat } from "@/lib/ui/quiz-stage-ui"
 
-/** Correct answers required to clear a stage (mirrors STAGE_SIZE on the server). */
-const STAGE_SIZE = 15
+/** Fallback correct-answers-to-clear when the server doesn't send `size` (pref-driven). */
+const DEFAULT_STAGE_SIZE = 15
 /** Acing a stage (≥ this hit-rate) bumps the difficulty boost for the next stage. */
 const ACE_RATE = 0.85
 /** After this many answered in a stage, refill the buffer in the BACKGROUND (no spinner). */
 const GEN_AHEAD_AFTER = 8
-/** From this question on, ramp difficulty when the student is acing (few fails). */
-const RAMP_AT = STAGE_SIZE - 3 // 12
 /** Keep at least this many unseen questions ready so advancing never blocks on generation. */
 const BUFFER_AHEAD = 3
 
@@ -48,6 +46,8 @@ interface QuizSnapshot {
   servedIds: string[]
   remaining: QuizQuestionAPI[]
   savedAt: number
+  /** Stage size in effect when saved (older snapshots lack it → default). */
+  size?: number
 }
 
 const snapshotKey = (scope: Scope) =>
@@ -109,6 +109,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   const [pos, setPos] = useState(0)
   const [stage, setStage] = useState(0)
   const [stages, setStages] = useState(3)
+  const [stageSize, setStageSize] = useState(DEFAULT_STAGE_SIZE)
   const [difficulty, setDifficulty] = useState<StudyDifficulty>("medio")
   const [boost, setBoost] = useState(0) // mirrors boostRef for rendering (heat colour)
 
@@ -147,6 +148,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     for (const x of data.questions) if (x.id) servedIds.current.add(x.id)
     setBuffer(data.questions)
     setStages(data.stages)
+    setStageSize(data.size ?? DEFAULT_STAGE_SIZE)
     setDifficulty(data.difficulty)
     setPos(0)
     setSelected(null)
@@ -242,6 +244,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
       servedIds: Array.from(servedIds.current),
       remaining: buffer.slice(answered ? pos + 1 : pos),
       savedAt: Date.now(),
+      size: stageSize,
     }
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(snap))
@@ -264,6 +267,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     totalCorrect,
     stageDone,
     storageKey,
+    stageSize,
   ])
 
   // Continue the saved session: restore counters + the unanswered remainder. If the
@@ -276,6 +280,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     setBoost(s.boost)
     setStage(s.stage)
     setStages(s.stages)
+    setStageSize(s.size ?? DEFAULT_STAGE_SIZE)
     setDifficulty(s.difficulty)
     setClearedInStage(s.clearedInStage)
     setAttemptsInStage(s.attemptsInStage)
@@ -401,16 +406,17 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
 
     const acing = cleared / attempts >= ACE_RATE // few fails so far
 
-    // From Q12, ramp difficulty when the student is acing: bump the boost so every
-    // question generated from here on (background top-ups + the next stage) is harder.
-    if (attempts >= RAMP_AT && acing && boostRef.current < 2) {
+    // Near the end of the stage, ramp difficulty when the student is acing: bump
+    // the boost so every question generated from here on (background top-ups +
+    // the next stage) is harder.
+    if (attempts >= Math.max(4, stageSize - 3) && acing && boostRef.current < 2) {
       boostRef.current += 1
       setBoost(boostRef.current)
       bankDryRef.current = false // a new difficulty may have fresh items to pull
     }
 
     // Warm the NEXT stage in the background once this one is nearly cleared.
-    if (correct && stage < stages - 1 && cleared === STAGE_SIZE - 3) {
+    if (correct && stage < stages - 1 && cleared === Math.max(1, stageSize - 3)) {
       const key = stageKey(stage + 1, boostRef.current)
       if (prefetch.current?.key !== key) {
         prefetch.current = { key, promise: fetchStage(stage + 1, boostRef.current) }
@@ -478,8 +484,8 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     setSelected(null)
     setAnswered(false)
 
-    // Stage cleared once 15 are answered correctly → show this stage's results.
-    if (clearedInStage >= STAGE_SIZE) {
+    // Stage cleared once `stageSize` are answered correctly → show this stage's results.
+    if (clearedInStage >= stageSize) {
       endStage()
       return
     }
@@ -659,7 +665,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     return <EmptyMode onBack={onBack} label={label} />
   }
 
-  const stagePct = Math.round((clearedInStage / STAGE_SIZE) * 100)
+  const stagePct = Math.round((clearedInStage / stageSize) * 100)
   const heat = heatFor(difficulty, boost)
   const correct = selected === q.answer
 
@@ -682,7 +688,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
           </p>
         </div>
         <span className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-sm text-accent">
-          {clearedInStage}/{STAGE_SIZE}
+          {clearedInStage}/{stageSize}
         </span>
       </div>
 
@@ -763,7 +769,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    {clearedInStage >= STAGE_SIZE
+                    {clearedInStage >= stageSize
                       ? stage >= stages - 1
                         ? "Ver resultados"
                         : "Siguiente etapa"

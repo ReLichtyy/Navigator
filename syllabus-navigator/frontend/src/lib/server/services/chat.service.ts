@@ -9,6 +9,7 @@ import { logError } from "@/lib/observability/logger"
 import { ChatRepository } from "../repositories/chat.repo"
 import { ScheduleRepository, type ScheduleEvent } from "../repositories/schedule.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
+import { getUserPrefs, type UserPrefs } from "../utils/user-prefs"
 import { RetrievalService, GROUNDED_SYSTEM_PROMPT, NO_CONTEXT_MESSAGE } from "./retrieval.service"
 import type { LLMMessage, LLMProvider } from "@/lib/llm"
 import type { CitationAPI } from "@/types/api"
@@ -56,6 +57,46 @@ async function buildScheduleContext(userId: string): Promise<string> {
     `y temas por semana. Para "esta semana", calcula el rango lunes-domingo respecto a hoy. ` +
     `Si un evento solo tiene week_label (sin fecha ISO), trátalo como relativo. No inventes fechas.`
   )
+}
+
+const TONE_DIRECTIVE: Record<string, string> = {
+  Cercano:
+    "Tono: cercano y cálido — háblale de tú, celebra sus avances y usa un lenguaje amigable.",
+  Neutro: "Tono: neutro y profesional — amable pero sobrio, sin exceso de entusiasmo.",
+  Directo:
+    "Tono: directo — ve al grano, sin rodeos ni frases de relleno; prioriza la respuesta sobre la cortesía.",
+}
+
+const DETAIL_DIRECTIVE: Record<string, string> = {
+  Conciso:
+    "Extensión: concisa — respuestas breves, lo esencial primero; expande solo si el estudiante lo pide.",
+  Equilibrado:
+    "Extensión: equilibrada — explica lo necesario con algún ejemplo, sin extenderte de más.",
+  Detallado:
+    "Extensión: detallada — explica paso a paso, con ejemplos y contexto adicional cuando ayude.",
+}
+
+/**
+ * Personalization block from the user's saved profile (Configuración → Perfil):
+ * tone/detail directives + who the student is. Empty string when the profile
+ * has nothing useful, so the base prompt stays untouched for new users. Pure.
+ */
+export function buildStudentDirectives(prefs: UserPrefs): string {
+  const p = prefs.profile
+  const lines: string[] = []
+  if (p.tone && TONE_DIRECTIVE[p.tone]) lines.push(TONE_DIRECTIVE[p.tone])
+  if (p.detail && DETAIL_DIRECTIVE[p.detail]) lines.push(DETAIL_DIRECTIVE[p.detail])
+
+  const who: string[] = []
+  const name = p.displayName?.trim() || p.fullName?.trim()
+  if (name) who.push(`se llama ${name} (dirígete así a él/ella)`)
+  if (p.career?.trim()) who.push(`estudia ${p.career.trim()}`)
+  if (p.level) who.push(`nivel: ${p.level}`)
+  if (p.school?.trim()) who.push(`en ${p.school.trim()}`)
+  if (who.length > 0) lines.push(`Sobre el estudiante: ${who.join("; ")}.`)
+
+  if (lines.length === 0) return ""
+  return `=== PERFIL DEL ESTUDIANTE (preferencias guardadas) ===\n${lines.join("\n")}`
 }
 
 /**
@@ -151,8 +192,15 @@ export const ChatService = {
     }
 
     // Schedule awareness: prepend today's date + the student's cross-course
-    // agenda so "what quizzes/topics this week?" works in any chat.
-    const scheduleContext = await buildScheduleContext(userId)
+    // agenda so "what quizzes/topics this week?" works in any chat. The saved
+    // profile (tone/detail/who the student is) rides along; both reads are
+    // independent, so run them in parallel (prefs are cached 120s).
+    const [scheduleContext, prefs] = await Promise.all([
+      buildScheduleContext(userId),
+      getUserPrefs(userId),
+    ])
+    const studentDirectives = buildStudentDirectives(prefs)
+    if (studentDirectives) systemContent = `${systemContent}\n\n${studentDirectives}`
     systemContent = `${systemContent}\n\n=== AGENDA / CRONOGRAMA ===\n${scheduleContext}`
 
     const messages: LLMMessage[] = [{ role: "system", content: systemContent }]

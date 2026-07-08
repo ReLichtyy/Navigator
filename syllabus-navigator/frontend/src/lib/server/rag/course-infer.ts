@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod"
-import { gatewayJson, extractJson } from "@/lib/llm/gateway-generate"
+import { ragJson, extractJson } from "@/lib/llm/rag-generate"
 import { logError } from "@/lib/observability/logger"
 import { mondayOf } from "./week-date"
 
@@ -81,7 +81,7 @@ export async function inferCourse(
       : "(none yet)"
 
   try {
-    const raw = await gatewayJson(
+    const raw = await ragJson(
       SYSTEM_PROMPT,
       `Existing courses:\n${courseList}\n\n` +
         `Document filename: ${filename}\n\n` +

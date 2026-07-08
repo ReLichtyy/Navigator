@@ -1,11 +1,12 @@
 /**
- * llm/gateway-generate.ts — structured JSON generation for the RAG generators
+ * llm/rag-generate.ts — structured JSON generation for the RAG generators
  * (course inference, graph, schedule) via the DIRECT OpenAI API.
  *
- * Formerly ran on the Bluesmind gateway (gpt-5.4), dropped 2026-07-01: every
- * model the gateway lists fails live (503 "no available channel" / 504 / 500 /
- * 403), which silently killed course inference/graph/schedule. OpenAI direct is
- * the replacement — same key as embeddings (OPENAI_API_KEY, always configured).
+ * These generators formerly ran on the Bluesmind gateway (gpt-5.4), which died
+ * 2026-07-01 and was removed. OpenAI direct is the replacement — same key as
+ * embeddings (OPENAI_API_KEY, always configured). The stale-env guard below
+ * still maps the old gateway ids to the default so a leftover MODEL_RAG can't
+ * 404 on api.openai.com.
  *
  * Default model: gpt-5-mini (cheap, strong at big structured JSON). Override
  * per-deploy via MODEL_RAG. Kept the "JSON only" instruct-and-parse contract
@@ -25,7 +26,7 @@ function openaiClient(): OpenAI {
 }
 
 /** The model for every RAG generator. Overridable per-deploy via MODEL_RAG. */
-export const RAG_GATEWAY_MODEL = (() => {
+export const RAG_MODEL = (() => {
   const v = process.env.MODEL_RAG?.trim()
   // gpt-5.4 / gemini-* / deepseek/* were gateway-only ids — 404 on api.openai.com.
   if (!v || /^(gpt-5\.4|gemini|deepseek\/)/.test(v)) return "gpt-5-mini"
@@ -64,14 +65,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /**
  * Generate a JSON string from OpenAI. Instructs "JSON only" + json_object mode;
  * the caller runs extractJson + its own zod parse (contract unchanged from the
- * gateway era, so callers didn't move). Uses RAG_GATEWAY_MODEL unless `model` is
+ * gateway era, so callers didn't move). Uses RAG_MODEL unless `model` is
  * given. Transient errors (429/5xx) are retried in-call with a short backoff.
  */
-export async function gatewayJson(
+export async function ragJson(
   system: string,
   user: string,
   temperature = 0,
-  model: string = RAG_GATEWAY_MODEL,
+  model: string = RAG_MODEL,
 ): Promise<string> {
   for (let attempt = 0; ; attempt++) {
     try {

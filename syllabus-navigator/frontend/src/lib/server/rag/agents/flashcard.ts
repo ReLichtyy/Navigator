@@ -47,14 +47,25 @@ const SYSTEM =
   "(fill-in-the-blank) cards. You may rephrase, combine and create fresh angles. Never make cards " +
   "about the document's schedule, dates or weights."
 
+// User-preferred card style (Configuración → Formato de tarjetas). "mixed" (or
+// no preference) keeps the agent's default mix from SYSTEM.
+const FORMAT_HINT: Record<string, string> = {
+  qa: "CARD FORMAT: the user prefers question→answer cards. Make (almost) every front a direct question.",
+  cloze:
+    "CARD FORMAT: the user prefers cloze cards. Make most fronts fill-in-the-blank sentences (one blank, marked with ___).",
+  definition:
+    "CARD FORMAT: the user prefers concept→definition cards. Make most fronts a bare concept/term and backs its definition.",
+}
+
 export async function flashcardAgent(
   evidence: string,
   opts: StudyGenOptions = {},
 ): Promise<Flashcard[]> {
+  const formatHint = opts.cardFormat ? FORMAT_HINT[opts.cardFormat] : undefined
   const out = await runAgent({
     role: "flashcard",
     system: SYSTEM,
-    user: `${buildDirectives(opts)}\n\nCourse material:\n\n${evidence}`,
+    user: `${buildDirectives(opts)}${formatHint ? `\n${formatHint}` : ""}\n\nCourse material:\n\n${evidence}`,
     schema: Schema,
     jsonSchema: JSON_SCHEMA as unknown as Record<string, unknown>,
     schemaName: "flashcards",

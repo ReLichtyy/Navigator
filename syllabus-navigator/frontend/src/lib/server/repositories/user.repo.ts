@@ -73,3 +73,43 @@ export async function getOrCreateUserByClerk(
   logInfo("user.clerk.provisioned", { userId: user.id, role: user.role })
   return user
 }
+
+/** Current avatar/profile image URL for a user (null when unset). */
+export async function getUserImage(userId: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT image FROM users WHERE id = ${userId}::uuid
+  `) as { image: string | null }[]
+  return rows[0]?.image ?? null
+}
+
+/** Set (or clear, with null) the user's avatar/profile image URL. */
+export async function setUserImage(userId: string, url: string | null): Promise<void> {
+  await sql`
+    UPDATE users SET image = ${url}, updated_at = now() WHERE id = ${userId}::uuid
+  `
+}
+
+/**
+ * Delete ALL of a user's data in Neon. `chats` and `syllabus_uploads` key on a
+ * TEXT user_id without FK (guest legacy), so they're deleted explicitly first —
+ * their children (messages, chunks, topics, schedule_events, study_sets…)
+ * cascade from them. The users row goes last; everything else (prefs, notes,
+ * mastery, user_courses, quiz_review/seen, usage, feedback) cascades from it.
+ * Returns the stored-file URLs (uploads + avatar) so the caller can clean up
+ * the blobs. Clerk deletion happens client-side AFTER this succeeds (Neon
+ * first, so a failed Clerk delete leaves a re-linkable row).
+ */
+export async function deleteUser(userId: string): Promise<{ fileUrls: string[] }> {
+  const uploads = (await sql`
+    SELECT file_url FROM syllabus_uploads WHERE user_id = ${userId} AND file_url IS NOT NULL
+  `) as { file_url: string }[]
+  const avatar = await getUserImage(userId)
+
+  await sql`DELETE FROM chats WHERE user_id = ${userId}`
+  await sql`DELETE FROM syllabus_uploads WHERE user_id = ${userId}`
+  await sql`DELETE FROM users WHERE id = ${userId}::uuid`
+
+  const fileUrls = uploads.map((u) => u.file_url)
+  if (avatar) fileUrls.push(avatar)
+  return { fileUrls }
+}

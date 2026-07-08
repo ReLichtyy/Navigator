@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod"
-import { gatewayJson, extractJson } from "@/lib/llm/gateway-generate"
+import { ragJson, extractJson } from "@/lib/llm/rag-generate"
 import { logError } from "@/lib/observability/logger"
 import type { GraphNodeInput } from "../repositories/graph.repo"
 
@@ -61,7 +61,7 @@ export async function extractGraphFromText(syllabusText: string): Promise<GraphN
   try {
     // Cap the prompt so a large document doesn't make this call slow/costly.
     // ~15k tokens covers a syllabus' structure; the graph is an overview map.
-    const raw = await gatewayJson(
+    const raw = await ragJson(
       SYSTEM_PROMPT,
       `Extract the topic graph from the following syllabus text:\n\n${syllabusText.slice(0, 60_000)}`,
     )

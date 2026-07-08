@@ -28,6 +28,7 @@ import {
 import { QuizReviewRepository, type ReviewQuestion } from "../repositories/quiz-review.repo"
 import { QuizSeenRepository } from "../repositories/quiz-seen.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
+import { getUserPrefs } from "../utils/user-prefs"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
 import { webSearchContext, appendWebContext } from "../rag/web-search"
 import { orchestrateStudySet } from "../rag/orchestrator/runner"
@@ -42,10 +43,46 @@ import {
   pickMindMode,
   type StudySet,
   type Difficulty,
+  type CardFormat,
   type Flashcard,
   type QuizQuestion,
   type MindMode,
 } from "../rag/study-gen"
+
+// ── Configuración → Study Engine mappings (the UI stores Spanish labels) ─────
+// "Adaptativa" maps to no default: difficulty stays automatic.
+const PREF_DIFFICULTY: Record<string, Difficulty> = {
+  Fácil: "facil",
+  Media: "medio",
+  Difícil: "dificil",
+}
+const PREF_CARD_FORMAT: Record<string, CardFormat> = {
+  "Pregunta y respuesta": "qa",
+  "Rellenar huecos": "cloze",
+  Definición: "definition",
+  Mixto: "mixed",
+}
+
+interface StudyPrefs {
+  language: string
+  /** Default difficulty from settings (undefined = Adaptativa/none). */
+  difficulty?: Difficulty
+  cardFormat?: CardFormat
+  /** Preferred quiz size per stage (5/10/15). */
+  questionCount?: number
+}
+
+/** Resolve the user's study-relevant preferences (cached via getUserPrefs). */
+async function getStudyPrefs(userId: string): Promise<StudyPrefs> {
+  const prefs = await getUserPrefs(userId)
+  const study = prefs.profile.study ?? {}
+  return {
+    language: prefs.language,
+    difficulty: study.difficulty ? PREF_DIFFICULTY[study.difficulty] : undefined,
+    cardFormat: study.cardFormat ? PREF_CARD_FORMAT[study.cardFormat] : undefined,
+    questionCount: study.questionCount,
+  }
+}
 
 /** Serve-time option shuffle for a whole set's quiz (bank items have biased `answer`). */
 function shuffleSetQuiz(set: StudySet): StudySet {
@@ -81,6 +118,8 @@ export interface QuizStage {
   stage: number
   stages: number
   difficulty: Difficulty
+  /** Correct answers required to clear this stage (user pref; default STAGE_SIZE). */
+  size: number
   questions: StageQuestion[]
 }
 
@@ -125,15 +164,17 @@ async function stageItems(
     text: string
     weightedTopics: { label: string; weight: number }[]
   } | null>,
+  language?: string,
+  sizes: { need: number; pool: number } = { need: STAGE_SIZE, pool: STAGE_POOL },
 ): Promise<{ id: string; topicKey: string | null; payload: QuizQuestion }[]> {
   let pool = await StudyItemsRepository.listForStage<QuizQuestion>(
     scope,
     "quiz",
     difficulty,
-    STAGE_POOL,
+    sizes.pool,
     excludeIds,
   )
-  if (pool.length < STAGE_SIZE) {
+  if (pool.length < sizes.need) {
     const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
     if (total < BANK_CAP_PER_DIFFICULTY) {
       try {
@@ -145,7 +186,7 @@ async function stageItems(
             Array.from({ length: SUB_BATCHES }, () =>
               inquisitorAgent(
                 ev.text,
-                { difficulty, weightedTopics: ev.weightedTopics, excludeSeen },
+                { difficulty, weightedTopics: ev.weightedTopics, excludeSeen, language },
                 perBatch,
               ).then((raw) => gateQuiz(raw, ev.text)),
             ),
@@ -167,7 +208,7 @@ async function stageItems(
               scope,
               "quiz",
               difficulty,
-              STAGE_POOL,
+              sizes.pool,
               excludeIds,
             )
           }
@@ -315,11 +356,21 @@ export const StudyService = {
     if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
 
     const topic = opts.topic?.trim() || undefined
-    const difficulty = opts.difficulty ?? "medio"
+    // Per-user prefs (Configuración): output language, default difficulty and
+    // card format. An explicit ?difficulty query param still wins over the pref.
+    const { language, difficulty: prefDifficulty, cardFormat } = await getStudyPrefs(userId)
+    const difficulty = opts.difficulty ?? prefDifficulty ?? "medio"
     // Web-augmented sets pull live external context → always fresh, never cached
     // (so they can't clobber the canonical doc-only default set). An explicit mind
     // mode override is likewise a one-off request, not the canonical default.
-    const custom = !!topic || difficulty !== "medio" || !!opts.web || !!opts.mindMode
+    // Note: only an EXPLICIT difficulty makes the set custom — the pref-driven
+    // default shapes the canonical cached set instead (changing the pref takes
+    // effect on the next refresh, not retroactively on the cached set).
+    const custom =
+      !!topic ||
+      (opts.difficulty !== undefined && opts.difficulty !== "medio") ||
+      !!opts.web ||
+      !!opts.mindMode
     const scope: StudyScope = { kind: "doc", id: syllabusId }
     const fingerprint = await ChunkRepository.contentFingerprint(syllabusId)
 
@@ -362,7 +413,7 @@ export const StudyService = {
     // subject) and append the grounded notes as supplementary source material.
     if (opts.web) {
       const query = topic ?? doc.original_filename.replace(/\.pdf$/i, "")
-      const web = await webSearchContext(query)
+      const web = await webSearchContext(query, language)
       if (web) text = appendWebContext(text, web)
     }
 
@@ -374,7 +425,7 @@ export const StudyService = {
     const excludeSeen = await seenTexts(scope)
     const set = await orchestrateStudySet(
       text,
-      { difficulty, topic, weightedTopics, excludeSeen, mindMode },
+      { difficulty, topic, weightedTopics, excludeSeen, mindMode, language, cardFormat },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
     if (!set) {
@@ -412,9 +463,15 @@ export const StudyService = {
     if (!course) throw new ApiErrorResponse("Course not found", 404)
 
     const topic = opts.topic?.trim() || undefined
-    const difficulty = opts.difficulty ?? "medio"
+    // Per-user prefs (see getStudySet for the semantics).
+    const { language, difficulty: prefDifficulty, cardFormat } = await getStudyPrefs(userId)
+    const difficulty = opts.difficulty ?? prefDifficulty ?? "medio"
     // Web-augmented sets are always fresh (see getStudySet).
-    const custom = !!topic || difficulty !== "medio" || !!opts.web || !!opts.mindMode
+    const custom =
+      !!topic ||
+      (opts.difficulty !== undefined && opts.difficulty !== "medio") ||
+      !!opts.web ||
+      !!opts.mindMode
     const scope: StudyScope = { kind: "course", id: courseId }
     const fingerprint = await ChunkRepository.contentFingerprintByCourse(userId, courseId)
 
@@ -439,7 +496,7 @@ export const StudyService = {
 
     // Web augmentation: live search on the focus topic (else the course name).
     if (opts.web) {
-      const web = await webSearchContext(topic ?? course.name)
+      const web = await webSearchContext(topic ?? course.name, language)
       if (web) text = appendWebContext(text, web)
     }
 
@@ -447,7 +504,7 @@ export const StudyService = {
     const excludeSeen = await seenTexts(scope)
     const set = await orchestrateStudySet(
       text,
-      { difficulty, topic, weightedTopics: [], excludeSeen, mindMode },
+      { difficulty, topic, weightedTopics: [], excludeSeen, mindMode, language, cardFormat },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
     if (!set) {
@@ -512,14 +569,18 @@ export const StudyService = {
     const scope: StudyScope = { kind: "doc", id: syllabusId }
 
     // Independent reads in parallel: mastery (escalation base), the topic graph,
-    // the Repaso exclusion set, and the per-user "already seen" set (no repeats
-    // across sessions).
-    const [mastery, graph, reviewExclude, seenExclude] = await Promise.all([
+    // the Repaso exclusion set, the per-user "already seen" set (no repeats
+    // across sessions), and the user's prefs (output language).
+    const [mastery, graph, reviewExclude, seenExclude, prefs] = await Promise.all([
       MasteryRepository.listForSyllabus(userId, syllabusId).catch(() => []),
       GraphRepository.getGraph(syllabusId),
       QuizReviewRepository.openItemIds(userId, scope).catch(() => []),
       QuizSeenRepository.seenItemIds(userId, scope).catch(() => []),
+      getStudyPrefs(userId),
     ])
+    // Preguntas por quiz (Configuración): stage size + the same swap buffer.
+    const size = prefs.questionCount ?? STAGE_SIZE
+    const poolSize = size + (STAGE_POOL - STAGE_SIZE)
     const masteryAvg =
       mastery.length > 0 ? mastery.reduce((s, m) => s + m.confidence, 0) / mastery.length : 0
     const difficulty = stageDifficulty(stage, masteryAvg, boost)
@@ -538,18 +599,26 @@ export const StudyService = {
     // Failed questions live in Repaso, and already-seen ones must not repeat →
     // exclude both from stages.
     const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude, ...seenExclude]))
-    const items = await stageItems(scope, difficulty, allExclude, async () => {
-      const text =
-        (await buildContextByTopics({ kind: "doc", id: syllabusId }, ordered)) ??
-        (await ChunkRepository.getConcatenatedText(syllabusId))
-      return text ? { text, weightedTopics } : null
-    })
+    const items = await stageItems(
+      scope,
+      difficulty,
+      allExclude,
+      async () => {
+        const text =
+          (await buildContextByTopics({ kind: "doc", id: syllabusId }, ordered)) ??
+          (await ChunkRepository.getConcatenatedText(syllabusId))
+        return text ? { text, weightedTopics } : null
+      },
+      prefs.language,
+      { need: size, pool: poolSize },
+    )
 
-    const orderedItems = orderByPlan(items, orderedKeys).slice(0, STAGE_POOL)
+    const orderedItems = orderByPlan(items, orderedKeys).slice(0, poolSize)
     return {
       stage,
       stages: STAGES,
       difficulty,
+      size,
       // Shuffle options on serve: bank payloads keep the generator's biased `answer`.
       questions: orderedItems.map((it) => ({ ...shuffleQuizOptions(it.payload), id: it.id })),
     }
@@ -573,21 +642,32 @@ export const StudyService = {
     const scope: StudyScope = { kind: "course", id: courseId }
     const difficulty = stageDifficulty(stage, 0, boost)
 
-    const [reviewExclude, seenExclude] = await Promise.all([
+    const [reviewExclude, seenExclude, prefs] = await Promise.all([
       QuizReviewRepository.openItemIds(userId, scope).catch(() => []),
       QuizSeenRepository.seenItemIds(userId, scope).catch(() => []),
+      getStudyPrefs(userId),
     ])
+    const size = prefs.questionCount ?? STAGE_SIZE
+    const poolSize = size + (STAGE_POOL - STAGE_SIZE)
     const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude, ...seenExclude]))
-    const items = await stageItems(scope, difficulty, allExclude, async () => {
-      const text = await ChunkRepository.getConcatenatedTextByCourse(userId, courseId)
-      return text ? { text, weightedTopics: [] } : null
-    })
+    const items = await stageItems(
+      scope,
+      difficulty,
+      allExclude,
+      async () => {
+        const text = await ChunkRepository.getConcatenatedTextByCourse(userId, courseId)
+        return text ? { text, weightedTopics: [] } : null
+      },
+      prefs.language,
+      { need: size, pool: poolSize },
+    )
 
-    const ordered = orderByPlan(items, []).slice(0, STAGE_POOL)
+    const ordered = orderByPlan(items, []).slice(0, poolSize)
     return {
       stage,
       stages: STAGES,
       difficulty,
+      size,
       questions: ordered.map((it) => ({ ...shuffleQuizOptions(it.payload), id: it.id })),
     }
   },

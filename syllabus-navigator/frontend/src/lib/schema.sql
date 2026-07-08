@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Perfil del estudiante + preferencias de estudio (modal Configuración).
+ALTER TABLE user_preferences ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;
+
 -- ---------------------------------------------------------------------------
 -- MVP RAG uploads
 -- ---------------------------------------------------------------------------

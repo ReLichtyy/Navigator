@@ -3,7 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState, type ReactNode } from "react"
-import { Compass, Menu, User as UserIcon } from "lucide-react"
+import { Compass, Menu, Settings, User as UserIcon } from "lucide-react"
+import { SettingsModal } from "@/components/settings/settings-modal"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -30,9 +31,10 @@ export function MobileNav({
   children?: ReactNode
 }) {
   const pathname = usePathname()
-  const { displayName, status, resetIdentity } = useUser()
+  const { displayName, status, resetIdentity, avatarUrl } = useUser()
   const { openAuthModal } = useAuthModal()
   const [open, setOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Close the drawer on navigation.
   useEffect(() => {
@@ -66,111 +68,136 @@ export function MobileNav({
   }
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      {trigger ? (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className={cn("md:hidden", className)}
-          aria-label="Abrir menú"
-        >
-          {trigger}
-        </button>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setOpen(true)}
-          className={cn("md:hidden", className)}
-          aria-label="Abrir menú"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
-      )}
-
-      <SheetContent
-        side="left"
-        className="flex w-72 flex-col gap-0 bg-sidebar p-3 text-sidebar-foreground md:hidden"
-      >
-        <SheetHeader className="p-0">
-          <SheetTitle className="sr-only">Navegación</SheetTitle>
-        </SheetHeader>
-
-        {/* Brand */}
-        <div className="flex items-center gap-2.5 px-1 pb-2 pt-1">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent-bright">
-            <Compass className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-bold leading-tight text-sidebar-foreground">
-              Navigator
-            </div>
-            <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              Study OS
-            </div>
-          </div>
-        </div>
-
-        {/* Main nav */}
-        <nav className="mt-2 flex flex-col gap-1">
-          {MAIN_NAV.map((item) => (
-            <NavLink key={item.href} item={item} />
-          ))}
-        </nav>
-
-        {/* Study group */}
-        <div className="mb-1 mt-5 px-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Estudio
-          </span>
-        </div>
-        <nav className="flex flex-col gap-1">
-          {STUDY_NAV.map((item) => (
-            <NavLink key={item.href} item={item} />
-          ))}
-        </nav>
-
-        {/* Optional chat history (assistant page injects it here). */}
-        {children ? (
-          <div className="mt-5 flex min-h-0 flex-1 flex-col" onClick={() => setOpen(false)}>
-            {children}
-          </div>
+    <>
+      {/* Outside the Sheet: Radix unmounts SheetContent on close, and the
+          settings modal must survive the drawer closing. */}
+      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <Sheet open={open} onOpenChange={setOpen}>
+        {trigger ? (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className={cn("md:hidden", className)}
+            aria-label="Abrir menú"
+          >
+            {trigger}
+          </button>
         ) : (
-          <div className="flex-1" />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setOpen(true)}
+            className={cn("md:hidden", className)}
+            aria-label="Abrir menú"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
         )}
 
-        {/* Profile / auth */}
-        {status === "anonymous" ? (
-          <Button
-            variant="outline"
-            onClick={() => {
-              setOpen(false)
-              openAuthModal("login")
-            }}
-            className="w-full justify-start gap-2 border-sidebar-border"
-          >
-            <UserIcon className="h-4 w-4" />
-            <span>Iniciar sesión</span>
-          </Button>
-        ) : (
-          <div className="flex items-center gap-2.5 rounded-xl border border-sidebar-border bg-card/40 p-2.5">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[linear-gradient(140deg,#2c8d5f,#1b5a3c)] text-xs font-bold text-[#E8F7EE]">
-              {(displayName ?? "U").slice(0, 2).toUpperCase()}
+        <SheetContent
+          side="left"
+          className="flex w-72 flex-col gap-0 bg-sidebar p-3 text-sidebar-foreground md:hidden"
+        >
+          <SheetHeader className="p-0">
+            <SheetTitle className="sr-only">Navegación</SheetTitle>
+          </SheetHeader>
+
+          {/* Brand */}
+          <div className="flex items-center gap-2.5 px-1 pb-2 pt-1">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent-bright">
+              <Compass className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-bold leading-tight text-sidebar-foreground">
+                Navigator
+              </div>
+              <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Study OS
+              </div>
+            </div>
+          </div>
+
+          {/* Main nav */}
+          <nav className="mt-2 flex flex-col gap-1">
+            {MAIN_NAV.map((item) => (
+              <NavLink key={item.href} item={item} />
+            ))}
+          </nav>
+
+          {/* Study group */}
+          <div className="mb-1 mt-5 px-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Estudio
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold text-sidebar-foreground">
-                {displayName ?? "Usuario"}
+          </div>
+          <nav className="flex flex-col gap-1">
+            {STUDY_NAV.map((item) => (
+              <NavLink key={item.href} item={item} />
+            ))}
+          </nav>
+
+          {/* Optional chat history (assistant page injects it here). */}
+          {children ? (
+            <div className="mt-5 flex min-h-0 flex-1 flex-col" onClick={() => setOpen(false)}>
+              {children}
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
+
+          {/* Profile / auth */}
+          {status === "anonymous" ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setOpen(false)
+                openAuthModal("login")
+              }}
+              className="w-full justify-start gap-2 border-sidebar-border"
+            >
+              <UserIcon className="h-4 w-4" />
+              <span>Iniciar sesión</span>
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2.5 rounded-xl border border-sidebar-border bg-card/40 p-2.5">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={avatarUrl}
+                  alt=""
+                  className="h-8 w-8 shrink-0 rounded-[9px] object-cover"
+                />
+              ) : (
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[linear-gradient(140deg,#2c8d5f,#1b5a3c)] text-xs font-bold text-[#E8F7EE]">
+                  {(displayName ?? "U").slice(0, 2).toUpperCase()}
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-sidebar-foreground">
+                  {displayName ?? "Usuario"}
+                </span>
+                <button
+                  onClick={resetIdentity}
+                  className="text-[11px] text-destructive hover:underline"
+                >
+                  Cerrar sesión
+                </button>
               </span>
               <button
-                onClick={resetIdentity}
-                className="text-[11px] text-destructive hover:underline"
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  setSettingsOpen(true)
+                }}
+                aria-label="Configuración"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
               >
-                Cerrar sesión
+                <Settings className="h-4 w-4" />
               </button>
-            </span>
-          </div>
-        )}
-      </SheetContent>
-    </Sheet>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+    </>
   )
 }

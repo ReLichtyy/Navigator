@@ -75,10 +75,34 @@ export type {
   CourseAPI,
 }
 
+export interface UserStudyPrefsAPI {
+  difficulty?: "Fácil" | "Media" | "Difícil" | "Adaptativa"
+  cardFormat?: "Pregunta y respuesta" | "Rellenar huecos" | "Definición" | "Mixto"
+  questionCount?: 5 | 10 | 15
+  sessionLen?: 15 | 25 | 45
+  spaced?: boolean
+  mixSubjects?: boolean
+}
+
+export interface UserProfileAPI {
+  fullName?: string
+  displayName?: string
+  career?: string
+  school?: string
+  level?: "Secundaria" | "Preparatoria" | "Universidad" | "Posgrado" | "Autodidacta"
+  tone?: "Cercano" | "Neutro" | "Directo"
+  detail?: "Conciso" | "Equilibrado" | "Detallado"
+  study?: UserStudyPrefsAPI
+}
+
 export interface UserPreferencesAPI {
   defaultProvider: string
   defaultModel: string
+  theme?: "dark" | "light" | "system"
   language: string
+  profile?: UserProfileAPI
+  /** Custom avatar (users.image). Read-only here — managed via upload/removeAvatar. */
+  avatarUrl?: string | null
 }
 
 export interface UsageSummaryAPI {
@@ -401,6 +425,21 @@ export async function updatePreferences(patch: Partial<UserPreferencesAPI>) {
   })
 }
 
+export async function uploadAvatar(file: File) {
+  const form = new FormData()
+  form.append("file", file)
+  return request<{ url: string }>("/user/avatar", { method: "POST", body: form, json: false })
+}
+
+export async function removeAvatar() {
+  return request<{ ok: boolean }>("/user/avatar", { method: "DELETE", json: false })
+}
+
+/** Delete the caller's Neon account data (Clerk deletion is done client-side after). */
+export async function deleteAccount() {
+  return request<{ ok: boolean }>("/user", { method: "DELETE", json: false })
+}
+
 export async function getUsage() {
   return request<{ usage: UsageSummaryAPI }>("/usage", { method: "GET", json: false })
 }
@@ -680,11 +719,13 @@ export async function fetchStudyStats() {
   return request<StudyStatsAPI>(`/study/stats`, { method: "GET", json: false })
 }
 
-/** One escalating stage of the staged quiz (15 to clear + buffer). */
+/** One escalating stage of the staged quiz (`size` to clear + buffer). */
 export interface QuizStageAPI {
   stage: number
   stages: number
   difficulty: StudyDifficulty
+  /** Correct answers required to clear the stage (user pref; server default 15). */
+  size?: number
   questions: QuizQuestionAPI[]
 }
 

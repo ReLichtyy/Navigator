@@ -3,10 +3,9 @@
  *
  * The Study Engine runs on DIRECT provider APIs: OpenAI for generation (strict
  * json_schema output in _base.ts) and DeepSeek for the reasoning roles. The
- * Bluesmind gateway was dropped as default on 2026-07-01: every model it lists
- * fails live (gpt-5.4 → 503 "no available channel", gpt-5-nano → 504, gemini →
- * 500, deepseek/* → 403/400). The "bluesmind" provider is still accepted via
- * env overrides if the gateway comes back. Each role's model is overridable
+ * Bluesmind gateway that used to host these roles died 2026-07-01 and was
+ * removed — the stale-env guard below still maps its old model ids to safe
+ * defaults so a leftover deploy env can't 404. Each role's model is overridable
  * per-deploy via env (no code change).
  *
  * Preset:
@@ -16,7 +15,6 @@
  *   - verifier                            → deepseek deepseek-chat (direct; the
  *     reasoner's full CoT made every cold quiz-stage generation 1.5-3 min —
  *     batched boolean gating doesn't need it. MODEL_VERIFIER env restores it.)
- *   - grader (reasoning, unused today)    → deepseek deepseek-reasoner (direct)
  *
  * Fallbacks stay on OpenAI (the consistently-up provider) so one flaky model
  * never empties a study set. Embeddings stay on OpenAI; the chat assistant is
@@ -24,8 +22,8 @@
  */
 import type { LLMProvider } from "./types"
 
-/** Study Engine providers: the base LLM providers plus the Bluesmind gateway. */
-export type AgentProvider = LLMProvider | "bluesmind"
+/** Study Engine providers (the base LLM providers; the Bluesmind gateway was removed). */
+export type AgentProvider = LLMProvider
 
 export type AgentRole =
   | "router"
@@ -35,7 +33,6 @@ export type AgentRole =
   | "case"
   | "flashcard"
   | "verifier"
-  | "grader"
 
 export interface RoleModel {
   provider: AgentProvider
@@ -72,12 +69,6 @@ const RAW: Record<
   verifier: {
     provider: DS,
     model: env("MODEL_VERIFIER", "deepseek-chat"),
-    fallback: "gpt-5-mini",
-    fallbackProvider: OA,
-  },
-  grader: {
-    provider: DS,
-    model: env("MODEL_GRADER", "deepseek-reasoner"),
     fallback: "gpt-5-mini",
     fallbackProvider: OA,
   },

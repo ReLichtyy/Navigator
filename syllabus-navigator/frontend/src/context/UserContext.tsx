@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react"
 import { useUser as useClerkUser, useClerk } from "@clerk/nextjs"
+import { getPreferences } from "@/lib/api"
+import { applyTheme, isThemePref, watchSystemTheme } from "@/lib/ui/theme"
 
 interface UserContextType {
   userId: string | null
@@ -10,8 +12,12 @@ interface UserContextType {
   ready: boolean
   // "guest" kept in the union for backwards-compat with older callers; never emitted under Clerk.
   status: "anonymous" | "guest" | "authenticated" | "loading"
+  /** Custom avatar (users.image) when set, else the Clerk/Google photo, else null. */
+  avatarUrl: string | null
   resetIdentity: () => void
   setDisplayName: (name: string) => void
+  /** Update the custom avatar app-wide (pass null to fall back to the Clerk photo). */
+  setAvatarUrl: (url: string | null) => void
 }
 
 const UserContext = createContext<UserContextType>({
@@ -20,14 +26,17 @@ const UserContext = createContext<UserContextType>({
   role: null,
   ready: false,
   status: "loading",
+  avatarUrl: null,
   resetIdentity: () => {},
   setDisplayName: () => {},
+  setAvatarUrl: () => {},
 })
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, user } = useClerkUser()
   const { signOut } = useClerk()
   const [displayName, setDisplayNameState] = useState<string | null>(null)
+  const [customAvatar, setCustomAvatar] = useState<string | null>(null)
 
   useEffect(() => {
     const name =
@@ -35,7 +44,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (name) setDisplayNameState(name)
   }, [user])
 
+  // Custom avatar (users.image) + server theme pref — one cheap read on
+  // sign-in (server caches prefs). The theme is mirrored to localStorage so the
+  // anti-FOUC script in layout.tsx picks it up on the next load.
+  useEffect(() => {
+    if (!isSignedIn) {
+      setCustomAvatar(null)
+      return
+    }
+    getPreferences()
+      .then((data) => {
+        setCustomAvatar(data?.preferences?.avatarUrl ?? null)
+        const theme = data?.preferences?.theme
+        if (isThemePref(theme)) applyTheme(theme)
+      })
+      .catch(() => {})
+  }, [isSignedIn])
+
+  // "system" theme follows OS scheme changes live.
+  useEffect(() => watchSystemTheme(), [])
+
   const setDisplayName = (name: string) => setDisplayNameState(name)
+  const setAvatarUrl = (url: string | null) => setCustomAvatar(url)
 
   const resetIdentity = () => {
     void signOut({ redirectUrl: "/sign-in" })
@@ -55,8 +85,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
         role: (user?.publicMetadata?.role as string | undefined) ?? (isSignedIn ? "free" : null),
         ready: isLoaded,
         status,
+        avatarUrl: customAvatar ?? user?.imageUrl ?? null,
         resetIdentity,
         setDisplayName,
+        setAvatarUrl,
       }}
     >
       {children}

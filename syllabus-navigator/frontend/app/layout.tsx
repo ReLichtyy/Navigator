@@ -40,8 +40,21 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="es" className={`dark ${geist.variable} ${geistMono.variable} bg-background`}>
+    <html
+      lang="es"
+      className={`dark ${geist.variable} ${geistMono.variable} bg-background`}
+      suppressHydrationWarning
+    >
       <body className="font-sans antialiased flex h-dvh w-full overflow-hidden text-foreground">
+        {/* Anti-FOUC: apply the persisted theme (localStorage "nav-theme",
+            mirrored from user_preferences.theme) before anything paints.
+            Default stays dark — the SSR class above — so first-ever loads and
+            storage failures look like the original app. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("nav-theme")||"dark";var d=t==="dark"||(t==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);}catch(e){}})();`,
+          }}
+        />
         <ClerkProvider appearance={{ baseTheme: dark }}>
           <ClientProviders>
             <AppSidebar />

@@ -9,7 +9,7 @@
  */
 
 import { embedTexts } from "@/lib/llm/embeddings"
-import { isTransientLLMError } from "@/lib/llm/gateway-generate"
+import { isTransientLLMError } from "@/lib/llm/rag-generate"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { GraphRepository } from "../repositories/graph.repo"
 import { ScheduleRepository } from "../repositories/schedule.repo"

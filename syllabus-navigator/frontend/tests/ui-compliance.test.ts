@@ -12,22 +12,8 @@ function src(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8")
 }
 
-// Auth UI moved to Clerk (/sign-in, /sign-up). The legacy (auth)/login|signup
-// routes are now thin redirects; the real screens are Clerk's hosted components.
-describe("UI-1 Login window (Clerk redirect)", () => {
-  const f = src("app/(auth)/login/page.tsx")
-  it("redirects to the Clerk sign-in route", () => {
-    expect(f).toContain('redirect("/sign-in")')
-  })
-})
-
-describe("UI-2 Signup window (Clerk redirect)", () => {
-  const f = src("app/(auth)/signup/page.tsx")
-  it("redirects to the Clerk sign-up route", () => {
-    expect(f).toContain('redirect("/sign-up")')
-  })
-})
-
+// Auth UI is fully on Clerk (/sign-in, /sign-up). The legacy (auth)/login|signup
+// redirect routes were removed; nothing links to /login|/signup anymore.
 describe("Clerk auth routes exist", () => {
   it("mounts <SignIn/> and <SignUp/>", () => {
     expect(src("app/sign-in/[[...sign-in]]/page.tsx")).toContain("SignIn")
@@ -35,18 +21,22 @@ describe("Clerk auth routes exist", () => {
   })
 })
 
-describe("UI-3 Settings window", () => {
-  const f = src("app/settings/page.tsx")
-  it("imports Select/Input/Card/Button primitives", () => {
-    expect(f).toContain("@/components/ui/select")
-    expect(f).toContain("@/components/ui/input")
-    expect(f).toContain("@/components/ui/card")
-    expect(f).toContain("@/components/ui/button")
+// The old /settings page was retired: preferences + usage moved into the
+// Configuración modal (opened from the profile menu). /settings now just
+// redirects home and asks the shell to open that modal.
+describe("UI-3 Settings retired → Configuración modal", () => {
+  it("/settings redirects home and flags the modal to open", () => {
+    const f = src("app/settings/page.tsx")
+    expect(f).toContain('router.replace("/")')
+    expect(f).toContain("OPEN_SETTINGS_FLAG")
   })
-  it("has no raw <select>/<input>/<button>", () => {
-    expect(f).not.toMatch(/<select\b/)
-    expect(f).not.toMatch(/<input\b/)
-    expect(f).not.toMatch(/<button\b/)
+  it("the settings modal carries every section incl. account/appearance/billing", () => {
+    const f = src("src/components/settings/settings-modal.tsx")
+    expect(f).toContain("AccountSection")
+    expect(f).toContain("BillingSection")
+    for (const label of ["Perfil", "Cuenta", "Apariencia", "Plan y facturación"]) {
+      expect(f).toContain(label)
+    }
   })
 })
 

@@ -9,7 +9,7 @@
 import OpenAI from "openai"
 import type { z } from "zod"
 import { chatCompletion } from "@/lib/llm"
-import { isNextGenModel, isReasoningModel } from "@/lib/llm/config"
+import { isNextGenModel } from "@/lib/llm/config"
 import { resolveAgentModel, type AgentRole, type AgentProvider } from "@/lib/llm/agent-models"
 import { logError } from "@/lib/observability/logger"
 
@@ -21,20 +21,6 @@ function client(): OpenAI {
     _client = new OpenAI({ apiKey })
   }
   return _client
-}
-
-// Bluesmind gateway (OpenAI-compatible): kept only for env-override use — the
-// defaults moved to direct OpenAI/DeepSeek (agent-models.ts) when the gateway died.
-let _bluesmind: OpenAI | null = null
-function bluesmind(): OpenAI {
-  if (!_bluesmind) {
-    const apiKey = process.env.BLUESMIND_API_KEY
-    const baseURL = process.env.BLUESMIND_BASE_URL
-    if (!apiKey) throw new Error("BLUESMIND_API_KEY is not configured")
-    if (!baseURL) throw new Error("BLUESMIND_BASE_URL is not configured")
-    _bluesmind = new OpenAI({ apiKey, baseURL })
-  }
-  return _bluesmind
 }
 
 /** Pull a JSON object out of a model reply, tolerating ```json fences / prose. */
@@ -63,22 +49,6 @@ async function callOnce(
   model: string,
   c: AgentCall<unknown>,
 ): Promise<string> {
-  if (provider === "bluesmind") {
-    // Mixed vendors via the gateway → no OpenAI strict json_schema; instruct + parse.
-    // Reasoning models (deepseek-reasoner, gpt-5/o-series) reject temperature → omit.
-    const completion = await bluesmind().chat.completions.create({
-      model,
-      ...(isReasoningModel(model) ? {} : { temperature: c.temperature ?? 0.6 }),
-      messages: [
-        {
-          role: "system",
-          content: `${c.system}\n\nRespond ONLY with a single valid JSON object that matches the requested shape. No prose, no markdown fences.`,
-        },
-        { role: "user", content: c.user },
-      ],
-    })
-    return completion.choices[0]?.message?.content ?? "{}"
-  }
   if (provider === "openai") {
     const completion = await client().chat.completions.create({
       model,

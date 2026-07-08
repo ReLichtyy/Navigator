@@ -4,7 +4,17 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { fetchStudyStats, listChats, type StudyStatsAPI } from "@/lib/api"
-import { ChevronDown, Compass, List, PanelLeft, Plus, Flame, User as UserIcon } from "lucide-react"
+import {
+  ChevronDown,
+  Compass,
+  List,
+  PanelLeft,
+  Plus,
+  Flame,
+  Settings,
+  User as UserIcon,
+} from "lucide-react"
+import { SettingsModal } from "@/components/settings/settings-modal"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
@@ -19,17 +29,24 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { MAIN_NAV, STUDY_NAV, type NavItem } from "@/components/navigator/nav-items"
+import { consumeOpenSettings } from "@/lib/ui/settings-intent"
 
 export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { displayName, status, resetIdentity } = useUser()
+  const { displayName, status, resetIdentity, avatarUrl } = useUser()
   const { openAuthModal } = useAuthModal()
   const { requestChat, requestNewChat, setAllChatsOpen } = useChatNav()
   const [collapsed, setCollapsed] = useState(false)
   const [stats, setStats] = useState<StudyStatsAPI | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [recentChats, setRecentChats] = useState<{ id: string; title: string }[]>([])
+
+  // Honor the retired /settings route's redirect: open the modal once on mount.
+  useEffect(() => {
+    if (consumeOpenSettings()) setSettingsOpen(true)
+  }, [])
 
   useEffect(() => {
     if (status === "anonymous") {
@@ -52,8 +69,8 @@ export function AppSidebar() {
     }
   }, [status, pathname])
 
-  // Hide the app chrome on Clerk auth screens (sign-in/up + legacy redirects).
-  if (["/sign-in", "/sign-up", "/login", "/signup"].some((r) => pathname.startsWith(r))) {
+  // Hide the app chrome on Clerk auth screens.
+  if (["/sign-in", "/sign-up"].some((r) => pathname.startsWith(r))) {
     return null
   }
 
@@ -279,9 +296,18 @@ export function AppSidebar() {
                   collapsed && "justify-center p-2",
                 )}
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[linear-gradient(140deg,#2c8d5f,#1b5a3c)] text-xs font-bold text-[#E8F7EE]">
-                  {(displayName ?? "U").slice(0, 2).toUpperCase()}
-                </span>
+                {avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={avatarUrl}
+                    alt=""
+                    className="h-8 w-8 shrink-0 rounded-[9px] object-cover"
+                  />
+                ) : (
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[linear-gradient(140deg,#2c8d5f,#1b5a3c)] text-xs font-bold text-[#E8F7EE]">
+                    {(displayName ?? "U").slice(0, 2).toUpperCase()}
+                  </span>
+                )}
                 {!collapsed && (
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-sidebar-foreground">
@@ -296,12 +322,21 @@ export function AppSidebar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" side="top" sideOffset={10} className="w-56">
               <div className="px-2 py-1.5 text-sm font-medium">{displayName ?? "Usuario"}</div>
+              <DropdownMenuItem
+                onClick={() => setSettingsOpen(true)}
+                className="cursor-pointer gap-2"
+              >
+                <Settings className="h-4 w-4 text-muted-foreground" />
+                Configuración
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={resetIdentity} className="cursor-pointer text-destructive">
                 Cerrar sesión
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+
+        <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
       </TooltipProvider>
     </aside>
   )

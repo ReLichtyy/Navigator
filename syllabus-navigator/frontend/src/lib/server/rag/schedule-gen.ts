@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod"
-import { gatewayJson, extractJson } from "@/lib/llm/gateway-generate"
+import { ragJson, extractJson } from "@/lib/llm/rag-generate"
 import { logError } from "@/lib/observability/logger"
 
 export const EVENT_TYPES = [
@@ -68,7 +68,7 @@ export async function extractScheduleFromText(syllabusText: string): Promise<Ext
   try {
     // Cap the prompt so a large document doesn't make this call slow/costly.
     // Schedule items (dates, exams) cluster near the top of a syllabus.
-    const raw = await gatewayJson(
+    const raw = await ragJson(
       SYSTEM_PROMPT,
       `Extract the schedule from this syllabus text:\n\n${syllabusText.slice(0, 60_000)}`,
     )

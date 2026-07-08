@@ -108,6 +108,34 @@ export const CourseActionSchema = z.object({
 
 // User settings: closed enums / bounded strings — the previous handler stored
 // arbitrary `String(body[key])` values straight into the DB.
+
+// Perfil del estudiante (modal Configuración) — stored as one JSONB blob; the
+// client always sends the full object, so PATCH replaces it wholesale.
+export const UserProfileSchema = z.object({
+  fullName: z.string().trim().max(80).optional(),
+  displayName: z.string().trim().max(40).optional(),
+  career: z.string().trim().max(80).optional(),
+  school: z.string().trim().max(80).optional(),
+  level: z
+    .enum(["Secundaria", "Preparatoria", "Universidad", "Posgrado", "Autodidacta"])
+    .optional(),
+  tone: z.enum(["Cercano", "Neutro", "Directo"]).optional(),
+  detail: z.enum(["Conciso", "Equilibrado", "Detallado"]).optional(),
+  study: z
+    .object({
+      difficulty: z.enum(["Fácil", "Media", "Difícil", "Adaptativa"]).optional(),
+      cardFormat: z
+        .enum(["Pregunta y respuesta", "Rellenar huecos", "Definición", "Mixto"])
+        .optional(),
+      questionCount: z.union([z.literal(5), z.literal(10), z.literal(15)]).optional(),
+      sessionLen: z.union([z.literal(15), z.literal(25), z.literal(45)]).optional(),
+      spaced: z.boolean().optional(),
+      mixSubjects: z.boolean().optional(),
+    })
+    .optional(),
+})
+export type UserProfileInput = z.infer<typeof UserProfileSchema>
+
 export const UpdatePreferencesSchema = z
   .object({
     defaultProvider: z.enum(["openai", "deepseek", "openrouter"]).optional(),
@@ -120,6 +148,7 @@ export const UpdatePreferencesSchema = z
       .optional(),
     theme: z.enum(["dark", "light", "system"]).optional(),
     language: z.enum(["es", "en"]).optional(),
+    profile: UserProfileSchema.optional(),
   })
   .refine((d) => Object.values(d).some((v) => v !== undefined), {
     message: "No valid fields to update.",

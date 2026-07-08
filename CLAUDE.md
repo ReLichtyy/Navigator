@@ -53,7 +53,8 @@ Cross-cutting helpers used by services:
 | RAG / ingestion | `lib/server/rag/` | `chunking` (`pdfToPageChunks` via `unpdf` + office/link/text), `graph-gen`, `schedule-gen`, `study-gen` (types + normalize + shared prompts), `course-infer`, `web-search` |
 | Study Engine | `lib/server/rag/orchestrator/` + `agents/` + `eval/` + `retrieval/` | `runner#orchestrateStudySet` (flashcard/inquisitor/synth agents in parallel → `eval/gates` critic), `router` (study plan by mastery×weight×urgency), `planner#getTodaySession` (SRS), `retrieval/hybrid` (dense+lexical RRF per topic) |
 | PDF storage | `lib/server/storage/blob.ts` | `storePdf` → Vercel Blob (accounts only); degrades w/ warning if no token |
-| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai`, `openrouter`, `deepseek` (chat default). Study Engine agents run on **direct OpenAI** (+ DeepSeek: `deepseek-chat` verifier — el reasoner hacía 1.5-3 min el quiz frío, restaurable vía `MODEL_VERIFIER` —, `deepseek-reasoner` grader sin uso) — `agent-models.ts` role→model map, `_base.ts`. RAG generators use `gateway-generate.ts` (**OpenAI direct**, `MODEL_RAG`, default gpt-5-mini; the name is historical — the Bluesmind gateway died 2026-07-01 and was dropped as default). Embeddings = OpenAI direct (`embeddings.ts`, text-embedding-3-large @ dim 2000) |
+| LLM calls | `lib/llm/` | `selectModel`, `chatCompletion`, `chatStream`; providers `openai`, `openrouter`, `deepseek` (chat default). Study Engine agents run on **direct OpenAI** (+ DeepSeek: `deepseek-chat` verifier — el reasoner hacía 1.5-3 min el quiz frío, restaurable vía `MODEL_VERIFIER`) — `agent-models.ts` role→model map, `_base.ts`. RAG generators use `rag-generate.ts` (`ragJson`/`RAG_MODEL`, **OpenAI direct**, `MODEL_RAG`, default gpt-5-mini; renamed from `gateway-generate.ts` — the Bluesmind gateway died 2026-07-01 and its provider was removed 2026-07-08). Embeddings = OpenAI direct (`embeddings.ts`, text-embedding-3-large @ dim 2000) |
+| User preferences | `lib/server/utils/user-prefs.ts` | `getUserPrefs` — cached (120s, same key as `/api/user/preferences`) read of prefs+profile, safe defaults; consumed by chat persona, study language/defaults |
 | Model catalog/pricing | `lib/llm/config.ts` | `MODELS`, `DEFAULT_MODEL`, `estimateCost` |
 | Feature flags | `lib/config/flags.ts` | `ragEnabled` (RAG_ENABLED), `toolsEnabled` (TOOLS_ENABLED), default provider/model — resolved once at module load |
 | Tools (chat actions) | `lib/tools/` | 5 tools (retrieve-context, get-schedule, get-recommendations, generate-study-set, record-review) → services; loop in `lib/llm/tools-loop.ts`, gated by `TOOLS_ENABLED` |
@@ -71,7 +72,7 @@ Cross-cutting helpers used by services:
 
 | Path | Contents |
 |---|---|
-| `app/` | Routes. Pages: `/` (chat workspace), `/knowledge`, `/agenda`, `/estudio`, `/mapa`, `/settings`, `/sign-in`, `/sign-up`, `/sso-callback` (Clerk). `(auth)/login|signup` are legacy redirects. |
+| `app/` | Routes. Pages: `/` (chat workspace), `/knowledge`, `/agenda`, `/estudio`, `/mapa`, `/sign-in`, `/sign-up`, `/sso-callback` (Clerk). Settings live in the Configuración **modal** (`components/settings/settings-modal.tsx`, opened from the profile menu); the old `/settings` page now just redirects home and opens that modal. |
 | `app/api/` | API routes (see table below) |
 | `src/lib/api.ts` | **Single frontend→backend adapter.** All client calls go through here. SSE for chat. |
 | `src/lib/server/` | Server-only: `services/`, `repositories/`, `rag/`, `storage/`, `validators/`, `utils/` |
@@ -107,15 +108,16 @@ Cross-cutting helpers used by services:
 | `study/session` (GET), `study/review` (POST), `study/stats` (GET) | Adaptive today-session (SRS + plan-ordered items); record flashcard review; streak/cards |
 | `mastery` (GET/POST), `mastery/[syllabusId]` (GET) | Per-topic mastery ledger (quiz outcomes → confidence) |
 | `notes` (GET/POST), `notes/[id]` (PATCH/DELETE) | Per-date agenda notes (`?dates=1` for calendar markers, `?date=` for a day) |
-| `usage`, `user/preferences`, `feedback` | Metering summary, settings, thumbs up/down |
-| `health`, `cron/cleanup`, `cron/process` | Ops: healthcheck, scheduled guest cleanup, ingest-worker drain (crons need `CRON_SECRET`). `db/migrate` exists but is disabled (404). |
+| `usage`, `user/preferences`, `feedback` | Metering summary, settings, thumbs up/down. `user/preferences` GET also returns `avatarUrl` (from `users.image`). |
+| `user` (DELETE), `user/avatar` (POST/DELETE) | Delete account (Neon data + blobs; Clerk deletion is client-side after); upload/remove profile avatar (≤2MB png/jpg/webp → Vercel Blob) |
+| `health`, `cron/cleanup`, `cron/process` | Ops: healthcheck, scheduled guest cleanup, ingest-worker drain (crons need `CRON_SECRET`). |
 
 ### Database (Neon Postgres)
 
 - Client: `src/lib/db.ts` — `sql` (pooled, runtime). Migrations use their own client in
   `scripts/migrate.mjs` (reads `DATABASE_URL`).
 - Schema: `src/lib/schema.sql`, idempotent (`IF NOT EXISTS`). Apply with `npm run db:migrate`
-  (`scripts/migrate.mjs`). The `/api/db/migrate` route is **disabled** (returns 404, by design).
+  (`scripts/migrate.mjs`). There is no HTTP migrate route — migrations run only via the script.
 - Tables: `users`, `user_preferences`, `syllabus_uploads`, `chunks`, `programs`, `courses`,
   `syllabi`, `topics`, `topic_dependencies`, `schedule_events`, `chats`, `messages`,
   `usage_records`, `feedback`, `jobs`, `study_sets`, `date_notes`, `flashcard_reviews`,
@@ -150,7 +152,7 @@ Cross-cutting helpers used by services:
 | Auth | Clerk (`@clerk/nextjs` + `@clerk/themes`) |
 | DB | Neon serverless Postgres (`@neondatabase/serverless`) |
 | Cache / rate limit | Upstash Redis (optional; in-memory fallback) |
-| LLM | OpenAI SDK client; providers: DeepSeek (chat + verifier `deepseek-chat`), OpenAI (embeddings + Study Engine + RAG generators), OpenRouter (fallback). Bluesmind gateway dead (2026-07-01) — only reachable via env override |
+| LLM | OpenAI SDK client; providers: DeepSeek (chat + verifier `deepseek-chat`), OpenAI (embeddings + Study Engine + RAG generators), OpenRouter (fallback). Bluesmind gateway provider removed 2026-07-08 (gateway died 2026-07-01) |
 | Graph / mind-map UI | Custom canvas (`components/estudio/mind-map-canvas`) — `@xyflow/react` removed |
 | Styling | Tailwind CSS 4, shadcn/ui (Radix), `lucide-react`, `sonner` |
 | Validation | `zod` (API schemas + LLM output contracts) |
@@ -183,9 +185,8 @@ npm run knip           # report unused files/exports/deps (review, don't blind-d
 | `DATABASE_URL` | yes | Neon pooled connection (runtime + `scripts/migrate.mjs`) |
 | `OPENAI_API_KEY` | yes | Embeddings + openai chat provider + web-search context |
 | `DEEPSEEK_API_KEY` | yes (chat + study) | Direct DeepSeek provider — chat default + Study Engine verifier (`deepseek-chat`; `MODEL_VERIFIER` para volver al reasoner) |
-| `BLUESMIND_API_KEY` / `BLUESMIND_BASE_URL` | no (legacy) | Dead gateway (2026-07-01); only used if a `MODEL_*` env override targets provider bluesmind |
 | `MODEL_RAG` | no | Model for graph/schedule/course-infer generators (OpenAI direct, default `gpt-5-mini`) |
-| `MODEL_ROUTER/_SYNTH/_FLASHCARD/_INQUISITOR/_CASE/_VERIFIER/_GRADER` | no | Per-role Study Engine model overrides (`lib/llm/agent-models.ts`) |
+| `MODEL_ROUTER/_SYNTH/_MINDMAP/_FLASHCARD/_INQUISITOR/_CASE/_VERIFIER` | no | Per-role Study Engine model overrides (`lib/llm/agent-models.ts`) |
 | `WEB_SEARCH_MODEL` | no | Model for the `?web=1` study augmentation |
 | `OPENROUTER_API_KEY` | no | Fallback / extended models |
 | `CRON_SECRET` | prod | Gates `cron/*`; also arms the fire-and-forget ingest worker trigger |

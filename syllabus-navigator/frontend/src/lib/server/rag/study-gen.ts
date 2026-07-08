@@ -280,6 +280,9 @@ export function shuffleQuizOptions(
 
 export type Difficulty = "facil" | "medio" | "dificil"
 
+/** Preferred flashcard style (Configuración → Formato de tarjetas). */
+export type CardFormat = "qa" | "cloze" | "definition" | "mixed"
+
 export interface StudyGenOptions {
   /** Tunes how demanding the generated quiz/flashcards are. Default "medio". */
   difficulty?: Difficulty
@@ -300,6 +303,11 @@ export interface StudyGenOptions {
    * not to repeat them, so every refresh yields genuinely new items (anti-repeat).
    */
   excludeSeen?: string[]
+  /**
+   * Preferred flashcard style (user preference). Only the flashcard agent
+   * consumes it; omitted → the agent's default mix.
+   */
+  cardFormat?: CardFormat
 }
 
 const DIFFICULTY_HINT: Record<Difficulty, string> = {
