@@ -115,31 +115,31 @@ describe("UI-7 Chat window", () => {
 
 describe("Mapa mental window", () => {
   const f = src("app/mapa/page.tsx")
-  it("imports Button + renders the editable MindMapCanvas from the study set", () => {
+  it("renders the hierarchical graph via GraphCanvas (course → doc selector)", () => {
     expect(f).toContain("@/components/ui/button")
-    expect(f).toContain("MindMapCanvas")
-    expect(f).toContain("onRegenerate")
+    expect(f).toContain("GraphCanvas")
+    expect(f).toContain("fetchGraph")
   })
 })
 
 describe("Editable knowledge graph (PATCH /graph wiring)", () => {
-  it("GraphCanvas maps branch edits onto the graph and persists via updateGraph", () => {
+  it("GraphCanvas persists recursive tree edits via updateGraph", () => {
     const f = src("src/components/GraphCanvas.tsx")
-    expect(f).toContain("applyBranchEdits")
+    expect(f).toContain("RichMindMapCanvas")
     expect(f).toContain("updateGraph")
-    expect(f).toContain("onSaveBranches")
+    expect(f).toContain("onSaveTree")
   })
-  it("the canvas drawer exposes the structural editor + save error surface", () => {
-    const f = src("src/components/estudio/mind-map-canvas.tsx")
-    expect(f).toContain("onSaveBranches")
+  it("the canvas drawer exposes the recursion-aware editor + save error surface", () => {
+    const f = src("src/components/estudio/rich-mind-map-canvas.tsx")
+    expect(f).toContain("applyTreeEdits")
     expect(f).toContain("Guardar cambios")
     expect(f).toContain("saveErr")
   })
-  it("the drawer can reorder branches (v2)", () => {
-    const f = src("src/components/estudio/mind-map-canvas.tsx")
-    expect(f).toContain("moveBranch(")
-    expect(f).toContain('title="Subir rama"')
-    expect(f).toContain('title="Bajar rama"')
+  it("the drawer supports cascade-delete confirm + add-child + sibling reorder", () => {
+    const f = src("src/components/estudio/rich-mind-map-canvas.tsx")
+    expect(f).toContain("countDescendants")
+    expect(f).toContain('title="Añadir subtema"')
+    expect(f).toContain('type: "reorder"')
   })
   it("knowledge preview passes the editable wiring (syllabusId + onSaved)", () => {
     const f = src("app/knowledge/page.tsx")

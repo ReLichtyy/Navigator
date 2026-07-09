@@ -74,6 +74,26 @@
   generación"/"Regenerar desde cero"). Migración corrida contra Neon (86 OK, 0 errores).
   Typecheck + lint + 314 tests (incl. 24 nuevos de `applyTreeEdits`) en verde.
   Plan completo: `~/.claude/plans/ethereal-swimming-quilt.md`.
+- ✅ **Mapa mental v2 — consolidación: botar Galaxy + Sistema B, `/mapa` jerárquico,
+  navegación** (2026-07-08). **Galaxy borrada**: `cross-galaxy/cross-roadmap/
+  cross-course-view/cross-graph.service/api graph cross` + `fetchCrossGraph`/`CrossGraph*API`
+  + `listUserTopics`/`listUserEdges`. **Sistema B botado completo**: `mindmapAgent` fuera de
+  `orchestrateStudySet` (3 agentes vs 4 = **ahorro de 1 LLM/generación de study-set**),
+  borrados `mind-map-canvas`/`mind-blocks-view`/`mind-mode-options`/`agents/mindmap` +
+  `MindView` (conservado `ResumenView`); `Mindmap`/`MindMode`/`pickMindMode`/campo `mindmap`
+  fuera de `study-gen`/`study.service`/rutas study/`api.ts` (`STUDY_SCHEMA_VERSION` 5→6
+  invalida cache); `combine-study` sin `fuseMindmaps` (conservado `combineStudySets`);
+  `GraphCanvas` ahora SIEMPRE `RichMindMapCanvas` (`layout ?? "radial"` cubre grafos legacy —
+  se eliminó la rama dual-canvas + `applyBranchEdits`/`rootIds`/`toMindmap`). **`/mapa`
+  reescrito** = home jerárquico Sistema A: selector curso→doc→`RichMindMapCanvas` editable
+  (`fetchGraph`/`updateGraph`/`reprocessGraph` + poll), deep-link `?course=`, `SelectionAsk`;
+  `/estudio` modo "mind" rutea a `/mapa`. **Navegación** en `rich-mind-map-canvas`:
+  colapsar/expandir subárboles (`pruneCollapsed` en `build-tree`), click-para-enfocar
+  (centrar+zoom+dim), buscar/saltar a nodo (con auto-expand de ancestros), opciones de vista
+  (profundidad 1/2/3/Todo, toggle cross-links, toggle pesos). Sin minimapa. Typecheck + lint +
+  `next build` verde; 296 tests pasan (2 fallos pre-existentes ajenos = refactor i18n en
+  `settings-modal`/`app-sidebar`). **PENDIENTE (usuario, después): descargar mapa como
+  imagen** — plan en fase 5 del plan file (`html-to-image` vs export SVG manual).
 
 ---
 

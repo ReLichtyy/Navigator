@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSyllabus } from "@/context/SyllabusContext"
 import { RotateCcw, X } from "lucide-react"
-import { MindMapCanvas, type Mindmap, type BranchEdit } from "@/components/estudio/mind-map-canvas"
 import { RichMindMapCanvas } from "@/components/estudio/rich-mind-map-canvas"
-import { applyBranchEdits, type TreeNodeDTO, type CrossLinkDTO } from "@/lib/ui/graph-edit"
+import type { TreeNodeDTO, CrossLinkDTO } from "@/lib/ui/graph-edit"
 import { updateGraph } from "@/lib/api"
 import type { GraphResponseAPI } from "@/types/api"
 
@@ -17,8 +16,7 @@ type Props = {
   nodes?: GraphNode[]
   edges?: GraphEdge[]
   crossLinks?: GraphCrossLink[]
-  /** Chosen presentation layout. Present + non-null → renders via RichMindMapCanvas
-   * (3+ level hierarchy). Absent/null → legacy 2-level radial MindMapCanvas. */
+  /** Chosen presentation layout. Null (legacy graph, never reprocessed) falls back to radial. */
   layout?: GraphResponseAPI["layout"]
   graphStatus?: string
   graphError?: string | null
@@ -31,43 +29,11 @@ type Props = {
 }
 
 /**
- * Map the raw DAG (topics + prerequisites) into the radial mind-map shape the
- * shared canvas expects: center = course; branches = root topics (no
- * prerequisites); each branch's chips = its direct successor topics.
- */
-function toMindmap(nodes: GraphNode[], edges: GraphEdge[], center: string): Mindmap {
-  if (nodes.length === 0) return { center, branches: [] }
-
-  const inDeg: Record<string, number> = {}
-  const children: Record<string, string[]> = {}
-  const labelOf: Record<string, string> = {}
-  nodes.forEach((n) => {
-    inDeg[n.id] = 0
-    children[n.id] = []
-    labelOf[n.id] = n.label
-  })
-  edges.forEach((e) => {
-    if (children[e.source]) children[e.source].push(e.target)
-    if (inDeg[e.target] !== undefined) inDeg[e.target]++
-  })
-
-  let roots = nodes.filter((n) => inDeg[n.id] === 0)
-  if (roots.length === 0) roots = nodes // fully-cyclic / no edges fallback
-
-  return {
-    center,
-    branches: roots.map((r) => ({
-      id: r.id,
-      label: r.label,
-      items: (children[r.id] ?? []).map((cid) => labelOf[cid]).filter(Boolean),
-    })),
-  }
-}
-
-/**
- * Adapter around the shared {@link MindMapCanvas}. Knowledge/chat/mapa feed raw
- * graph data; this turns it into the radial mind-map and owns the short
- * "processing" gate so the canvas never flashes empty while data settles.
+ * Adapter around {@link RichMindMapCanvas}. Knowledge/chat/mapa feed raw graph
+ * data (topics as a level/parent tree + prerequisite edges + cross-links); this
+ * wires editing/reprocess and owns the short "processing" gate so the canvas
+ * never flashes empty while data settles. Legacy graphs (no `layout` yet)
+ * render as radial — `buildTree` treats their flat nodes as level-1 roots.
  */
 export default function GraphCanvas({
   nodes: propNodes,
@@ -89,7 +55,6 @@ export default function GraphCanvas({
   const crossLinks = useMemo(() => propCrossLinks ?? [], [propCrossLinks])
 
   const center = centerTitle?.trim() || nodes[0]?.label || "Mapa mental"
-  const mindmap = useMemo(() => toMindmap(nodes, edges, center), [nodes, edges, center])
 
   // Stable "processing" gate (~1.9s) on mount / course change — fixes the
   // empty-flash bug. Also reflects the backend's in-flight graph status.
@@ -110,22 +75,11 @@ export default function GraphCanvas({
 
   const loading = selfLoading || graphStatus === "processing" || graphStatus === "pending"
 
-  // Structural branch edits → PATCH the full replacement graph. The server
-  // re-keys node ids (external_id → fresh UUIDs), so the caller must consume
-  // the returned graph via onSaved. Thrown errors (e.g. 400 cycle) surface in
-  // the drawer.
-  const saveBranches = useCallback(
-    async (branches: BranchEdit[]) => {
-      if (!syllabusId) return
-      const saved = await updateGraph(syllabusId, applyBranchEdits(nodes, edges, branches))
-      onSaved?.(saved)
-    },
-    [syllabusId, nodes, edges, onSaved],
-  )
-
   // Recursion-aware tree edits (rename / cascade-delete / add-child / sibling
-  // reorder at any depth) → same PATCH endpoint. The tree editor never touches
-  // the prerequisite DAG, so `edges` passes through unchanged.
+  // reorder at any depth) → PATCH the full replacement graph. The server re-keys
+  // node ids (external_id → fresh UUIDs), so the caller must consume the returned
+  // graph via onSaved. The tree editor never touches the prerequisite DAG, so
+  // `edges` passes through unchanged. Thrown errors surface in the drawer.
   const saveTree = useCallback(
     async (treeNodes: TreeNodeDTO[], treeCrossLinks: CrossLinkDTO[]) => {
       if (!syllabusId) return
@@ -179,37 +133,15 @@ export default function GraphCanvas({
     )
   }
 
-  // `layout` present → the graph was generated (or last saved) by the
-  // hierarchical pipeline: render the 3+ level canvas. `layout` null → legacy
-  // graph, pre-rewrite or never reprocessed since — keep the old radial view.
-  if (layout) {
-    return (
-      <RichMindMapCanvas
-        nodes={nodes}
-        crossLinks={crossLinks}
-        layout={layout}
-        centerTitle={center}
-        loading={loading}
-        onTopicDouble={(label) => queryTopicInChat(label)}
-        onSaveTree={editable && syllabusId ? saveTree : undefined}
-        onRegenerate={
-          editable && onReprocess
-            ? () => {
-                runLoad()
-                onReprocess()
-              }
-            : undefined
-        }
-      />
-    )
-  }
-
   return (
-    <MindMapCanvas
-      mindmap={mindmap}
-      courseName={center}
+    <RichMindMapCanvas
+      nodes={nodes}
+      crossLinks={crossLinks}
+      layout={layout ?? "radial"}
+      centerTitle={center}
       loading={loading}
       onTopicDouble={(label) => queryTopicInChat(label)}
+      onSaveTree={editable && syllabusId ? saveTree : undefined}
       onRegenerate={
         editable && onReprocess
           ? () => {
@@ -218,7 +150,6 @@ export default function GraphCanvas({
             }
           : undefined
       }
-      onSaveBranches={editable && syllabusId ? saveBranches : undefined}
     />
   )
 }

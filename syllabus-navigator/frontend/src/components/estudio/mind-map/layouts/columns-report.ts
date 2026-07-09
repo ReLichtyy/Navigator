@@ -1,12 +1,10 @@
 import type { RichNode } from "../build-tree"
 import type { LayoutResult } from "../types"
 
-// Same column-block idiom as cross-galaxy.tsx (BLOCK_W/BLOCK_GAP/ROW_H/ROW_GAP) —
-// deliberately reused so a comparison-shaped mind map reads like the cross-course
-// galaxy view: each level-1 branch is a header column, level-2 children stack as
-// rows underneath. Level-3 "detail" nodes render as a tooltip on their row rather
-// than a further column — this layout's own use case (comparison tables, "3 temas
-// x 3 puntos") is inherently shallow.
+// Column-block layout: each level-1 branch is a header column, level-2 children
+// stack as rows underneath. Level-3 "detail" nodes render as a tooltip on their
+// row rather than a further column — this layout's own use case (comparison
+// tables, "3 temas x 3 puntos") is inherently shallow.
 const BLOCK_W = 210
 const BLOCK_GAP = 100
 const HEADER_H = 46

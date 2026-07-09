@@ -18,7 +18,6 @@ import {
   type CourseAPI,
   type StudySetAPI,
   type StudyDifficulty,
-  type MindMapMode,
   type ScheduleEventAPI,
   type WeeklyPlanAPI,
   type StudyStatsAPI,
@@ -52,8 +51,7 @@ import {
 import { FlashcardsView, EmptyMode } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
 import { QuizReviewView } from "@/components/estudio/review-view"
-import { MindView, ResumenView } from "@/components/estudio/mind-resumen-view"
-import type { MindCourse } from "@/components/estudio/mind-map-canvas"
+import { ResumenView } from "@/components/estudio/mind-resumen-view"
 import { MasteryPanel } from "@/components/estudio/mastery-panel"
 import {
   GenerationProgress,
@@ -215,17 +213,6 @@ function EstudioContent() {
           : activeDoc
             ? cleanName(activeDoc.original_filename)
             : ""
-  // Mind-map switcher pills = the ready PDFs of the current folder.
-  const mindCourses = useMemo<MindCourse[]>(
-    () =>
-      readyDocs.map((c, i) => ({
-        id: c.id,
-        code: `C-${String(i + 1).padStart(2, "0")}`,
-        label: cleanName(c.original_filename),
-      })),
-    [readyDocs],
-  )
-
   // Load the user's uploads + course folders.
   useEffect(() => {
     if (!ready) return
@@ -337,9 +324,6 @@ function EstudioContent() {
         difficulty?: StudyDifficulty
         topic?: string | null
         web?: boolean
-        // Explicit mind-map mode override (from the mind-map edit drawer). Auto-picked
-        // server-side when omitted.
-        mindMode?: MindMapMode
         // Keep the current set visible and show an inline spinner instead of the
         // full-screen loader (used by the "Aplicar enfoque" button).
         inline?: boolean
@@ -363,7 +347,6 @@ function EstudioContent() {
         difficulty: d,
         topic: t ?? undefined,
         web: w,
-        mindMode: opts.mindMode,
       }
       // Fetch a single folder's whole-course set (or its first PDF for "Sin curso").
       const fetchFolder = (g: RealCourseGroup) =>
@@ -538,16 +521,22 @@ function EstudioContent() {
 
   // Modes that consume the generated set. Quiz/Simulacro/Repaso stream from
   // their own staged/queue endpoints and never touch it, so they open instantly.
-  const SET_MODES: Mode[] = ["flash", "resumen", "mind"]
+  const SET_MODES: Mode[] = ["flash", "resumen"]
 
   // Launch a mode, generating the set on demand (first open) or regenerating it
   // for the chosen difficulty/topic if needed. This is where the heavy work now
   // happens — never on scope selection.
   const launchMode = async (m: Mode) => {
-    // The mind map has its own page, but only single PDFs have a stored graph.
-    // Whole-course renders the aggregated mindmap inline instead.
-    if (m === "mind" && scope?.kind === "doc") {
-      router.push(`/mapa?course=${scope.docId}`)
+    // The mind map lives on its own page (/mapa), which owns the course→doc
+    // selector; a specific doc/course deep-links straight into its graph.
+    if (m === "mind") {
+      const target =
+        scope?.kind === "doc"
+          ? `/mapa?course=${scope.docId}`
+          : scope?.kind === "course"
+            ? `/mapa?course=${scope.courseId}`
+            : "/mapa"
+      router.push(target)
       return
     }
     if (
@@ -737,23 +726,11 @@ function EstudioContent() {
                         syllabusId={activeDocId}
                         dueKeys={dueCardKeys}
                         scopeLabel={scopeLabel}
-                        mindCourses={mindCourses}
-                        onPickDoc={(id) => setScope({ kind: "doc", docId: id })}
                         onAsk={ask}
                         regenerating={regenerating}
                         onRegenerate={() =>
                           scope &&
                           loadSet(scope, { refresh: true, difficulty, topic, web: webSearch })
-                        }
-                        onMindRegenerate={(opts) =>
-                          scope &&
-                          loadSet(scope, {
-                            refresh: true,
-                            difficulty,
-                            topic,
-                            web: webSearch,
-                            mindMode: opts.mode,
-                          })
                         }
                         setMode={setMode}
                         onLaunch={launchMode}
@@ -884,12 +861,9 @@ function ModeRouter({
   syllabusId,
   dueKeys,
   scopeLabel,
-  mindCourses,
-  onPickDoc,
   onAsk,
   regenerating,
   onRegenerate,
-  onMindRegenerate,
   setMode,
   onLaunch,
   backToMenu,
@@ -913,12 +887,9 @@ function ModeRouter({
   /** SRS card keys due today (repaso ordering). Empty for whole-course scope. */
   dueKeys: string[]
   scopeLabel: string
-  mindCourses: MindCourse[]
-  onPickDoc: (id: string) => void
   onAsk: (text: string) => void
   regenerating: boolean
   onRegenerate: () => void
-  onMindRegenerate: (opts: { mode?: MindMapMode }) => void
   setMode: (m: Mode) => void
   onLaunch: (m: Mode) => void
   backToMenu: () => void
@@ -1031,25 +1002,7 @@ function ModeRouter({
         />
       )
     }
-    case "mind":
-      if (!set) return menu
-      return (
-        <div>
-          {focusBanner}
-          <MindView
-            courseCode=""
-            courseLabel={scopeLabel}
-            mindmap={set.mindmap}
-            courses={scope.kind === "doc" ? mindCourses : []}
-            activeCourseId={syllabusId ?? ""}
-            onPickCourse={onPickDoc}
-            onTopicDouble={onAsk}
-            regenerating={regenerating}
-            onRegenerate={onMindRegenerate}
-            onBack={backToMenu}
-          />
-        </div>
-      )
+    // "mind" never renders here — launchMode routes it to the /mapa page.
     case "resumen":
       if (!set) return menu
       return (

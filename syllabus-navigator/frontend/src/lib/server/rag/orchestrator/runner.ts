@@ -6,8 +6,7 @@
  *
  *   evidence → ┬→ flashcardAgent  ┐
  *              ├→ inquisitorAgent ┼→ gateQuiz (batched critic) → assemble StudySet
- *              ├→ synthAgent      ┤
- *              └→ mindmapAgent    ┘
+ *              └→ synthAgent      ┘
  *
  * Agents fail soft (return [] / null), so a partial set still serves. Returns
  * null only when nothing usable was produced (same contract as generateStudySet).
@@ -15,7 +14,6 @@
 import { flashcardAgent } from "../agents/flashcard"
 import { inquisitorAgent } from "../agents/inquisitor"
 import { synthAgent } from "../agents/synth"
-import { mindmapAgent } from "../agents/mindmap"
 import { gateQuiz, gateFlashcards } from "../eval/gates"
 import type { StudySet, StudyGenOptions } from "../study-gen"
 
@@ -32,14 +30,12 @@ export async function orchestrateStudySet(
   const text = evidence.trim()
   if (text.length < 80) return null
   const withQuiz = parts.quiz ?? true
-  const mindMode = opts.mindMode ?? "radial"
 
   // Generate the artifact families in parallel (quiz only when requested).
-  const [rawFlash, rawQuiz, synth, mindmapOut] = await Promise.all([
+  const [rawFlash, rawQuiz, synth] = await Promise.all([
     flashcardAgent(text, opts),
     withQuiz ? inquisitorAgent(text, opts) : Promise.resolve([]),
     synthAgent(text, opts),
-    mindmapAgent(text, mindMode, opts),
   ])
 
   // Quality gates: flashcards (grounded + substantive + accurate) and, when built,
@@ -57,13 +53,11 @@ export async function orchestrateStudySet(
     conceptos: [],
     conclusion: "",
   }
-  const mindmap = mindmapOut ?? { mode: mindMode, center: "", branches: [] }
 
   const set: StudySet = {
     flashcards,
     quiz,
     summary,
-    mindmap,
     ...(synth?.studyGuide && synth.studyGuide.length > 0 ? { studyGuide: synth.studyGuide } : {}),
   }
 

@@ -493,33 +493,6 @@ export async function updateGraph(syllabusId: string, graph: GraphUpdatePayload)
   })
 }
 
-// ----- Cross-course prerequisite graph (Sprint 4) -----
-
-export interface CrossGraphNodeAPI {
-  id: string
-  label: string
-  syllabus_id: string
-  course: string
-  weight_percent: number
-}
-
-export interface CrossGraphEdgeAPI {
-  source: string
-  target: string
-  kind: "prerequisite" | "shared"
-}
-
-export interface CrossGraphAPI {
-  nodes: CrossGraphNodeAPI[]
-  edges: CrossGraphEdgeAPI[]
-  courses: { syllabus_id: string; course: string }[]
-}
-
-/** Combined knowledge graph across all the user's courses, with cross-course bridges. */
-export async function fetchCrossGraph() {
-  return request<CrossGraphAPI>(`/graph/cross`, { method: "GET", json: false })
-}
-
 export async function reprocessGraph(syllabusId: string) {
   return request<GraphResponseAPI>(`/graph/${syllabusId}/reprocess`, {
     method: "POST",
@@ -626,21 +599,8 @@ export interface StudySetAPI {
     conceptos: { termino: string; definicion: string }[]
     conclusion: string
   }
-  mindmap: MindmapAPI
   /** Weight-ordered study guide (Sprint 4). Absent on old cached sets. */
   studyGuide?: StudyGuideSectionAPI[]
-}
-
-/** Mind-map presentation mode — see study-gen.ts#pickMindMode for how it's chosen. */
-export type MindMapMode = "radial" | "profundidad" | "ideas" | "bloques"
-
-export interface MindmapAPI {
-  mode: MindMapMode
-  center: string
-  /** Populated for radial/profundidad/ideas; empty for bloques. */
-  branches: { label: string; items: string[] }[]
-  /** Populated only when mode === "bloques". */
-  blocks?: { header: string; cards: { title: string; body: string }[] }[]
 }
 
 export type StudyDifficulty = "facil" | "medio" | "dificil"
@@ -654,8 +614,6 @@ export interface StudySetOptions {
   topic?: string
   /** Augment generation with a live web search (always fresh, never cached). */
   web?: boolean
-  /** Explicit mind-map presentation mode override. Auto-picked server-side when omitted. */
-  mindMode?: MindMapMode
 }
 
 /**
@@ -669,7 +627,6 @@ export async function fetchStudySet(syllabusId: string, opts: StudySetOptions = 
   if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
   if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
   if (opts.web) qs.set("web", "1")
-  if (opts.mindMode) qs.set("mindMode", opts.mindMode)
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
   return request<StudySetAPI>(`/study/${encodeURIComponent(syllabusId)}${suffix}`, {
     method: "GET",
@@ -687,7 +644,6 @@ export async function fetchCourseStudySet(courseId: string, opts: StudySetOption
   if (opts.difficulty && opts.difficulty !== "medio") qs.set("difficulty", opts.difficulty)
   if (opts.topic?.trim()) qs.set("topic", opts.topic.trim())
   if (opts.web) qs.set("web", "1")
-  if (opts.mindMode) qs.set("mindMode", opts.mindMode)
   const suffix = qs.toString() ? `?${qs.toString()}` : ""
   return request<StudySetAPI>(`/study/course/${encodeURIComponent(courseId)}${suffix}`, {
     method: "GET",

@@ -1,81 +1,8 @@
 "use client"
 
 import { RefreshCw } from "lucide-react"
-import type { MindMapMode, StudySetAPI } from "@/lib/api"
+import type { StudySetAPI } from "@/lib/api"
 import { BackButton, EmptyMode } from "./flashcards-view"
-import { MindMapCanvas, type MindCourse } from "./mind-map-canvas"
-import { MindBlocksView } from "./mind-blocks-view"
-
-export function MindView({
-  courseCode,
-  courseLabel,
-  mindmap,
-  courses,
-  activeCourseId,
-  onPickCourse,
-  onTopicDouble,
-  regenerating = false,
-  onRegenerate,
-  onBack,
-}: {
-  courseCode: string
-  courseLabel: string
-  mindmap: StudySetAPI["mindmap"]
-  courses: MindCourse[]
-  activeCourseId: string
-  onPickCourse: (id: string) => void
-  onTopicDouble?: (label: string) => void
-  regenerating?: boolean
-  onRegenerate?: (opts: { mode?: MindMapMode }) => void
-  onBack: () => void
-}) {
-  const isBlocks = mindmap.mode === "bloques"
-  const empty = isBlocks
-    ? !mindmap.blocks || mindmap.blocks.length === 0
-    : !mindmap.center && mindmap.branches.length === 0
-  if (empty) {
-    return <EmptyMode onBack={onBack} label="No hay mapa mental para este curso." />
-  }
-  return (
-    <div className="animate-fade-up">
-      <BackButton onBack={onBack} />
-      <div className="flex flex-wrap items-baseline gap-3">
-        <h2 className="text-[21px] font-extrabold tracking-tight text-foreground">Mapa mental</h2>
-        <span className="text-[13px] text-muted-foreground">
-          {courseCode} · {courseLabel}
-        </span>
-      </div>
-
-      <div className="mt-3.5">
-        {isBlocks ? (
-          <MindBlocksView
-            center={mindmap.center}
-            blocks={mindmap.blocks ?? []}
-            mode={mindmap.mode}
-            courseCode={courseCode}
-            courseName={courseLabel}
-            loading={regenerating}
-            onRegenerate={onRegenerate}
-            onTopicDouble={onTopicDouble}
-          />
-        ) : (
-          <MindMapCanvas
-            mindmap={mindmap}
-            mode={mindmap.mode}
-            courses={courses}
-            activeCourseId={activeCourseId}
-            onPickCourse={onPickCourse}
-            onTopicDouble={onTopicDouble}
-            courseCode={courseCode}
-            courseName={courseLabel}
-            loading={regenerating}
-            onRegenerate={onRegenerate}
-          />
-        )}
-      </div>
-    </div>
-  )
-}
 
 export function ResumenView({
   courseName,

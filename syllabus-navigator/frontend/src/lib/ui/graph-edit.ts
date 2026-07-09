@@ -2,97 +2,13 @@
  * Pure helpers to apply mind-map edits onto the raw knowledge graph, producing
  * the full replacement payload `PATCH /api/graph/[syllabusId]` expects.
  *
- * Two editors live here:
- * - `applyBranchEdits` (below) — the legacy root-only editor (rename / delete
- *   / add / reorder applied only to in-degree-0 topics), still used for graphs
- *   with no `layout` (pre-rewrite, never reprocessed).
- * - `applyTreeEdits` (further down) — the recursion-aware editor for the 3+
- *   level hierarchy (cascade-delete, add-child at any depth, sibling reorder).
- *
- * The radial canvas only exposes root topics (no prerequisites) as editable
- * branches, so `applyBranchEdits`' edits are applied at the root level:
- * non-root nodes and their edges are preserved untouched unless their root is
- * deleted. The order of `edits` IS the branch order: the server inserts
- * topics in payload order and serves them back in the same order, so it
- * round-trips.
+ * `applyTreeEdits` is the recursion-aware editor for the 3+ level hierarchy
+ * (rename, cascade-delete, add-child at any depth, sibling reorder).
  */
-
-export type GraphNodeDTO = { id: string; label: string; weight_percent?: number | null }
-export type GraphEdgeDTO = { source: string; target: string }
-
-/** One branch as edited in the drawer: existing (id) or newly added (null). */
-export type BranchEdit = { id: string | null; label: string }
-
-/**
- * Ids of the graph's root nodes (in-degree 0). Mirrors the fallback used by
- * the canvas adapter: if nothing has in-degree 0 (cycle / no edges data),
- * every node counts as a root.
- */
-export function rootIds(nodes: GraphNodeDTO[], edges: GraphEdgeDTO[]): Set<string> {
-  const inDeg = new Map<string, number>(nodes.map((n) => [n.id, 0]))
-  for (const e of edges) {
-    const d = inDeg.get(e.target)
-    if (d !== undefined) inDeg.set(e.target, d + 1)
-  }
-  const roots = nodes.filter((n) => inDeg.get(n.id) === 0)
-  return new Set((roots.length > 0 ? roots : nodes).map((n) => n.id))
-}
-
-/**
- * Apply drawer edits to the graph:
- * - an existing branch present in `edits` keeps its node, renamed to the
- *   trimmed label (an emptied label keeps the original);
- * - a root absent from `edits` is deleted along with every edge touching it
- *   (its orphaned children become roots on the next render);
- * - an edit with `id: null` adds a fresh node (unique `new-N` temp id — the
- *   server maps it to `external_id` and assigns a real UUID) with no edges;
- * - branches come out in `edits` order (that order persists — see header),
- *   with the untouched non-root nodes after them in their original order.
- */
-export function applyBranchEdits(
-  nodes: GraphNodeDTO[],
-  edges: GraphEdgeDTO[],
-  edits: BranchEdit[],
-): { nodes: GraphNodeDTO[]; edges: GraphEdgeDTO[] } {
-  const roots = rootIds(nodes, edges)
-  const keptById = new Map(edits.filter((e) => e.id !== null).map((e) => [e.id as string, e]))
-  const removed = new Set([...roots].filter((id) => !keptById.has(id)))
-
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  const taken = new Set(nodes.filter((n) => !removed.has(n.id)).map((n) => n.id))
-  const emitted = new Set<string>()
-  const outNodes: GraphNodeDTO[] = []
-  let seq = 1
-
-  for (const e of edits) {
-    if (e.id !== null) {
-      const node = byId.get(e.id)
-      if (!node || removed.has(node.id) || emitted.has(node.id)) continue
-      emitted.add(node.id)
-      const label = e.label.trim()
-      outNodes.push(label ? { ...node, label } : { ...node })
-    } else {
-      const label = e.label.trim()
-      if (!label) continue
-      let id = `new-${seq++}`
-      while (taken.has(id)) id = `new-${seq++}`
-      taken.add(id)
-      outNodes.push({ id, label })
-    }
-  }
-  for (const n of nodes) {
-    if (removed.has(n.id) || emitted.has(n.id)) continue
-    outNodes.push({ ...n })
-  }
-
-  const outEdges = edges.filter((e) => !removed.has(e.source) && !removed.has(e.target))
-  return { nodes: outNodes, edges: outEdges }
-}
 
 // ---------------------------------------------------------------------------
-// Tree edits (3+ level hierarchy) — the recursion-aware editor. Unlike
-// `applyBranchEdits` above (root-only, array-diff style, kept for the legacy
-// no-layout graphs), this operates on the whole tree via a sequence of typed
+// Tree edits (3+ level hierarchy) — the recursion-aware editor. Operates on the
+// whole tree via a sequence of typed
 // operations: rename, cascade-delete (a node + its whole subtree), add-child
 // (under any existing node), and sibling-scoped reorder.
 // ---------------------------------------------------------------------------

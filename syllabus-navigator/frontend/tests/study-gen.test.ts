@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { normalizeStudySet, buildDirectives, pickMindMode } from "@/lib/server/rag/study-gen"
+import { normalizeStudySet, buildDirectives } from "@/lib/server/rag/study-gen"
 
 const base = {
   flashcards: [{ front: "  Concept  ", back: "  Def  " }],
@@ -12,7 +12,6 @@ const base = {
     conceptos: [{ termino: "T", definicion: "D" }],
     conclusion: "Conclusión",
   },
-  mindmap: { center: "Center", branches: [{ label: "L", items: [" x ", "", "y"] }] },
 }
 
 describe("normalizeStudySet", () => {
@@ -20,7 +19,6 @@ describe("normalizeStudySet", () => {
     const set = normalizeStudySet(base)!
     expect(set).not.toBeNull()
     expect(set.flashcards[0]).toEqual({ front: "Concept", back: "Def" })
-    expect(set.mindmap.branches[0].items).toEqual(["x", "y"]) // empty dropped
   })
 
   it("drops flashcards missing a side", () => {
@@ -69,7 +67,6 @@ describe("normalizeStudySet", () => {
         conceptos: [],
         conclusion: "",
       },
-      mindmap: { center: "", branches: [] },
     }
     expect(normalizeStudySet(empty)).toBeNull()
   })
@@ -154,49 +151,5 @@ describe("normalizeStudySet (Sprint 4: topic + studyGuide)", () => {
 
   it("leaves studyGuide undefined when not provided", () => {
     expect(normalizeStudySet(base)!.studyGuide).toBeUndefined()
-  })
-})
-
-describe("pickMindMode", () => {
-  it("picks profundidad when a focus topic is given, regardless of weighted topics", () => {
-    expect(pickMindMode({ topic: "Vistas 4+1" })).toBe("profundidad")
-    expect(
-      pickMindMode({
-        topic: "Vistas 4+1",
-        weightedTopics: [{ label: "A", weight: 10 }, { label: "B", weight: 20 }],
-      }),
-    ).toBe("profundidad")
-  })
-
-  it("picks bloques when there are no weighted topics and no focus", () => {
-    expect(pickMindMode({})).toBe("bloques")
-    expect(pickMindMode({ weightedTopics: [] })).toBe("bloques")
-    expect(pickMindMode({ weightedTopics: [{ label: "   ", weight: 10 }] })).toBe("bloques")
-  })
-
-  it("picks ideas for a handful of topics (1-3)", () => {
-    expect(pickMindMode({ weightedTopics: [{ label: "A", weight: 10 }] })).toBe("ideas")
-    expect(
-      pickMindMode({
-        weightedTopics: [
-          { label: "A", weight: 10 },
-          { label: "B", weight: 20 },
-          { label: "C", weight: 30 },
-        ],
-      }),
-    ).toBe("ideas")
-  })
-
-  it("picks radial for a broad topic list (4+)", () => {
-    expect(
-      pickMindMode({
-        weightedTopics: [
-          { label: "A", weight: 10 },
-          { label: "B", weight: 20 },
-          { label: "C", weight: 30 },
-          { label: "D", weight: 40 },
-        ],
-      }),
-    ).toBe("radial")
   })
 })

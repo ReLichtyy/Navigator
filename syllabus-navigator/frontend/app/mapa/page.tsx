@@ -7,59 +7,44 @@ import { useAuthModal } from "@/context/AuthModalContext"
 import {
   listSyllabi,
   listCourses,
-  fetchStudySet,
-  fetchCourseStudySet,
+  fetchGraph,
+  reprocessGraph,
   type SyllabusUploadAPI,
   type CourseAPI,
-  type MindmapAPI,
-  type MindMapMode,
+  type GraphResponseAPI,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
-import { fuseMindmaps, type NamedMindmap } from "@/lib/ui/combine-study"
-import {
-  Network,
-  Loader2,
-  AlertCircle,
-  Layers,
-  BookText,
-  FolderOpen,
-  ChevronDown,
-} from "lucide-react"
+import { Network, Loader2, AlertCircle, BookText, FolderOpen, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"
 import { useAskInChat } from "@/hooks/use-ask-in-chat"
-import { MindMapCanvas } from "@/components/estudio/mind-map-canvas"
-import { MindBlocksView } from "@/components/estudio/mind-blocks-view"
-import { CrossCourseView } from "@/components/estudio/cross-course-view"
+import GraphCanvas from "@/components/GraphCanvas"
 
 function isReady(d: SyllabusUploadAPI): boolean {
   return d.status === "processed"
 }
 
-// Stable key for a course folder (the "Sin curso" bucket has a null id).
 const folderKey = (g: RealCourseGroup) => g.id ?? "__none__"
+const cleanName = (f: string) => f.replace(/\.(pdf|docx|pptx|xlsx)$/i, "")
 
 function MapaContent() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
   const params = useSearchParams()
 
-  // Send selected/double-clicked mind-map text to the chat.
+  // Highlight-to-ask sends selected mind-map text to the chat, bound to this course.
   const askInChat = useAskInChat("el mapa mental del curso")
 
-  const [view, setView] = useState<"single" | "cross">("single")
   const [uploads, setUploads] = useState<SyllabusUploadAPI[]>([])
   const [courses, setCourses] = useState<CourseAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
 
-  // Multi-select of course folders. The fused map combines every selected folder.
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
-  const [selectorsOpen, setSelectorsOpen] = useState(true)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
 
-  const [mindmap, setMindmap] = useState<MindmapAPI | null>(null)
-  const [setLoading, setSetLoading] = useState(false)
-  const [regenerating, setRegenerating] = useState(false)
+  const [graph, setGraph] = useState<GraphResponseAPI | null>(null)
+  const [graphLoading, setGraphLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Group uploads into real course folders; keep only folders with ≥1 ready doc.
@@ -71,29 +56,30 @@ function MapaContent() {
     () => groupByRealCourse(uploads, realCourses).filter((g) => g.docs.some(isReady)),
     [uploads, realCourses],
   )
-  const selectedGroups = useMemo(
-    () => groups.filter((g) => selectedKeys.includes(folderKey(g))),
-    [groups, selectedKeys],
+  const selectedGroup = useMemo(
+    () => groups.find((g) => folderKey(g) === selectedKey) ?? null,
+    [groups, selectedKey],
   )
-  const combining = selectedGroups.length > 1
+  const readyDocs = useMemo(
+    () => (selectedGroup ? selectedGroup.docs.filter(isReady) : []),
+    [selectedGroup],
+  )
 
-  // With a single course selected, bind asks to it → one dedicated chat per
-  // course. Combined/cross views stay unbound (they span several courses).
-  const single = !combining ? (selectedGroups[0] ?? null) : null
   const ask = useCallback(
     (text: string) =>
       askInChat(
         text,
-        single
+        selectedGroup
           ? {
-              courseId: single.id,
-              syllabusId: single.id ? null : (single.docs.find(isReady)?.id ?? null),
+              courseId: selectedGroup.id,
+              syllabusId: selectedGroup.id ? null : selectedDocId,
             }
           : undefined,
       ),
-    [askInChat, single],
+    [askInChat, selectedGroup, selectedDocId],
   )
 
+  // Load the user's uploads + course folders.
   useEffect(() => {
     if (!ready) return
     if (status === "anonymous" || status === "guest") {
@@ -115,89 +101,82 @@ function MapaContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, status])
 
-  // Pick an initial folder once groups are available (honoring ?course=<docId|courseId>).
+  // Pick the initial course folder + doc once groups are available, honoring
+  // ?course=<docId|courseId> (the deep link from /estudio's "Mapa mental" button).
   useEffect(() => {
-    if (selectedKeys.length > 0 || groups.length === 0) return
+    if (selectedKey !== null || groups.length === 0) return
     const wanted = params.get("course")
-    const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted))
+    const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted && isReady(d)))
     const byCourse = groups.find((g) => g.id === wanted)
     const pick = byDoc ?? byCourse ?? groups[0]
-    if (pick) setSelectedKeys([folderKey(pick)])
+    setSelectedKey(folderKey(pick))
+    const wantedDoc = pick.docs.find((d) => d.id === wanted && isReady(d))
+    setSelectedDocId(wantedDoc?.id ?? pick.docs.filter(isReady)[0]?.id ?? null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
 
-  // Resolve a folder's mind map: whole-course set when it's a real course,
-  // else the first ready PDF's set (the "Sin curso" bucket). `topic` focuses the
-  // regenerated map on specific branches (single-course only); `mindMode`
-  // overrides the presentation mode (also single-course only).
-  const loadFolder = useCallback(
-    async (
-      g: RealCourseGroup,
-      opts: { refresh?: boolean; topic?: string; mindMode?: MindMapMode } = {},
-    ): Promise<NamedMindmap> => {
-      const readyDocs = g.docs.filter(isReady)
-      const set = g.id
-        ? await fetchCourseStudySet(g.id, opts)
-        : await fetchStudySet(readyDocs[0].id, opts)
-      return { name: g.name, mindmap: set.mindmap }
-    },
-    [],
-  )
-
-  // Monotonic guard: only the latest load is allowed to write state, so rapid
-  // selection toggles can't let a slow earlier fetch overwrite a newer one.
-  const loadSeq = useRef(0)
-
-  // (Re)load + fuse the maps of every selected folder.
-  const loadSelected = useCallback(
-    async (
-      gs: RealCourseGroup[],
-      opts: { refresh?: boolean; topic?: string; mindMode?: MindMapMode } = {},
-    ) => {
-      const seq = ++loadSeq.current
-      if (gs.length === 0) {
-        setMindmap(null)
-        return
-      }
-      if (opts.refresh) setRegenerating(true)
-      else {
-        setSetLoading(true)
-        setMindmap(null)
-      }
-      setError(null)
-      try {
-        // `topic`/`mindMode` only apply to a single course; fusing several drops them.
-        const perFolder = gs.length === 1 ? opts : { refresh: opts.refresh }
-        const named = await Promise.all(gs.map((g) => loadFolder(g, perFolder)))
-        if (seq !== loadSeq.current) return
-        setMindmap(fuseMindmaps(named))
-      } catch (e) {
-        if (seq !== loadSeq.current) return
-        setError(e instanceof Error ? e.message : "No se pudo cargar el mapa mental.")
-      } finally {
-        if (seq === loadSeq.current) {
-          setSetLoading(false)
-          setRegenerating(false)
-        }
-      }
-    },
-    [loadFolder],
-  )
-
-  // Reload whenever the selection changes (keyed on the sorted folder keys).
-  const selKey = selectedGroups.map(folderKey).sort().join("|")
+  // Keep the selected doc valid whenever the course folder changes.
   useEffect(() => {
-    if (selectedGroups.length > 0) loadSelected(selectedGroups)
+    if (!selectedGroup) return
+    if (!selectedDocId || !readyDocs.some((d) => d.id === selectedDocId)) {
+      setSelectedDocId(readyDocs[0]?.id ?? null)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selKey, loadSelected])
+  }, [selectedKey])
 
-  // Toggle a folder in/out of the selection; never let it become empty.
-  const toggleFolder = (g: RealCourseGroup) => {
-    const k = folderKey(g)
-    setSelectedKeys((prev) =>
-      prev.includes(k) ? (prev.length > 1 ? prev.filter((x) => x !== k) : prev) : [...prev, k],
-    )
+  // Load the graph whenever the selected doc changes. Monotonic guard so a slow
+  // earlier fetch can't overwrite a newer selection.
+  const loadSeq = useRef(0)
+  const loadGraph = useCallback(async (docId: string) => {
+    const seq = ++loadSeq.current
+    setGraphLoading(true)
+    setError(null)
+    setGraph(null)
+    try {
+      const g = await fetchGraph(docId)
+      if (seq === loadSeq.current) setGraph(g)
+    } catch (e) {
+      if (seq === loadSeq.current) {
+        setError(e instanceof Error ? e.message : "No se pudo cargar el mapa mental.")
+      }
+    } finally {
+      if (seq === loadSeq.current) setGraphLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (selectedDocId) loadGraph(selectedDocId)
+  }, [selectedDocId, loadGraph])
+
+  // Reprocess: re-enqueue generation, then poll until the graph settles.
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const stopPoll = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = null
   }
+  useEffect(() => stopPoll, [])
+
+  const handleReprocess = useCallback(async () => {
+    if (!selectedDocId) return
+    try {
+      const pending = await reprocessGraph(selectedDocId)
+      setGraph(pending)
+      stopPoll()
+      pollRef.current = setInterval(async () => {
+        try {
+          const g = await fetchGraph(selectedDocId)
+          if (g.graph_status !== "pending" && g.graph_status !== "processing") {
+            setGraph(g)
+            stopPoll()
+          }
+        } catch {
+          stopPoll()
+        }
+      }, 3000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo reprocesar el mapa.")
+    }
+  }, [selectedDocId])
 
   if (ready && (status === "anonymous" || status === "guest")) {
     return (
@@ -216,11 +195,6 @@ function MapaContent() {
     )
   }
 
-  const combinedName =
-    selectedGroups.length === 1
-      ? selectedGroups[0].name
-      : `${selectedGroups.length} cursos combinados`
-
   return (
     <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:px-6">
@@ -237,169 +211,105 @@ function MapaContent() {
             <Empty />
           ) : (
             <>
-              {/* view toggle: combined single/multi course vs cross-course galaxy */}
-              <div className="mb-4 inline-flex gap-1 rounded-xl border border-border bg-card/50 p-1">
-                <ViewTab
-                  active={view === "single"}
-                  onClick={() => setView("single")}
-                  icon={<Network className="h-3.5 w-3.5" />}
-                  label="Mapa de cursos"
-                />
-                <ViewTab
-                  active={view === "cross"}
-                  onClick={() => setView("cross")}
-                  icon={<Layers className="h-3.5 w-3.5" />}
-                  label="Galaxia entre cursos"
-                />
+              {/* course folder selector */}
+              <div className="mb-3 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                <FolderOpen className="h-3.5 w-3.5 text-accent" /> Curso
+              </div>
+              <div className="mb-4 flex flex-wrap gap-2.5">
+                {groups.map((g) => {
+                  const active = folderKey(g) === selectedKey
+                  const count = g.docs.filter(isReady).length
+                  return (
+                    <Button
+                      key={folderKey(g)}
+                      variant={active ? "secondary" : "outline"}
+                      onClick={() => setSelectedKey(folderKey(g))}
+                      className={
+                        active
+                          ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
+                          : "gap-2 text-muted-foreground"
+                      }
+                    >
+                      <BookText
+                        className="h-4 w-4 text-accent"
+                        style={g.color ? { color: g.color } : undefined}
+                      />
+                      {g.name}
+                      <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                        {count}
+                      </span>
+                    </Button>
+                  )
+                })}
               </div>
 
-              {view === "cross" ? (
-                <SelectionAsk onAsk={askInChat}>
-                  <CrossCourseView />
-                </SelectionAsk>
-              ) : (
+              {/* doc selector — only when the course has more than one ready PDF */}
+              {readyDocs.length > 1 && (
                 <>
-                  {/* ── Collapsible multi-select of course folders ── */}
-                  <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/30">
-                    <button
-                      onClick={() => setSelectorsOpen((o) => !o)}
-                      className="flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors hover:bg-secondary/40"
-                    >
-                      <FolderOpen className="h-4 w-4 flex-none text-accent" />
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-                        {combinedName}
-                      </span>
-                      <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
-                        {selectedGroups.length} de {groups.length}{" "}
-                        {groups.length === 1 ? "curso" : "cursos"}
-                      </span>
-                      <ChevronDown
-                        className="h-4 w-4 flex-none text-muted-foreground transition-transform"
-                        style={{ transform: selectorsOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-                      />
-                    </button>
-
-                    {selectorsOpen && (
-                      <div className="border-t border-border/50 p-4">
-                        <div className="mb-2.5 text-[11px] font-medium text-muted-foreground">
-                          Selecciona uno o varios cursos para combinar su mapa mental.
-                        </div>
-                        <div className="flex flex-wrap gap-2.5">
-                          {groups.map((g) => {
-                            const active = selectedKeys.includes(folderKey(g))
-                            const count = g.docs.filter(isReady).length
-                            return (
-                              <Button
-                                key={folderKey(g)}
-                                variant={active ? "secondary" : "outline"}
-                                onClick={() => toggleFolder(g)}
-                                className={
-                                  active
-                                    ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
-                                    : "gap-2 text-muted-foreground"
-                                }
-                              >
-                                <span
-                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                                    active ? "border-accent bg-accent/20" : "border-border"
-                                  }`}
-                                >
-                                  {active && <span className="h-2 w-2 rounded-sm bg-accent" />}
-                                </span>
-                                <BookText
-                                  className="h-4 w-4 text-accent"
-                                  style={g.color ? { color: g.color } : undefined}
-                                />
-                                {g.name}
-                                <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums text-muted-foreground">
-                                  {count}
-                                </span>
-                              </Button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
+                  <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                    <FileText className="h-3.5 w-3.5 text-accent" /> Documento
                   </div>
-
-                  <div className="mt-4">
-                    {setLoading ? (
-                      <CenterSpinner label="Cargando mapa mental…" />
-                    ) : error ? (
-                      <ErrorBox message={error} onRetry={() => loadSelected(selectedGroups)} />
-                    ) : mindmap ? (
-                      <SelectionAsk onAsk={ask}>
-                        {mindmap.mode === "bloques" ? (
-                          <MindBlocksView
-                            center={mindmap.center}
-                            blocks={mindmap.blocks ?? []}
-                            mode={mindmap.mode}
-                            courseName={combinedName}
-                            loading={regenerating}
-                            onTopicDouble={ask}
-                            onRegenerate={
-                              combining
-                                ? undefined
-                                : ({ mode: m }) =>
-                                    loadSelected(selectedGroups, { refresh: true, mindMode: m })
-                            }
-                          />
-                        ) : (
-                          <MindMapCanvas
-                            mindmap={mindmap}
-                            mode={mindmap.mode}
-                            courseName={combinedName}
-                            loading={regenerating}
-                            onTopicDouble={ask}
-                            // Regenerating from the AI panel only makes sense for a
-                            // single course; the combined view is read-only. Honor
-                            // the focus topics / mode chosen in the edit drawer.
-                            onRegenerate={
-                              combining
-                                ? undefined
-                                : ({ focus, mode: m }) =>
-                                    loadSelected(selectedGroups, {
-                                      refresh: true,
-                                      topic: focus[0],
-                                      mindMode: m,
-                                    })
-                            }
-                          />
-                        )}
-                      </SelectionAsk>
-                    ) : null}
+                  <div className="mb-4 flex flex-wrap gap-2">
+                    {readyDocs.map((d) => {
+                      const active = d.id === selectedDocId
+                      return (
+                        <button
+                          key={d.id}
+                          onClick={() => setSelectedDocId(d.id)}
+                          className={`rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                            active
+                              ? "border-accent/40 bg-accent/10 text-foreground"
+                              : "border-border text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {cleanName(d.original_filename)}
+                        </button>
+                      )
+                    })}
                   </div>
                 </>
               )}
+
+              <div className="mt-2">
+                {graphLoading ? (
+                  <CenterSpinner label="Cargando mapa mental…" />
+                ) : error ? (
+                  <ErrorBox
+                    message={error}
+                    onRetry={() => selectedDocId && loadGraph(selectedDocId)}
+                  />
+                ) : graph && selectedGroup ? (
+                  <SelectionAsk onAsk={ask}>
+                    <GraphCanvas
+                      nodes={graph.nodes}
+                      edges={graph.edges}
+                      crossLinks={graph.crossLinks}
+                      layout={graph.layout}
+                      graphStatus={graph.graph_status}
+                      graphError={graph.graph_error}
+                      centerTitle={
+                        selectedGroup.id
+                          ? selectedGroup.name
+                          : selectedDocId
+                            ? cleanName(
+                                readyDocs.find((d) => d.id === selectedDocId)?.original_filename ??
+                                  selectedGroup.name,
+                              )
+                            : selectedGroup.name
+                      }
+                      onReprocess={handleReprocess}
+                      editable
+                      syllabusId={selectedDocId ?? undefined}
+                      onSaved={(g) => setGraph(g)}
+                    />
+                  </SelectionAsk>
+                ) : null}
+              </div>
             </>
           )}
         </div>
       </div>
     </main>
-  )
-}
-
-function ViewTab({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors ${
-        active ? "bg-accent/15 text-accent" : "text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
   )
 }
 

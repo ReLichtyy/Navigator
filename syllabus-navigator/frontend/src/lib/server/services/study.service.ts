@@ -40,13 +40,11 @@ import { logError } from "@/lib/observability/logger"
 import {
   STUDY_SCHEMA_VERSION,
   shuffleQuizOptions,
-  pickMindMode,
   type StudySet,
   type Difficulty,
   type CardFormat,
   type Flashcard,
   type QuizQuestion,
-  type MindMode,
 } from "../rag/study-gen"
 
 // ── Configuración → Study Engine mappings (the UI stores Spanish labels) ─────
@@ -348,8 +346,6 @@ export const StudyService = {
       difficulty?: Difficulty
       topic?: string
       web?: boolean
-      /** Explicit mind-map mode override (from the edit drawer). Auto-picked when omitted. */
-      mindMode?: MindMode
     } = {},
   ): Promise<StudySet> {
     const doc = await DocumentRepository.findByIdAndUser(syllabusId, userId)
@@ -367,10 +363,7 @@ export const StudyService = {
     // default shapes the canonical cached set instead (changing the pref takes
     // effect on the next refresh, not retroactively on the cached set).
     const custom =
-      !!topic ||
-      (opts.difficulty !== undefined && opts.difficulty !== "medio") ||
-      !!opts.web ||
-      !!opts.mindMode
+      !!topic || (opts.difficulty !== undefined && opts.difficulty !== "medio") || !!opts.web
     const scope: StudyScope = { kind: "doc", id: syllabusId }
     const fingerprint = await ChunkRepository.contentFingerprint(syllabusId)
 
@@ -417,15 +410,12 @@ export const StudyService = {
       if (web) text = appendWebContext(text, web)
     }
 
-    // Step 3+4: specialized agents (flashcard/inquisitor/synth/mindmap) + answer-
-    // correctness gate, instead of one mega-call. Mind-map mode: an explicit
-    // override wins, else a heuristic picks the presentation that best fits this
-    // scope's content (see pickMindMode).
-    const mindMode = opts.mindMode ?? pickMindMode({ topic, weightedTopics })
+    // Step 3+4: specialized agents (flashcard/inquisitor/synth) + answer-
+    // correctness gate, instead of one mega-call.
     const excludeSeen = await seenTexts(scope)
     const set = await orchestrateStudySet(
       text,
-      { difficulty, topic, weightedTopics, excludeSeen, mindMode, language, cardFormat },
+      { difficulty, topic, weightedTopics, excludeSeen, language, cardFormat },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
     if (!set) {
@@ -456,7 +446,6 @@ export const StudyService = {
       difficulty?: Difficulty
       topic?: string
       web?: boolean
-      mindMode?: MindMode
     } = {},
   ): Promise<StudySet> {
     const course = await CourseRepository.findByIdAndUser(courseId, userId)
@@ -468,10 +457,7 @@ export const StudyService = {
     const difficulty = opts.difficulty ?? prefDifficulty ?? "medio"
     // Web-augmented sets are always fresh (see getStudySet).
     const custom =
-      !!topic ||
-      (opts.difficulty !== undefined && opts.difficulty !== "medio") ||
-      !!opts.web ||
-      !!opts.mindMode
+      !!topic || (opts.difficulty !== undefined && opts.difficulty !== "medio") || !!opts.web
     const scope: StudyScope = { kind: "course", id: courseId }
     const fingerprint = await ChunkRepository.contentFingerprintByCourse(userId, courseId)
 
@@ -500,11 +486,10 @@ export const StudyService = {
       if (web) text = appendWebContext(text, web)
     }
 
-    const mindMode = opts.mindMode ?? pickMindMode({ topic, weightedTopics: [] })
     const excludeSeen = await seenTexts(scope)
     const set = await orchestrateStudySet(
       text,
-      { difficulty, topic, weightedTopics: [], excludeSeen, mindMode, language, cardFormat },
+      { difficulty, topic, weightedTopics: [], excludeSeen, language, cardFormat },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
     if (!set) {

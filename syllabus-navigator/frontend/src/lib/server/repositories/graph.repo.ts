@@ -2,10 +2,9 @@ import { sql } from "@/lib/db"
 
 export type LayoutKind = "radial" | "tree_horizontal" | "tree_vertical" | "columns_report"
 
-// Same hex values as the client palettes (mind-map-canvas.tsx#PALETTE,
-// cross-course-view.tsx#COURSE_COLORS) — kept in sync manually, duplicated
-// here because color is assigned server-side at persist time (see
-// assignColors below), not recomputed client-side from array position.
+// Branch palette (green / blue / purple / amber / pink / teal). Color is
+// assigned server-side at persist time (see assignColors below) so the mapping
+// is stable across sessions; the client just renders node.color.
 const PALETTE = ["#5BE39A", "#6FB6F0", "#C9A0F0", "#F0C27C", "#E89BC0", "#8FE0D6"]
 
 export interface GraphNodeInput {
@@ -230,44 +229,6 @@ export const GraphRepository = {
       GROUP BY t.syllabus_id, t.label
     `
     return rows as { syllabus_id: string; label: string; prereqs: string[] }[]
-  },
-
-  /**
-   * Every topic the user owns across all courses, with its course label and id.
-   * Powers the cross-course prerequisite graph (Sprint 4).
-   */
-  async listUserTopics(userId: string): Promise<
-    {
-      id: string
-      syllabus_id: string
-      course: string
-      label: string
-      weight_percent: number | null
-    }[]
-  > {
-    const rows = await sql`
-      SELECT t.id, t.syllabus_id, su.original_filename AS course, t.label, t.weight_percent
-      FROM topics t
-      JOIN syllabus_uploads su ON su.id = t.syllabus_id AND su.user_id = ${userId}
-      ORDER BY su.original_filename ASC, t.created_at ASC
-    `
-    return rows as {
-      id: string
-      syllabus_id: string
-      course: string
-      label: string
-      weight_percent: number | null
-    }[]
-  },
-
-  /** All prerequisite edges for the user's topics (intra-course), as topic-id pairs. */
-  async listUserEdges(userId: string): Promise<{ source: string; target: string }[]> {
-    const rows = await sql`
-      SELECT td.prerequisite_topic_id AS source, td.target_topic_id AS target
-      FROM topic_dependencies td
-      JOIN syllabus_uploads su ON su.id = td.syllabus_id AND su.user_id = ${userId}
-    `
-    return rows as { source: string; target: string }[]
   },
 
   async getGraph(
