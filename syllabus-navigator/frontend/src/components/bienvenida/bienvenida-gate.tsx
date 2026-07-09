@@ -8,21 +8,29 @@
 
 import { useUser } from "@clerk/nextjs"
 import { useState } from "react"
+import { useBienvenida } from "@/context/BienvenidaContext"
 import { Bienvenida } from "./bienvenida"
 
 export function BienvenidaGate() {
   const { isLoaded, isSignedIn, user } = useUser()
+  const { forceOpen, closeBienvenida } = useBienvenida()
   const [dismissed, setDismissed] = useState(false)
 
   if (!isLoaded || !isSignedIn || !user) return null
-  if (dismissed) return null
-  if (user.unsafeMetadata?.onboardingCompleted === true) return null
+
+  const onboarded = user.unsafeMetadata?.onboardingCompleted === true
+  // First-run overlay (once, until finished) OR a manual re-open via the brand icon.
+  const showFirstRun = !onboarded && !dismissed
+  if (!showFirstRun && !forceOpen) return null
 
   const finish = () => {
-    setDismissed(true) // hide immediately; persist in the background
-    user
-      .update({ unsafeMetadata: { ...user.unsafeMetadata, onboardingCompleted: true } })
-      .catch(() => {})
+    if (showFirstRun) {
+      setDismissed(true) // hide immediately; persist in the background
+      user
+        .update({ unsafeMetadata: { ...user.unsafeMetadata, onboardingCompleted: true } })
+        .catch(() => {})
+    }
+    if (forceOpen) closeBienvenida()
   }
 
   return <Bienvenida onFinish={finish} />

@@ -47,6 +47,7 @@ import {
   Flame,
   ChevronDown,
   Globe,
+  ArrowLeft,
 } from "lucide-react"
 import { FlashcardsView, EmptyMode } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
@@ -610,7 +611,21 @@ function EstudioContent() {
         <StatsInline />
       </header>
 
-      <div className="flex-1 overflow-auto p-6 sm:px-10 sm:py-9">
+      {/* Back-to-menu control lives here (below the header, striking accent) so it
+          reads clearly as "regreso" and never eats vertical space inside a mode. */}
+      {mode !== "menu" && (
+        <div className="shrink-0 border-b border-border/60 bg-background/95 px-3 py-2.5 sm:px-6">
+          <button
+            onClick={backToMenu}
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-bold text-accent-foreground shadow-sm transition-opacity hover:opacity-90"
+          >
+            <ArrowLeft className="h-4 w-4" strokeWidth={2.4} />
+            Volver al Área de Estudio
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-auto overscroll-contain p-6 sm:px-10 sm:py-9">
         <div
           className={`mx-auto transition-[max-width] duration-300 ${
             mode === "menu" ? "max-w-4xl" : "max-w-3xl"
@@ -1135,13 +1150,13 @@ function Menu({
             >
               <button onClick={() => onLaunch(m.key)} className="text-left">
                 <div className="flex items-start justify-between gap-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/10">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10">
                     <m.Icon className="h-[18px] w-[18px] text-accent" />
                   </span>
                   {suggested && (
-                    <Badge variant="accent" className="gap-1">
-                      <Sparkles className="h-3 w-3" />
-                      Sugerido · {suggestion!.reason}
+                    <Badge variant="accent" className="min-w-0 shrink gap-1 whitespace-normal">
+                      <Sparkles className="h-3 w-3 shrink-0" />
+                      <span className="truncate">Sugerido · {suggestion!.reason}</span>
                     </Badge>
                   )}
                 </div>

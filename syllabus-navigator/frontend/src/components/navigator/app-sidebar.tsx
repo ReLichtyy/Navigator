@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
+import { useTranslations } from "next-intl"
 import { fetchStudyStats, listChats, type StudyStatsAPI } from "@/lib/api"
 import {
   ChevronDown,
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useChatNav } from "@/context/ChatNavContext"
+import { useBienvenida } from "@/context/BienvenidaContext"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,9 +36,11 @@ import { consumeOpenSettings } from "@/lib/ui/settings-intent"
 export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
+  const t = useTranslations("sidebar")
   const { displayName, status, resetIdentity, avatarUrl } = useUser()
   const { openAuthModal } = useAuthModal()
   const { requestChat, requestNewChat, setAllChatsOpen } = useChatNav()
+  const { openBienvenida } = useBienvenida()
   const [collapsed, setCollapsed] = useState(false)
   const [stats, setStats] = useState<StudyStatsAPI | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(true)
@@ -81,6 +85,7 @@ export function AppSidebar() {
 
   function NavLink({ item }: { item: NavItem }) {
     const active = isActive(item.href)
+    const label = t(item.labelKey)
     const link = (
       <Link
         href={item.href}
@@ -95,15 +100,15 @@ export function AppSidebar() {
         <item.icon className="h-[18px] w-[18px] shrink-0" />
         {!collapsed && (
           <>
-            <span className="truncate">{item.label}</span>
+            <span className="truncate">{label}</span>
             {item.isNew && (
               <Badge variant="new" className="ml-auto px-1.5 py-0.5 text-[9px] uppercase">
-                Nuevo
+                {t("new")}
               </Badge>
             )}
           </>
         )}
-        {collapsed && <span className="sr-only">{item.label}</span>}
+        {collapsed && <span className="sr-only">{label}</span>}
       </Link>
     )
     if (!collapsed) return link
@@ -111,7 +116,7 @@ export function AppSidebar() {
       <Tooltip>
         <TooltipTrigger asChild>{link}</TooltipTrigger>
         <TooltipContent side="right" sideOffset={10}>
-          {item.label}
+          {label}
         </TooltipContent>
       </Tooltip>
     )
@@ -125,22 +130,30 @@ export function AppSidebar() {
       )}
     >
       <TooltipProvider delayDuration={0}>
-        {/* Brand */}
-        <div className={cn("flex items-center gap-2.5 px-1", collapsed && "justify-center px-0")}>
+        {/* Brand — clicking it re-opens the welcome overlay. */}
+        <button
+          type="button"
+          onClick={openBienvenida}
+          aria-label="Ver la bienvenida"
+          className={cn(
+            "flex items-center gap-2.5 rounded-lg px-1 text-left transition-colors hover:bg-sidebar-accent",
+            collapsed && "justify-center px-0",
+          )}
+        >
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent-bright shadow-[0_0_18px_rgba(63,191,132,0.12)]">
             <Compass className="h-5 w-5" />
           </div>
           {!collapsed && (
             <div className="min-w-0">
               <div className="truncate text-sm font-bold leading-tight text-sidebar-foreground">
-                Navigator
+                {t("brand")}
               </div>
               <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Study OS
+                {t("brandSub")}
               </div>
             </div>
           )}
-        </div>
+        </button>
 
         {/* Collapse toggle */}
         <Button
@@ -153,7 +166,7 @@ export function AppSidebar() {
           )}
         >
           <PanelLeft className="h-4 w-4" />
-          {!collapsed && <span>Colapsar</span>}
+          {!collapsed && <span>{t("collapse")}</span>}
         </Button>
 
         {/* Main nav — "Asistente" expands to new-chat + recent chats (Navigator v2) */}
@@ -172,7 +185,7 @@ export function AppSidebar() {
               >
                 <Link href="/" className="flex min-w-0 flex-1 items-center gap-3">
                   <AssistantIcon className="h-[18px] w-[18px] shrink-0" />
-                  <span className="truncate">{assistantItem.label}</span>
+                  <span className="truncate">{t(assistantItem.labelKey)}</span>
                 </Link>
                 <button
                   type="button"
@@ -198,7 +211,7 @@ export function AppSidebar() {
                     className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] font-semibold text-[#9FEDC4] transition-colors hover:bg-accent/10"
                   >
                     <Plus className="h-3.5 w-3.5 shrink-0" strokeWidth={2.3} />
-                    Nuevo chat
+                    {t("newChat")}
                   </button>
                   {recentChats.map((c) => (
                     <button
@@ -223,7 +236,7 @@ export function AppSidebar() {
                     className="flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   >
                     <List className="h-3.5 w-3.5 shrink-0" />
-                    Ver todos los chats
+                    {t("viewAllChats")}
                   </button>
                 </div>
               )}
@@ -239,7 +252,7 @@ export function AppSidebar() {
         <div className={cn("mt-5 mb-1 px-2", collapsed && "px-0 text-center")}>
           {!collapsed ? (
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Estudio
+              {t("studySection")}
             </span>
           ) : (
             <div className="mx-auto h-px w-6 bg-sidebar-border" />
@@ -259,7 +272,7 @@ export function AppSidebar() {
             <div className="flex items-center gap-2">
               <Flame className="h-4 w-4 text-accent-bright" />
               <span className="text-[13px] font-bold text-[#9FEDC4]">
-                Racha de {stats?.streakDays ?? 0} {stats?.streakDays === 1 ? "día" : "días"}
+                {t("streak", { days: stats?.streakDays ?? 0 })}
               </span>
             </div>
             <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-sidebar-border">
@@ -269,7 +282,7 @@ export function AppSidebar() {
               />
             </div>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              {stats?.cardsThisWeek ?? 0} tarjetas repasadas esta semana
+              {t("cardsThisWeek", { count: stats?.cardsThisWeek ?? 0 })}
             </p>
           </div>
         )}
@@ -285,7 +298,7 @@ export function AppSidebar() {
             )}
           >
             <UserIcon className="h-4 w-4" />
-            {!collapsed && <span>Iniciar sesión</span>}
+            {!collapsed && <span>{t("login")}</span>}
           </Button>
         ) : (
           <DropdownMenu>
@@ -314,7 +327,7 @@ export function AppSidebar() {
                       {displayName ?? "Usuario"}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
-                      Estudiante
+                      {t("student")}
                     </span>
                   </span>
                 )}
@@ -327,10 +340,10 @@ export function AppSidebar() {
                 className="cursor-pointer gap-2"
               >
                 <Settings className="h-4 w-4 text-muted-foreground" />
-                Configuración
+                {t("settings")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={resetIdentity} className="cursor-pointer text-destructive">
-                Cerrar sesión
+                {t("logout")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

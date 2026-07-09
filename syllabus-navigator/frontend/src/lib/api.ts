@@ -171,11 +171,12 @@ export async function querySyllabus(
   chatId: string,
   onChunk: (text: string) => void,
   signal?: AbortSignal,
+  opts?: { web?: boolean },
 ): Promise<StreamResult> {
   const res = await fetch(`${API_BASE}/chat/${chatId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, ...(opts?.web ? { web: true } : {}) }),
     signal,
   })
 
@@ -468,8 +469,16 @@ export async function fetchGraph(syllabusId: string) {
 }
 
 export interface GraphUpdatePayload {
-  nodes: { id: string; label: string; weight_percent?: number | null }[]
+  nodes: {
+    id: string
+    label: string
+    weight_percent?: number | null
+    level?: number
+    parentId?: string | null
+    detail?: string | null
+  }[]
   edges: { source: string; target: string }[]
+  crossLinks?: { source: string; target: string; label: string }[]
 }
 
 /**

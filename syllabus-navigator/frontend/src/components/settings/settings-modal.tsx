@@ -23,12 +23,15 @@ import {
   X,
 } from "lucide-react"
 import { toast } from "sonner"
+import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
 import { useUser } from "@/context/UserContext"
+import { useAppLocale } from "@/context/LocaleContext"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { AccountSection } from "@/components/settings/account-section"
 import { BillingSection } from "@/components/settings/billing-section"
 import { applyTheme, type ThemePref } from "@/lib/ui/theme"
+import { toLocale } from "@/lib/ui/locale"
 import {
   getPreferences,
   updatePreferences,
@@ -40,56 +43,22 @@ import {
 
 type SectionId = "perfil" | "cuenta" | "estudio" | "notificaciones" | "apariencia" | "facturacion"
 
-const NAV: {
-  id: SectionId
-  label: string
-  Icon: typeof UserIcon
-  title: string
-  desc: string
-  hint?: string
-}[] = [
-  {
-    id: "perfil",
-    label: "Perfil",
-    Icon: UserIcon,
-    title: "Configuración de perfil",
-    desc: "Cómo te ven y cómo Navigator te acompaña.",
-  },
-  {
-    id: "cuenta",
-    label: "Cuenta",
-    Icon: Lock,
-    title: "Cuenta y seguridad",
-    desc: "Correo y sesiones activas.",
-  },
-  {
-    id: "estudio",
-    label: "Preferencias de estudio",
-    Icon: BookOpen,
-    title: "Preferencias de estudio",
-    desc: "Cómo generamos y programamos tu repaso.",
-  },
+// Copy comes from the "settings.nav" message catalog (es/en); this table only
+// pins id → icon + which nav key prefix to read (`${id}Label`/`${id}Title`/`${id}Desc`).
+// "hint" (placeholder-section blurb) isn't translated yet — Fase 2 of the i18n sweep.
+const NAV: { id: SectionId; Icon: typeof UserIcon; hint?: string }[] = [
+  { id: "perfil", Icon: UserIcon },
+  { id: "cuenta", Icon: Lock },
+  { id: "estudio", Icon: BookOpen },
   {
     id: "notificaciones",
-    label: "Notificaciones",
     Icon: Bell,
-    title: "Notificaciones",
-    desc: "Recordatorios de estudio y resúmenes.",
     hint: "Elige qué recordatorios recibes por correo o push y a qué hora del día.",
   },
-  {
-    id: "apariencia",
-    label: "Apariencia",
-    Icon: Sun,
-    title: "Apariencia",
-    desc: "Tema de la interfaz.",
-  },
+  { id: "apariencia", Icon: Sun },
   {
     id: "facturacion",
-    label: "Plan y facturación",
     Icon: CreditCard,
-    title: "Plan y facturación",
-    desc: "Tu suscripción y método de pago.",
     hint: "Revisa tu plan, historial de pagos y actualiza tu método de facturación.",
   },
 ]
@@ -302,6 +271,8 @@ export function SettingsModal({
   onOpenChange: (open: boolean) => void
 }) {
   const { displayName: sessionName, avatarUrl, setAvatarUrl } = useUser()
+  const { setLocale } = useAppLocale()
+  const t = useTranslations("settings")
   const [section, setSection] = useState<SectionId>("perfil")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -346,7 +317,13 @@ export function SettingsModal({
   }
 
   const study: Required<UserStudyPrefsAPI> = { ...DEFAULT_STUDY, ...profile.study }
-  const cur = NAV.find((n) => n.id === section) ?? NAV[0]
+  const curNav = NAV.find((n) => n.id === section) ?? NAV[0]
+  const cur = {
+    ...curNav,
+    label: t(`nav.${curNav.id}Label`),
+    title: t(`nav.${curNav.id}Title`),
+    desc: t(`nav.${curNav.id}Desc`),
+  }
   const hasFooter = section === "perfil" || section === "estudio" || section === "apariencia"
 
   const fullName = profile.fullName?.trim() || sessionName || "Estudiante"
@@ -424,8 +401,8 @@ export function SettingsModal({
               <Compass className="h-4 w-4 text-[#5BE39A]" strokeWidth={2} />
             </div>
             <div className="leading-[1.1]">
-              <div className="text-[13.5px] font-extrabold text-[#F2F6F4]">Ajustes</div>
-              <div className="text-[10px] font-semibold text-[#5C6661]">Navigator · Study OS</div>
+              <div className="text-[13.5px] font-extrabold text-[#F2F6F4]">{t("title")}</div>
+              <div className="text-[10px] font-semibold text-[#5C6661]">{t("brandSub")}</div>
             </div>
           </div>
 
@@ -448,7 +425,7 @@ export function SettingsModal({
                     className={cn("h-4 w-4 shrink-0", active ? "text-[#5BE39A]" : "text-[#7C8983]")}
                     strokeWidth={1.9}
                   />
-                  <span className="min-w-0 flex-1 truncate">{n.label}</span>
+                  <span className="min-w-0 flex-1 truncate">{t(`nav.${n.id}Label`)}</span>
                   {active && (
                     <span className="h-[5px] w-[5px] shrink-0 rounded-full bg-[#5BE39A] shadow-[0_0_7px_#5BE39A]" />
                   )}
@@ -464,7 +441,7 @@ export function SettingsModal({
             </div>
             <div className="min-w-0 leading-tight">
               <div className="truncate text-[12.5px] font-bold text-[#E8EDEA]">{fullName}</div>
-              <div className="text-[10.5px] font-semibold text-[#5BE39A]">Estudiante</div>
+              <div className="text-[10.5px] font-semibold text-[#5BE39A]">{t("student")}</div>
             </div>
           </div>
         </aside>
@@ -482,7 +459,7 @@ export function SettingsModal({
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              aria-label="Cerrar configuración"
+              aria-label={t("close")}
               className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-white/[0.08] bg-white/[0.04] text-[#9AA5A0] transition-colors hover:bg-white/[0.08] hover:text-[#E8EDEA]"
             >
               <X className="h-4 w-4" strokeWidth={2.2} />
@@ -506,7 +483,7 @@ export function SettingsModal({
                   )}
                 >
                   <n.Icon className="h-3.5 w-3.5" strokeWidth={1.9} />
-                  {n.label}
+                  {t(`nav.${n.id}Label`)}
                 </button>
               )
             })}
@@ -655,13 +632,17 @@ export function SettingsModal({
                   </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <span className={labelCls}>Idioma de la app</span>
+                      <span className={labelCls}>{t("languageLabel")}</span>
                       <SelectBox
-                        ariaLabel="Idioma de la app"
-                        value={language === "en" ? "English" : "Español"}
-                        options={["Español", "English"]}
+                        ariaLabel={t("languageLabel")}
+                        value={language === "en" ? t("languageEn") : t("languageEs")}
+                        options={[t("languageEs"), t("languageEn")]}
                         onChange={(v) => {
-                          setLanguage(v === "English" ? "en" : "es")
+                          const next = v === t("languageEn") ? "en" : "es"
+                          setLanguage(next)
+                          // Live preview (same pattern as changeTheme): the whole UI
+                          // flips immediately; persisted to the server on Save.
+                          setLocale(toLocale(next))
                           setDirty(true)
                         }}
                       />
@@ -843,7 +824,7 @@ export function SettingsModal({
                     dirty ? "bg-[#FFB45B]" : "bg-[#5BE39A]",
                   )}
                 />
-                {dirty ? "Cambios sin guardar" : "Todo guardado"}
+                {dirty ? t("unsaved") : t("saved")}
               </span>
               <div className="ml-auto flex gap-2">
                 <button
@@ -851,7 +832,7 @@ export function SettingsModal({
                   onClick={() => onOpenChange(false)}
                   className="h-10 rounded-[11px] border border-white/10 px-4 text-[13.5px] font-semibold text-[#C9D2CD] transition-colors hover:bg-white/[0.04]"
                 >
-                  Cancelar
+                  {t("cancel")}
                 </button>
                 <button
                   type="button"
@@ -860,7 +841,7 @@ export function SettingsModal({
                   className="flex h-10 items-center gap-2 rounded-[11px] bg-[linear-gradient(180deg,#5BE39A,#3FBF84)] px-5 text-[13.5px] font-bold text-[#08110B] shadow-[0_8px_22px_rgba(63,191,132,0.22)] transition-transform hover:-translate-y-px disabled:opacity-70"
                 >
                   {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  {saving ? "Guardando…" : "Guardar cambios"}
+                  {saving ? t("saving") : t("save")}
                 </button>
               </div>
             </div>

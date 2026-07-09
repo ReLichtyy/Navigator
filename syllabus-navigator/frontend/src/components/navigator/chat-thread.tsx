@@ -183,23 +183,28 @@ export function ChatThread({
 
   if (messages.length === 0) {
     return (
-      <div className="animate-fade-in flex h-full flex-col items-center justify-center gap-6 py-10">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent-bright shadow-[0_0_28px_rgba(63,191,132,0.25)]">
-          <Compass className="h-7 w-7" />
-        </div>
-        <h1 className="text-center text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
-          ¿Qué estudiarás hoy{firstName ? `, ${firstName}` : ""}?
-        </h1>
-        <div className="flex min-h-[42px] items-center justify-center">
-          <button
-            key={phraseIdx}
-            type="button"
-            onClick={() => onPrompt?.(phrases[phraseIdx % phrases.length])}
-            className="animate-phrase-swap flex max-w-full items-center gap-2.5 rounded-full border border-border bg-card px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-accent/40 hover:bg-secondary/60 hover:text-foreground"
-          >
-            <Search className="h-4 w-4 shrink-0 text-accent-bright" strokeWidth={1.9} />
-            <span className="truncate">{phrases[phraseIdx % phrases.length]}</span>
-          </button>
+      // Scrollable + horizontally padded so the rotating pill's rounded ends are
+      // never clipped by the parent's overflow-hidden, and a short viewport can
+      // scroll instead of cropping the heading/pill.
+      <div className="animate-fade-in h-full overflow-y-auto px-4">
+        <div className="flex min-h-full flex-col items-center justify-center gap-6 py-10">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent-bright shadow-[0_0_28px_rgba(63,191,132,0.25)]">
+            <Compass className="h-7 w-7" />
+          </div>
+          <h1 className="text-center text-3xl font-extrabold tracking-tight text-foreground sm:text-4xl">
+            ¿Qué estudiarás hoy{firstName ? `, ${firstName}` : ""}?
+          </h1>
+          <div className="flex min-h-[42px] w-full items-center justify-center">
+            <button
+              key={phraseIdx}
+              type="button"
+              onClick={() => onPrompt?.(phrases[phraseIdx % phrases.length])}
+              className="animate-phrase-swap flex max-w-full items-center gap-2.5 rounded-full border border-border bg-card px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-accent/40 hover:bg-secondary/60 hover:text-foreground"
+            >
+              <Search className="h-4 w-4 shrink-0 text-accent-bright" strokeWidth={1.9} />
+              <span className="truncate">{phrases[phraseIdx % phrases.length]}</span>
+            </button>
+          </div>
         </div>
       </div>
     )

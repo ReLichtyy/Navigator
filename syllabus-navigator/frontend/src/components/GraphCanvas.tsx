@@ -4,21 +4,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSyllabus } from "@/context/SyllabusContext"
 import { RotateCcw, X } from "lucide-react"
 import { MindMapCanvas, type Mindmap, type BranchEdit } from "@/components/estudio/mind-map-canvas"
-import { applyBranchEdits } from "@/lib/ui/graph-edit"
+import { RichMindMapCanvas } from "@/components/estudio/rich-mind-map-canvas"
+import { applyBranchEdits, type TreeNodeDTO, type CrossLinkDTO } from "@/lib/ui/graph-edit"
 import { updateGraph } from "@/lib/api"
+import type { GraphResponseAPI } from "@/types/api"
 
-type GraphNode = { id: string; label: string; weight_percent?: number }
+type GraphNode = GraphResponseAPI["nodes"][number]
 type GraphEdge = { source: string; target: string }
+type GraphCrossLink = GraphResponseAPI["crossLinks"][number]
 
 type Props = {
   nodes?: GraphNode[]
   edges?: GraphEdge[]
+  crossLinks?: GraphCrossLink[]
+  /** Chosen presentation layout. Present + non-null → renders via RichMindMapCanvas
+   * (3+ level hierarchy). Absent/null → legacy 2-level radial MindMapCanvas. */
+  layout?: GraphResponseAPI["layout"]
   graphStatus?: string
   graphError?: string | null
   onReprocess?: () => void
   editable?: boolean
   syllabusId?: string
-  onSaved?: (graph: { nodes: GraphNode[]; edges: GraphEdge[] }) => void
+  onSaved?: (graph: GraphResponseAPI) => void
   /** Title shown in the central node (usually the course name). */
   centerTitle?: string
 }
@@ -65,6 +72,8 @@ function toMindmap(nodes: GraphNode[], edges: GraphEdge[], center: string): Mind
 export default function GraphCanvas({
   nodes: propNodes,
   edges: propEdges,
+  crossLinks: propCrossLinks,
+  layout,
   graphStatus,
   graphError,
   onReprocess,
@@ -77,6 +86,7 @@ export default function GraphCanvas({
 
   const nodes = useMemo(() => propNodes ?? [], [propNodes])
   const edges = useMemo(() => propEdges ?? [], [propEdges])
+  const crossLinks = useMemo(() => propCrossLinks ?? [], [propCrossLinks])
 
   const center = centerTitle?.trim() || nodes[0]?.label || "Mapa mental"
   const mindmap = useMemo(() => toMindmap(nodes, edges, center), [nodes, edges, center])
@@ -108,9 +118,32 @@ export default function GraphCanvas({
     async (branches: BranchEdit[]) => {
       if (!syllabusId) return
       const saved = await updateGraph(syllabusId, applyBranchEdits(nodes, edges, branches))
-      onSaved?.({ nodes: saved.nodes, edges: saved.edges })
+      onSaved?.(saved)
     },
     [syllabusId, nodes, edges, onSaved],
+  )
+
+  // Recursion-aware tree edits (rename / cascade-delete / add-child / sibling
+  // reorder at any depth) → same PATCH endpoint. The tree editor never touches
+  // the prerequisite DAG, so `edges` passes through unchanged.
+  const saveTree = useCallback(
+    async (treeNodes: TreeNodeDTO[], treeCrossLinks: CrossLinkDTO[]) => {
+      if (!syllabusId) return
+      const saved = await updateGraph(syllabusId, {
+        nodes: treeNodes.map((n) => ({
+          id: n.id,
+          label: n.label,
+          weight_percent: n.weight_percent,
+          level: n.level,
+          parentId: n.parentId,
+          detail: n.detail,
+        })),
+        edges,
+        crossLinks: treeCrossLinks,
+      })
+      onSaved?.(saved)
+    },
+    [syllabusId, edges, onSaved],
   )
 
   // Failed graph generation — offer a retry.
@@ -143,6 +176,31 @@ export default function GraphCanvas({
           </button>
         )}
       </div>
+    )
+  }
+
+  // `layout` present → the graph was generated (or last saved) by the
+  // hierarchical pipeline: render the 3+ level canvas. `layout` null → legacy
+  // graph, pre-rewrite or never reprocessed since — keep the old radial view.
+  if (layout) {
+    return (
+      <RichMindMapCanvas
+        nodes={nodes}
+        crossLinks={crossLinks}
+        layout={layout}
+        centerTitle={center}
+        loading={loading}
+        onTopicDouble={(label) => queryTopicInChat(label)}
+        onSaveTree={editable && syllabusId ? saveTree : undefined}
+        onRegenerate={
+          editable && onReprocess
+            ? () => {
+                runLoad()
+                onReprocess()
+              }
+            : undefined
+        }
+      />
     )
   }
 

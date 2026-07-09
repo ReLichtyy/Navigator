@@ -23,8 +23,6 @@ export interface ChatWorkspaceState {
   // UI State
   sidebarCollapsed: boolean
   setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>
-  mobileHistoryOpen: boolean
-  setMobileHistoryOpen: React.Dispatch<React.SetStateAction<boolean>>
   transitionKey: number
 
   // Chat List
@@ -44,7 +42,7 @@ export interface ChatWorkspaceState {
   handleNewChat: () => void
   handleDeleteChat: (id: string) => void
   handleRenameChat: (id: string, title: string) => void
-  sendMessage: (text: string, opts?: { syllabusId?: string | null }) => Promise<boolean>
+  sendMessage: (text: string, opts?: { syllabusId?: string | null; web?: boolean }) => Promise<boolean>
   handleModelChange: (model: string) => void
 
   // Attachments & Knowledge
@@ -109,7 +107,6 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
   // Navigator v2: recent chats live in the app sidebar, so the full history
   // panel starts hidden ("Ver todos los chats" / the header toggle opens it).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
-  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false)
   const [activeChatId, setActiveChatId] = useState("")
   const [transitionKey, setTransitionKey] = useState(0)
 
@@ -145,7 +142,6 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     abortRef,
     activeChatIdRef,
     setTransitionKey,
-    setMobileHistoryOpen,
   })
 
   // --- Bootstrapping ---
@@ -164,7 +160,6 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
       abortRef.current?.abort()
       setActiveChatId(id)
       setTransitionKey((k) => k + 1)
-      setMobileHistoryOpen(false)
       const c = chats.find((x) => x.id === id)
       if (c?.syllabusId) setActiveSyllabusId(c.syllabusId)
     },
@@ -368,8 +363,6 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
       value={{
         sidebarCollapsed,
         setSidebarCollapsed,
-        mobileHistoryOpen,
-        setMobileHistoryOpen,
         transitionKey,
         chats,
         chatsLoading,

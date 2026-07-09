@@ -11,6 +11,7 @@ import { ScheduleRepository, type ScheduleEvent } from "../repositories/schedule
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { getUserPrefs, type UserPrefs } from "../utils/user-prefs"
 import { RetrievalService, GROUNDED_SYSTEM_PROMPT, NO_CONTEXT_MESSAGE } from "./retrieval.service"
+import { webSearchContext } from "../rag/web-search"
 import type { LLMMessage, LLMProvider } from "@/lib/llm"
 import type { CitationAPI } from "@/types/api"
 import { flags } from "@/lib/config/flags"
@@ -84,6 +85,15 @@ const DETAIL_DIRECTIVE: Record<string, string> = {
 export function buildStudentDirectives(prefs: UserPrefs): string {
   const p = prefs.profile
   const lines: string[] = []
+  // Configuración → Perfil → "Idioma de la app". Only emitted for a non-Spanish
+  // preference so existing Spanish behavior/tests are untouched by default.
+  const lang = prefs.language?.trim().toLowerCase()
+  if (lang && lang !== "es") {
+    lines.push(
+      `Idioma: responde SIEMPRE en "${lang}" (preferencia guardada del estudiante), sin importar ` +
+        `el idioma del material citado ni el de la última pregunta.`,
+    )
+  }
   if (p.tone && TONE_DIRECTIVE[p.tone]) lines.push(TONE_DIRECTIVE[p.tone])
   if (p.detail && DETAIL_DIRECTIVE[p.detail]) lines.push(DETAIL_DIRECTIVE[p.detail])
 
@@ -159,10 +169,16 @@ export const ChatService = {
     userId: string,
     recentHistory: { role: string; content: string }[],
     question: string,
+    opts: { web?: boolean } = {},
   ): Promise<{ messages: LLMMessage[]; citations: CitationAPI[] }> {
     let systemContent = getPrompt("chat:general").system
     let userContent = question
     let citations: CitationAPI[] = []
+
+    // Web augmentation (composer "Web" toggle): run the live search now, in
+    // parallel with retrieval below — both are independent network calls.
+    // Best-effort: webSearchContext resolves to null on any failure.
+    const webPromise = opts.web ? webSearchContext(question) : Promise.resolve(null)
 
     if (syllabusId) {
       // Chat bound to one course → retrieve within that syllabus.
@@ -195,13 +211,19 @@ export const ChatService = {
     // agenda so "what quizzes/topics this week?" works in any chat. The saved
     // profile (tone/detail/who the student is) rides along; both reads are
     // independent, so run them in parallel (prefs are cached 120s).
-    const [scheduleContext, prefs] = await Promise.all([
+    const [scheduleContext, prefs, webContext] = await Promise.all([
       buildScheduleContext(userId),
       getUserPrefs(userId),
+      webPromise,
     ])
     const studentDirectives = buildStudentDirectives(prefs)
     if (studentDirectives) systemContent = `${systemContent}\n\n${studentDirectives}`
     systemContent = `${systemContent}\n\n=== AGENDA / CRONOGRAMA ===\n${scheduleContext}`
+    if (webContext) {
+      systemContent =
+        `${systemContent}\n\n=== CONTEXTO WEB (búsqueda en línea sobre la pregunta; ` +
+        `material suplementario, cita las fuentes cuando lo uses) ===\n${webContext}`
+    }
 
     const messages: LLMMessage[] = [{ role: "system", content: systemContent }]
     for (const msg of recentHistory) {
@@ -212,7 +234,13 @@ export const ChatService = {
     return { messages, citations }
   },
 
-  async processMessage(chatId: string, userId: string, userRole: Role, question: string) {
+  async processMessage(
+    chatId: string,
+    userId: string,
+    userRole: Role,
+    question: string,
+    opts: { web?: boolean } = {},
+  ) {
     // 1. Input guardrails
     const inputCheck = validateInput(question)
     if (!inputCheck.passed) {
@@ -239,6 +267,7 @@ export const ChatService = {
       userId,
       recentHistory,
       question,
+      { web: opts.web },
     )
 
     // 6. Route model
@@ -322,7 +351,13 @@ export const ChatService = {
     }
   },
 
-  async processMessageStream(chatId: string, userId: string, userRole: Role, question: string) {
+  async processMessageStream(
+    chatId: string,
+    userId: string,
+    userRole: Role,
+    question: string,
+    opts: { web?: boolean } = {},
+  ) {
     const { chatStream } = await import("@/lib/llm")
 
     // 1. Input guardrails
@@ -351,6 +386,7 @@ export const ChatService = {
       userId,
       recentHistory,
       question,
+      { web: opts.web },
     )
 
     // 6. Route model

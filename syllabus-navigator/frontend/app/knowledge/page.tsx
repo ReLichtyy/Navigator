@@ -779,7 +779,7 @@ export default function KnowledgeBasePage() {
         />
       </header>
 
-      <div className="flex-1 overflow-auto p-4 sm:p-6">
+      <div className="flex-1 overflow-auto overscroll-contain p-4 sm:p-6">
         <div className="mx-auto max-w-5xl">
           <p className="mb-5 max-w-2xl text-sm text-muted-foreground">
             Cada curso tiene su propia carpeta de documentos. Los modos de estudio se generan a
@@ -1026,10 +1026,10 @@ export default function KnowledgeBasePage() {
                           />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <span className="truncate font-semibold text-foreground">
+                          <span className="block truncate font-semibold text-foreground">
                             {course.name}
                           </span>
-                          <span className="block text-xs text-muted-foreground">
+                          <span className="block truncate text-xs text-muted-foreground">
                             {course.docs.length}{" "}
                             {course.docs.length === 1 ? "documento" : "documentos"} · clic para ver
                           </span>
@@ -1535,26 +1535,15 @@ export default function KnowledgeBasePage() {
               <GraphCanvas
                 nodes={previewGraph.nodes}
                 edges={previewGraph.edges}
+                crossLinks={previewGraph.crossLinks}
+                layout={previewGraph.layout}
                 graphStatus={previewGraph.graph_status}
                 graphError={previewGraph.graph_error}
                 centerTitle={previewDoc.name.replace(/\.(pdf|docx|pptx|xlsx)$/i, "")}
                 onReprocess={handleReprocess}
                 editable
                 syllabusId={previewDoc.id}
-                onSaved={(g) =>
-                  setPreviewGraph((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          nodes: g.nodes.map((n) => ({
-                            ...n,
-                            weight_percent: n.weight_percent ?? 0,
-                          })),
-                          edges: g.edges,
-                        }
-                      : prev,
-                  )
-                }
+                onSaved={(g) => setPreviewGraph(g)}
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">

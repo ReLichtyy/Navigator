@@ -113,10 +113,15 @@ vi.mock("@/lib/server/storage/blob", () => ({
 }))
 
 vi.mock("@/lib/server/rag/graph-gen", () => ({
-  extractGraphFromText: vi.fn(async () => [
-    { title: "Recursión", prerequisites: [] },
-    { title: "Derivadas", prerequisites: ["Recursión"] },
-  ]),
+  extractGraphFromText: vi.fn(async () => ({
+    topics: [
+      { externalId: "t1", label: "Recursión", level: 1, parentExternalId: null, weight: 50, detail: null },
+      { externalId: "t2", label: "Derivadas", level: 1, parentExternalId: null, weight: 50, detail: null },
+    ],
+    prerequisites: [{ from: "t1", to: "t2" }],
+    crossLinks: [],
+    layout: "radial",
+  })),
 }))
 
 vi.mock("@/lib/server/rag/schedule-gen", () => ({
@@ -226,8 +231,8 @@ vi.mock("@/lib/server/repositories/job.repo", () => ({
 
 vi.mock("@/lib/server/repositories/graph.repo", () => ({
   GraphRepository: {
-    replaceGraph: vi.fn(async (syllabusId: string, nodes: any[]) => {
-      store.graphs.set(syllabusId, nodes)
+    replaceGraph: vi.fn(async (syllabusId: string, input: any) => {
+      store.graphs.set(syllabusId, input.topics)
     }),
   },
 }))

@@ -80,11 +80,11 @@ export const IngestionService = {
     // --- Graph generation (best-effort: a failure here doesn't fail the upload) ---
     try {
       await DocumentRepository.setGraphStatus(syllabusId, "processing")
-      const nodes = await extractGraphFromText(text)
-      await GraphRepository.replaceGraph(syllabusId, nodes)
+      const extracted = await extractGraphFromText(text)
+      await GraphRepository.replaceGraph(syllabusId, extracted)
       await DocumentRepository.setGraphStatus(syllabusId, "ready")
-      topics = nodes.length
-      logInfo("ingestion.graph_ready", { syllabusId, topics })
+      topics = extracted.topics.length
+      logInfo("ingestion.graph_ready", { syllabusId, topics, layout: extracted.layout })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       await DocumentRepository.setGraphStatus(syllabusId, "failed", msg.slice(0, 2000))

@@ -5,7 +5,6 @@ import { ChatThread } from "@/components/navigator/chat-thread"
 import { ChatSkeleton } from "@/components/navigator/chat-skeleton"
 import { ChatsModal } from "@/components/navigator/chats-modal"
 import { HistorySidebar } from "@/components/navigator/history-sidebar"
-import { MobileHistorySheet } from "@/components/navigator/mobile-history-sheet"
 import { TopHeader } from "@/components/navigator/top-header"
 import GraphCanvas from "@/components/GraphCanvas"
 import { Button } from "@/components/ui/button"
@@ -13,7 +12,7 @@ import { ChatWorkspaceProvider, useChatWorkspace } from "@/features/chat/context
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import { useChatNav } from "@/context/ChatNavContext"
-import { useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 
@@ -25,6 +24,14 @@ function PageContent() {
   const hasShownWelcome = useRef(false)
   const searchParams = useSearchParams()
   const router = useRouter()
+
+  // Composer "Web" toggle → augments the answer with a live web search.
+  const [webSearch, setWebSearch] = useState(false)
+  const sendMessage = ws.sendMessage
+  const sendWithWeb = useCallback(
+    (text: string) => sendMessage(text, { web: webSearch }),
+    [sendMessage, webSearch],
+  )
 
   useEffect(() => {
     if (!ready || (!ws.chatsLoading && ws.activeChatId)) {
@@ -85,23 +92,10 @@ function PageContent() {
         onNewChat={ws.handleNewChat}
       />
 
-      <MobileHistorySheet
-        open={ws.mobileHistoryOpen}
-        onOpenChange={ws.setMobileHistoryOpen}
-        chats={ws.chats}
-        activeId={ws.activeChat?.id ?? ""}
-        loading={ws.chatsLoading}
-        onSelect={ws.selectChat}
-        onNewChat={ws.handleNewChat}
-        onDelete={ws.handleDeleteChat}
-        onRename={ws.handleRenameChat}
-      />
-
       <div className="flex h-full min-w-0 flex-1 flex-col border-l border-border/60 transition-[border-color] duration-300">
         <TopHeader
           sidebarCollapsed={ws.sidebarCollapsed}
           onToggleSidebar={() => ws.setSidebarCollapsed((v) => !v)}
-          onOpenMobileHistory={() => ws.setMobileHistoryOpen(true)}
           onAttachKnowledge={ws.addAttachment}
           onSelectKnowledge={ws.selectKnowledge}
           activeDocumentName={ws.activeDocumentName}
@@ -139,13 +133,15 @@ function PageContent() {
                   <ChatThread
                     key={ws.transitionKey}
                     messages={ws.activeChat?.messages ?? []}
-                    onPrompt={ws.sendMessage}
+                    onPrompt={sendWithWeb}
                   />
                 )
               ) : ws.graphData ? (
                 <GraphCanvas
                   nodes={ws.graphData.nodes}
                   edges={ws.graphData.edges}
+                  crossLinks={ws.graphData.crossLinks}
+                  layout={ws.graphData.layout}
                   graphStatus={ws.graphData.graph_status}
                   graphError={ws.graphData.graph_error}
                   onReprocess={ws.handleReprocessGraph}
@@ -164,8 +160,10 @@ function PageContent() {
                   disabled={ws.isSending || ws.isCreatingChat || ws.messagesLoading}
                   onAddAttachment={ws.addAttachment}
                   onRemoveAttachment={ws.removeAttachment}
-                  onSend={ws.sendMessage}
+                  onSend={sendWithWeb}
                   onModelChange={ws.handleModelChange}
+                  webSearch={webSearch}
+                  onWebSearchChange={setWebSearch}
                 />
               </div>
             )}

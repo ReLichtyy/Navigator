@@ -23,12 +23,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       )
     }
 
-    const { question } = parsedBody.data
+    const { question, web } = parsedBody.data
 
     await requireRateLimit(userId, role)
 
     // Process via Service
-    const stream = await ChatService.processMessageStream(chatId, userId, role, question)
+    const stream = await ChatService.processMessageStream(chatId, userId, role, question, { web })
 
     return new Response(stream, {
       headers: {

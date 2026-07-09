@@ -10,13 +10,14 @@ import { ChevronDown, Compass, MessageSquare, History, SquarePen } from "lucide-
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { MobileNav } from "@/components/navigator/mobile-nav"
+import { useChatNav } from "@/context/ChatNavContext"
+import { useBienvenida } from "@/context/BienvenidaContext"
 
 import type { AttachedFile, Chat } from "@/components/navigator/types"
 
 interface TopHeaderProps {
   sidebarCollapsed: boolean
   onToggleSidebar: () => void
-  onOpenMobileHistory: () => void
   onAttachKnowledge: (file: AttachedFile) => Promise<void>
   onSelectKnowledge: (upload: { id: string; original_filename: string }) => Promise<void>
   activeDocumentName: string | null
@@ -27,7 +28,6 @@ interface TopHeaderProps {
 }
 
 export function TopHeader({
-  onOpenMobileHistory,
   activeDocumentName,
   chats,
   activeChatId,
@@ -37,6 +37,8 @@ export function TopHeader({
   // Chat history rendered inside the sidebar drawer (mobile). Collapsible like
   // the desktop sidebar so a long history never crowds the nav sections.
   const [chatsOpen, setChatsOpen] = useState(true)
+  const nav = useChatNav()
+  const { openBienvenida } = useBienvenida()
   const drawerHistory = (
     <>
       <div className="mb-2 flex items-center justify-between px-1">
@@ -101,7 +103,7 @@ export function TopHeader({
 
       <button
         type="button"
-        onClick={onOpenMobileHistory}
+        onClick={() => nav.setAllChatsOpen(true)}
         className="mt-2 flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
       >
         <History className="h-3.5 w-3.5 shrink-0" />
@@ -115,12 +117,14 @@ export function TopHeader({
       <div className="flex min-w-0 items-center gap-2.5">
         <MobileNav>{drawerHistory}</MobileNav>
 
-        <span
-          aria-hidden="true"
+        <button
+          type="button"
+          onClick={openBienvenida}
+          aria-label="Ver la bienvenida"
           className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] border border-accent/35 bg-[linear-gradient(150deg,#1c2a22,#0f1611)] text-accent shadow-[0_0_16px_rgba(63,191,132,0.12)]"
         >
           <Compass className="h-[17px] w-[17px]" strokeWidth={1.9} />
-        </span>
+        </button>
 
         <div className="flex min-w-0 flex-col leading-tight">
           <span className="truncate text-[15px] font-extrabold tracking-tight text-foreground">

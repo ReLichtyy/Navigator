@@ -1,10 +1,38 @@
 import { sql } from "@/lib/db"
 
+export type LayoutKind = "radial" | "tree_horizontal" | "tree_vertical" | "columns_report"
+
+// Same hex values as the client palettes (mind-map-canvas.tsx#PALETTE,
+// cross-course-view.tsx#COURSE_COLORS) — kept in sync manually, duplicated
+// here because color is assigned server-side at persist time (see
+// assignColors below), not recomputed client-side from array position.
+const PALETTE = ["#5BE39A", "#6FB6F0", "#C9A0F0", "#F0C27C", "#E89BC0", "#8FE0D6"]
+
 export interface GraphNodeInput {
   externalId: string
   label: string
+  level: number
+  parentExternalId: string | null
   weight: number | null
-  dependencies: string[] // external ids of prerequisites
+  detail: string | null
+}
+
+export interface GraphPrereqInput {
+  from: string // external id
+  to: string // external id
+}
+
+export interface GraphCrossLinkInput {
+  source: string // external id
+  target: string // external id
+  label: string
+}
+
+export interface ReplaceGraphInput {
+  topics: GraphNodeInput[]
+  prerequisites: GraphPrereqInput[]
+  crossLinks: GraphCrossLinkInput[]
+  layout: LayoutKind
 }
 
 export interface GraphTopic {
@@ -12,6 +40,10 @@ export interface GraphTopic {
   external_id: string
   label: string
   weight_percent: number | null
+  level: number
+  parent_topic_id: string | null
+  color: string | null
+  detail: string | null
 }
 
 export interface GraphEdge {
@@ -21,36 +53,164 @@ export interface GraphEdge {
   confidence: number | null
 }
 
+export interface GraphCrossLink {
+  source_topic_id: string
+  target_topic_id: string
+  label: string
+}
+
+/**
+ * Assign a color per topic: level-1 nodes get PALETTE[index-among-siblings],
+ * every descendant inherits its level-1 ancestor's color. Never LLM output —
+ * keeps color assignment deterministic and independent of prompt drift.
+ */
+function assignColors(topics: GraphNodeInput[]): Map<string, string> {
+  const byExternalId = new Map(topics.map((t) => [t.externalId, t]))
+  const colorByExternalId = new Map<string, string>()
+
+  const roots = topics.filter((t) => t.parentExternalId === null)
+  roots.forEach((root, i) => colorByExternalId.set(root.externalId, PALETTE[i % PALETTE.length]))
+
+  const childrenOf = new Map<string, GraphNodeInput[]>()
+  for (const t of topics) {
+    if (t.parentExternalId === null) continue
+    const siblings = childrenOf.get(t.parentExternalId) ?? []
+    siblings.push(t)
+    childrenOf.set(t.parentExternalId, siblings)
+  }
+
+  const queue = [...roots]
+  while (queue.length > 0) {
+    const node = queue.shift()!
+    const color = colorByExternalId.get(node.externalId)
+    if (!color) continue
+    for (const child of childrenOf.get(node.externalId) ?? []) {
+      if (!byExternalId.has(child.externalId)) continue
+      colorByExternalId.set(child.externalId, color)
+      queue.push(child)
+    }
+  }
+
+  return colorByExternalId
+}
+
 export const GraphRepository = {
-  /** Replace the whole graph (topics + dependencies) for a syllabus. */
-  async replaceGraph(syllabusId: string, nodes: GraphNodeInput[]): Promise<void> {
-    // topic_dependencies cascade-deletes when topics are removed.
+  /** Replace the whole graph (tree + prerequisites + cross-links + layout) for a syllabus. */
+  async replaceGraph(syllabusId: string, input: ReplaceGraphInput): Promise<void> {
+    // topic_dependencies and topic_cross_links cascade-delete when topics are removed.
     await sql`DELETE FROM topics WHERE syllabus_id = ${syllabusId}::uuid`
-    if (nodes.length === 0) return
 
-    const externalToId = new Map<string, string>()
-    for (const node of nodes) {
-      const rows = await sql`
-        INSERT INTO topics (syllabus_id, external_id, label, weight_percent)
-        VALUES (${syllabusId}::uuid, ${node.externalId}, ${node.label}, ${node.weight})
-        RETURNING id
-      `
-      externalToId.set(node.externalId, (rows[0] as { id: string }).id)
+    const { topics, prerequisites, crossLinks, layout } = input
+    if (topics.length === 0) {
+      await sql`UPDATE syllabus_uploads SET layout = ${layout} WHERE id = ${syllabusId}::uuid`
+      return
     }
 
-    for (const node of nodes) {
-      const targetId = externalToId.get(node.externalId)!
-      for (const depExternalId of node.dependencies) {
-        const prereqId = externalToId.get(depExternalId)
-        if (!prereqId || prereqId === targetId) continue
-        await sql`
-          INSERT INTO topic_dependencies
-            (syllabus_id, prerequisite_topic_id, target_topic_id, relation_type, confidence)
-          VALUES (${syllabusId}::uuid, ${prereqId}::uuid, ${targetId}::uuid, 'prerequisite', 1.000)
-          ON CONFLICT (prerequisite_topic_id, target_topic_id, relation_type) DO NOTHING
-        `
+    const colorByExternalId = assignColors(topics)
+
+    const topicValues: string[] = []
+    const topicParams: unknown[] = []
+    let tp = 1
+    topics.forEach((t, i) => {
+      topicValues.push(
+        `($${tp++}::uuid, $${tp++}, $${tp++}, $${tp++}, $${tp++}, $${tp++}, $${tp++}, $${tp++})`,
+      )
+      topicParams.push(
+        syllabusId,
+        t.externalId,
+        t.label,
+        t.level,
+        t.weight,
+        t.detail,
+        colorByExternalId.get(t.externalId) ?? null,
+        i,
+      )
+    })
+    const insertTopicsText = `
+      INSERT INTO topics (syllabus_id, external_id, label, level, weight_percent, description, color, sort_order)
+      VALUES ${topicValues.join(", ")}
+      RETURNING id, external_id
+    `
+    const inserted = (await sql.query(insertTopicsText, topicParams)) as {
+      id: string
+      external_id: string
+    }[]
+    const externalToId = new Map(inserted.map((r) => [r.external_id, r.id]))
+
+    const parentPairs = topics
+      .filter((t) => t.parentExternalId !== null)
+      .map((t) => ({
+        childId: externalToId.get(t.externalId),
+        parentId: t.parentExternalId ? externalToId.get(t.parentExternalId) : undefined,
+      }))
+      .filter((p) => p.childId && p.parentId && p.childId !== p.parentId)
+    if (parentPairs.length > 0) {
+      const pv: string[] = []
+      const pp: unknown[] = []
+      let pi = 1
+      for (const p of parentPairs) {
+        pv.push(`($${pi++}::uuid, $${pi++}::uuid)`)
+        pp.push(p.childId, p.parentId)
       }
+      await sql.query(
+        `UPDATE topics AS t SET parent_topic_id = v.pid
+         FROM (VALUES ${pv.join(", ")}) AS v(id, pid)
+         WHERE t.id = v.id`,
+        pp,
+      )
     }
+
+    const prereqPairs = prerequisites
+      .map((e) => ({ prereqId: externalToId.get(e.from), targetId: externalToId.get(e.to) }))
+      .filter((e) => e.prereqId && e.targetId && e.prereqId !== e.targetId)
+    if (prereqPairs.length > 0) {
+      const ev: string[] = []
+      const ep: unknown[] = []
+      let ei = 1
+      for (const e of prereqPairs) {
+        ev.push(`($${ei++}::uuid, $${ei++}::uuid, $${ei++}::uuid, 'prerequisite', 1.000)`)
+        ep.push(syllabusId, e.prereqId, e.targetId)
+      }
+      await sql.query(
+        `INSERT INTO topic_dependencies
+           (syllabus_id, prerequisite_topic_id, target_topic_id, relation_type, confidence)
+         VALUES ${ev.join(", ")}
+         ON CONFLICT (prerequisite_topic_id, target_topic_id, relation_type) DO NOTHING`,
+        ep,
+      )
+    }
+
+    const seenLinkPairs = new Set<string>()
+    const linkRows = crossLinks
+      .map((c) => ({
+        sourceId: externalToId.get(c.source),
+        targetId: externalToId.get(c.target),
+        label: c.label,
+      }))
+      .filter((c) => {
+        if (!c.sourceId || !c.targetId || c.sourceId === c.targetId) return false
+        const key = `${c.sourceId}:${c.targetId}`
+        if (seenLinkPairs.has(key)) return false
+        seenLinkPairs.add(key)
+        return true
+      })
+    if (linkRows.length > 0) {
+      const cv: string[] = []
+      const cp: unknown[] = []
+      let ci = 1
+      for (const c of linkRows) {
+        cv.push(`($${ci++}::uuid, $${ci++}::uuid, $${ci++}::uuid, $${ci++})`)
+        cp.push(syllabusId, c.sourceId, c.targetId, c.label)
+      }
+      await sql.query(
+        `INSERT INTO topic_cross_links (syllabus_id, source_topic_id, target_topic_id, label)
+         VALUES ${cv.join(", ")}
+         ON CONFLICT (source_topic_id, target_topic_id) DO NOTHING`,
+        cp,
+      )
+    }
+
+    await sql`UPDATE syllabus_uploads SET layout = ${layout} WHERE id = ${syllabusId}::uuid`
   },
 
   /**
@@ -110,16 +270,23 @@ export const GraphRepository = {
     return rows as { source: string; target: string }[]
   },
 
-  async getGraph(syllabusId: string): Promise<{ topics: GraphTopic[]; edges: GraphEdge[] }> {
+  async getGraph(
+    syllabusId: string,
+  ): Promise<{ topics: GraphTopic[]; edges: GraphEdge[]; crossLinks: GraphCrossLink[] }> {
     const topics = (await sql`
-      SELECT id, external_id, label, weight_percent
+      SELECT id, external_id, label, weight_percent, level, parent_topic_id, color,
+             description AS detail
       FROM topics WHERE syllabus_id = ${syllabusId}::uuid
-      ORDER BY created_at ASC
+      ORDER BY level ASC, sort_order ASC, created_at ASC
     `) as GraphTopic[]
     const edges = (await sql`
       SELECT prerequisite_topic_id, target_topic_id, relation_type, confidence
       FROM topic_dependencies WHERE syllabus_id = ${syllabusId}::uuid
     `) as GraphEdge[]
-    return { topics, edges }
+    const crossLinks = (await sql`
+      SELECT source_topic_id, target_topic_id, label
+      FROM topic_cross_links WHERE syllabus_id = ${syllabusId}::uuid
+    `) as GraphCrossLink[]
+    return { topics, edges, crossLinks }
   },
 }

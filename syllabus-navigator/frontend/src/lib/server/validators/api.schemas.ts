@@ -2,6 +2,8 @@ import { z } from "zod"
 
 export const MessageRequestSchema = z.object({
   question: z.string().min(1, "Question is required").max(4000, "Question is too long"),
+  // Augment the answer with a live web search (composer "Web" toggle).
+  web: z.boolean().optional(),
 })
 
 export const UploadLinkSchema = z.object({
@@ -43,12 +45,27 @@ export const GraphUpdateSchema = z.object({
         id: z.string().min(1),
         label: z.string().min(1, "Label required").max(200),
         weight_percent: z.number().min(0).max(100).nullable().optional(),
+        // Tree hierarchy — default to level 1 / no parent so the legacy
+        // root-only editor (which doesn't send these) keeps working unchanged.
+        level: z.number().int().min(1).max(6).default(1),
+        parentId: z.string().min(1).nullable().optional().default(null),
+        detail: z.string().max(140).nullable().optional(),
       }),
     )
-    .max(200, "Too many nodes"),
+    .max(220, "Too many nodes"),
   edges: z
     .array(z.object({ source: z.string().min(1), target: z.string().min(1) }))
     .max(1000, "Too many edges"),
+  crossLinks: z
+    .array(
+      z.object({
+        source: z.string().min(1),
+        target: z.string().min(1),
+        label: z.string().min(1).max(60),
+      }),
+    )
+    .max(60, "Too many cross-links")
+    .default([]),
 })
 
 export type GraphUpdateInput = z.infer<typeof GraphUpdateSchema>

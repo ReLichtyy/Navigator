@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowLeft, ChevronLeft, ChevronRight, RotateCcw, Check, X, Eye } from "lucide-react"
+import { ChevronLeft, ChevronRight, RotateCcw, Check, X, Eye } from "lucide-react"
 import { recordFlashcardReview, flashcardKey, type FlashcardAPI } from "@/lib/api"
 import { orderDueFirst } from "@/lib/ui/study-cards"
 
@@ -236,15 +236,14 @@ export function FlashcardsView({
   )
 }
 
-export function BackButton({ onBack }: { onBack: () => void }) {
-  return (
-    <button
-      onClick={onBack}
-      className="mb-5 flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
-    >
-      <ArrowLeft className="h-4 w-4" /> Área de Estudio
-    </button>
-  )
+/**
+ * The back-to-menu control now lives in the Área de Estudio page header bar
+ * (striking accent, below the header) — see app/estudio/page.tsx. This is kept
+ * as a no-op so every existing call site stays valid without rendering a
+ * duplicate in-scroll button. `onBack` is still wired via the page bar.
+ */
+export function BackButton(_props: { onBack: () => void }) {
+  return null
 }
 
 export function EmptyMode({ onBack, label }: { onBack: () => void; label: string }) {

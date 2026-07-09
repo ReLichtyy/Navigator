@@ -121,7 +121,9 @@ describe("POST /api/chat/[chatId]/messages (SSE)", () => {
     })
     expect(final.citations[0]).toMatchObject({ chunk_id: "k1", page: 2 })
 
-    // call wiring: (chatId, userId, role, question)
-    expect(ChatService.processMessageStream).toHaveBeenCalledWith("c1", "u1", "free", "hi")
+    // call wiring: (chatId, userId, role, question, { web })
+    expect(ChatService.processMessageStream).toHaveBeenCalledWith("c1", "u1", "free", "hi", {
+      web: undefined,
+    })
   })
 })

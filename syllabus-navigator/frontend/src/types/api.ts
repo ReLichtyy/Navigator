@@ -87,6 +87,17 @@ export interface GraphResponseAPI {
   syllabus_id: string
   graph_status: SyllabusUploadAPI["graph_status"]
   graph_error: string | null
-  nodes: { id: string; label: string; weight_percent: number }[]
+  /** Chosen presentation layout. null = legacy graph (pre-rewrite, not yet reprocessed). */
+  layout: "radial" | "tree_horizontal" | "tree_vertical" | "columns_report" | null
+  nodes: {
+    id: string
+    label: string
+    weight_percent: number
+    level: number
+    parent_id: string | null
+    detail: string | null
+    color: string | null
+  }[]
   edges: { source: string; target: string }[]
+  crossLinks: { source: string; target: string; label: string }[]
 }

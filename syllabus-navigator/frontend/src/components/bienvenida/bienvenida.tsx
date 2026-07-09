@@ -258,9 +258,10 @@ export function Bienvenida({ onFinish }: { onFinish: () => void }) {
         }}
       />
 
-      {/* modal */}
+      {/* modal — capped + scrollable so short/landscape viewports never clip the
+          footer nav (no fixed height below md, where the visual stage is hidden). */}
       <div
-        className="relative z-[2] flex w-full max-w-[940px] flex-col overflow-hidden rounded-[26px] md:h-[580px] md:flex-row"
+        className="relative z-[2] flex w-full max-w-[940px] max-h-[calc(100dvh-2rem)] flex-col overflow-y-auto rounded-[26px] md:h-[580px] md:max-h-[calc(100dvh-2rem)] md:flex-row md:overflow-hidden"
         style={{
           background: "#0B0F0D",
           border: "1px solid rgba(255,255,255,0.08)",

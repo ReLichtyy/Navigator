@@ -11,6 +11,7 @@ export interface DbDocument {
   graph_status: string
   error_message?: string | null
   graph_error?: string | null
+  layout?: string | null
   file_url?: string | null
   expires_at?: string | null
   // Course Intelligence Layer

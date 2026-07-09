@@ -21,7 +21,6 @@ interface UseChatOrchestratorProps {
   abortRef: React.MutableRefObject<AbortController | null>
   activeChatIdRef: React.MutableRefObject<string>
   setTransitionKey: React.Dispatch<React.SetStateAction<number>>
-  setMobileHistoryOpen: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function useChatOrchestrator({
@@ -40,7 +39,6 @@ export function useChatOrchestrator({
   abortRef,
   activeChatIdRef,
   setTransitionKey,
-  setMobileHistoryOpen,
 }: UseChatOrchestratorProps) {
   const [isSending, setIsSending] = useState(false)
   const [isCreatingChat, setIsCreatingChat] = useState(false)
@@ -62,7 +60,7 @@ export function useChatOrchestrator({
     initializeSession({
       id: "draft",
       title: "New Chat",
-      activeModel: "gpt-4o-mini", // Fallback, will be replaced by actual default
+      activeModel: "deepseek-v4-pro", // Fallback, will be replaced by actual default
       syllabusId: activeSyllabusId,
       createdAt: new Date().toISOString(),
       timestamp: "Just now",
@@ -70,18 +68,10 @@ export function useChatOrchestrator({
       messages: [],
     })
     setTransitionKey((k) => k + 1)
-    setMobileHistoryOpen(false)
-  }, [
-    canMutateChat,
-    activeSyllabusId,
-    setActiveChatId,
-    initializeSession,
-    setTransitionKey,
-    setMobileHistoryOpen,
-  ])
+  }, [canMutateChat, activeSyllabusId, setActiveChatId, initializeSession, setTransitionKey])
 
   const sendMessage = useCallback(
-    async (text: string, opts?: { syllabusId?: string | null }): Promise<boolean> => {
+    async (text: string, opts?: { syllabusId?: string | null; web?: boolean }): Promise<boolean> => {
       if (!canMutateChat()) return false
 
       const trimmed = text.trim()
@@ -157,6 +147,7 @@ export function useChatOrchestrator({
             }
           },
           controller.signal,
+          { web: opts?.web },
         )
 
         if (activeChatIdRef.current === targetChatId) {

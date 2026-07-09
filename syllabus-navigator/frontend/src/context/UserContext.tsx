@@ -4,6 +4,8 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { useUser as useClerkUser, useClerk } from "@clerk/nextjs"
 import { getPreferences } from "@/lib/api"
 import { applyTheme, isThemePref, watchSystemTheme } from "@/lib/ui/theme"
+import { useAppLocale } from "@/context/LocaleContext"
+import { isLocale } from "@/lib/ui/locale"
 
 interface UserContextType {
   userId: string | null
@@ -35,6 +37,7 @@ const UserContext = createContext<UserContextType>({
 export function UserProvider({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, user } = useClerkUser()
   const { signOut } = useClerk()
+  const { setLocale } = useAppLocale()
   const [displayName, setDisplayNameState] = useState<string | null>(null)
   const [customAvatar, setCustomAvatar] = useState<string | null>(null)
 
@@ -57,9 +60,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setCustomAvatar(data?.preferences?.avatarUrl ?? null)
         const theme = data?.preferences?.theme
         if (isThemePref(theme)) applyTheme(theme)
+        const language = data?.preferences?.language
+        if (isLocale(language)) setLocale(language)
       })
       .catch(() => {})
-  }, [isSignedIn])
+  }, [isSignedIn, setLocale])
 
   // "system" theme follows OS scheme changes live.
   useEffect(() => watchSystemTheme(), [])

@@ -126,6 +126,13 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Lock the viewport: no rubber-band/overscroll that drags the whole screen
+     off-center on a hard swipe. Inner scroll areas contain their own overscroll. */
+  html,
+  body {
+    overscroll-behavior: none;
+    overflow-x: hidden;
+  }
   body {
     @apply bg-background text-foreground;
   }

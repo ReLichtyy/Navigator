@@ -94,11 +94,12 @@ export function ChatComposer({
   const hasText = value.trim().length > 0
   const currentModelId = activeModel ?? models[0]?.id ?? "deepseek-v4-pro"
   // Fall back to the (single) catalog model's name so chats created on an older
-  // model id still read "GPT-5.5" instead of a raw id.
+  // model id still read "GPT-5.5" instead of a raw id. Never surface a raw model
+  // id (e.g. "gpt-4o-mini") — if the catalog is empty, show the brand name only.
   const currentModelLabel =
     models.find((m) => m.id === currentModelId)?.displayName ??
     models[0]?.displayName ??
-    currentModelId
+    "GPT"
   const canSend = hasText && !disabled
 
   useEffect(() => {

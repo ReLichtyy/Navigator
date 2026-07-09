@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState, type ReactNode } from "react"
+import { useTranslations } from "next-intl"
 import { Compass, Menu, Settings, User as UserIcon } from "lucide-react"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import { cn } from "@/lib/utils"
@@ -31,6 +32,7 @@ export function MobileNav({
   children?: ReactNode
 }) {
   const pathname = usePathname()
+  const t = useTranslations("sidebar")
   const { displayName, status, resetIdentity, avatarUrl } = useUser()
   const { openAuthModal } = useAuthModal()
   const [open, setOpen] = useState(false)
@@ -57,10 +59,10 @@ export function MobileNav({
         )}
       >
         <item.icon className="h-[18px] w-[18px] shrink-0" />
-        <span className="truncate">{item.label}</span>
+        <span className="truncate">{t(item.labelKey)}</span>
         {item.isNew && (
           <Badge variant="new" className="ml-auto px-1.5 py-0.5 text-[9px] uppercase">
-            Nuevo
+            {t("new")}
           </Badge>
         )}
       </Link>
@@ -109,17 +111,27 @@ export function MobileNav({
             </div>
             <div className="min-w-0">
               <div className="truncate text-sm font-bold leading-tight text-sidebar-foreground">
-                Navigator
+                {t("brand")}
               </div>
               <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Study OS
+                {t("brandSub")}
               </div>
             </div>
           </div>
 
-          {/* Main nav */}
+          {/* Main nav — Asistente first, chat history inline right below it
+              (matches the desktop sidebar), then the remaining links. */}
           <nav className="mt-2 flex flex-col gap-1">
-            {MAIN_NAV.map((item) => (
+            <NavLink item={MAIN_NAV[0]} />
+            {children && (
+              <div
+                className="ml-[22px] mt-1 flex max-h-[38vh] min-h-0 flex-col border-l border-sidebar-border pl-2.5"
+                onClick={() => setOpen(false)}
+              >
+                {children}
+              </div>
+            )}
+            {MAIN_NAV.slice(1).map((item) => (
               <NavLink key={item.href} item={item} />
             ))}
           </nav>
@@ -127,7 +139,7 @@ export function MobileNav({
           {/* Study group */}
           <div className="mb-1 mt-5 px-2">
             <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Estudio
+              {t("studySection")}
             </span>
           </div>
           <nav className="flex flex-col gap-1">
@@ -136,14 +148,7 @@ export function MobileNav({
             ))}
           </nav>
 
-          {/* Optional chat history (assistant page injects it here). */}
-          {children ? (
-            <div className="mt-5 flex min-h-0 flex-1 flex-col" onClick={() => setOpen(false)}>
-              {children}
-            </div>
-          ) : (
-            <div className="flex-1" />
-          )}
+          <div className="flex-1" />
 
           {/* Profile / auth */}
           {status === "anonymous" ? (
@@ -156,7 +161,7 @@ export function MobileNav({
               className="w-full justify-start gap-2 border-sidebar-border"
             >
               <UserIcon className="h-4 w-4" />
-              <span>Iniciar sesión</span>
+              <span>{t("login")}</span>
             </Button>
           ) : (
             <div className="flex items-center gap-2.5 rounded-xl border border-sidebar-border bg-card/40 p-2.5">
@@ -180,7 +185,7 @@ export function MobileNav({
                   onClick={resetIdentity}
                   className="text-[11px] text-destructive hover:underline"
                 >
-                  Cerrar sesión
+                  {t("logout")}
                 </button>
               </span>
               <button
@@ -189,7 +194,7 @@ export function MobileNav({
                   setOpen(false)
                   setSettingsOpen(true)
                 }}
-                aria-label="Configuración"
+                aria-label={t("settings")}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
               >
                 <Settings className="h-4 w-4" />

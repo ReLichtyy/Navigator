@@ -181,6 +181,37 @@ CREATE TABLE IF NOT EXISTS topic_dependencies (
   UNIQUE (prerequisite_topic_id, target_topic_id, relation_type)
 );
 
+-- Presentational hierarchy for the mind map (3+ levels, independent of the
+-- prerequisite DAG above). `description` is repurposed as "detail" (leaf-node
+-- blurb, <=140 chars) — never populated before this, so no data loss.
+ALTER TABLE topics ADD COLUMN IF NOT EXISTS parent_topic_id UUID REFERENCES topics(id) ON DELETE CASCADE;
+ALTER TABLE topics ADD COLUMN IF NOT EXISTS level SMALLINT NOT NULL DEFAULT 1 CHECK (level >= 1 AND level <= 6);
+ALTER TABLE topics ADD COLUMN IF NOT EXISTS color TEXT;
+ALTER TABLE topics ADD COLUMN IF NOT EXISTS sort_order SMALLINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_topics_parent ON topics(parent_topic_id);
+
+-- Chosen mind-map layout for this syllabus. NULL = legacy graph (generated
+-- before this rewrite, or never reprocessed since) — the client's signal to
+-- fall back to the old 2-level radial renderer.
+ALTER TABLE syllabus_uploads ADD COLUMN IF NOT EXISTS layout TEXT
+  CHECK (layout IS NULL OR layout IN ('radial','tree_horizontal','tree_vertical','columns_report'));
+
+-- Cross-branch conceptual links (e.g. "requiere", "contrasta con") — purely
+-- presentational, distinct from both the tree (parent_topic_id) and the
+-- prerequisite DAG (topic_dependencies). No cycle constraint: these are
+-- labeled associations, not an ordering.
+CREATE TABLE IF NOT EXISTS topic_cross_links (
+  id                UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  syllabus_id       UUID        NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  source_topic_id   UUID        NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  target_topic_id   UUID        NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  label             TEXT        NOT NULL CHECK (char_length(label) <= 60),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (source_topic_id <> target_topic_id),
+  UNIQUE (source_topic_id, target_topic_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cross_links_syllabus ON topic_cross_links(syllabus_id);
+
 -- ---------------------------------------------------------------------------
 -- Schedule / cronograma — structured calendar events extracted from the syllabus
 -- Powers "what quizzes/topics this week?" chat answers and the agenda view.
