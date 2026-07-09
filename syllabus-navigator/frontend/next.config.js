@@ -9,10 +9,11 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://img.clerk.com",
   "font-src 'self' data:",
-  // Vercel Blob: client uploads PUT to the apex host (blob.vercel-storage.com);
-  // the wildcard only covers the per-store read subdomains (*.public.blob…), so
-  // the apex must be listed explicitly or the browser CSP-blocks the upload.
-  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk-telemetry.com https://blob.vercel-storage.com https://*.blob.vercel-storage.com" +
+  // Vercel Blob client upload (@vercel/blob v2): the browser handshakes with the
+  // API at https://vercel.com/api/blob, then transfers to the store hosts
+  // (blob.vercel-storage.com apex + *.public.blob… read subdomains). All three
+  // must be allowed or the browser CSP-blocks the upload and it hangs forever.
+  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk-telemetry.com https://vercel.com https://blob.vercel-storage.com https://*.blob.vercel-storage.com" +
     (isDev ? " ws: wss:" : ""),
   "worker-src 'self' blob:",
   "frame-src https://challenges.cloudflare.com https://*.clerk.accounts.dev https://*.clerk.com",
