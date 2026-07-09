@@ -27,6 +27,7 @@ import {
   Download,
   Sparkles,
   FileText,
+  Undo2,
 } from "lucide-react"
 import type { GraphResponseAPI } from "@/types/api"
 import {
@@ -123,12 +124,18 @@ export function RichMindMapCanvas({
   const [showCrossLinks, setShowCrossLinks] = useState(true)
   const [showWeights, setShowWeights] = useState(true)
 
+  // Local layout override ("Organizar" tool) — view-only, not persisted. null =
+  // use the generator's chosen layout.
+  const [layoutOverride, setLayoutOverride] = useState<GraphResponseAPI["layout"] | null>(null)
+  const activeLayout = layoutOverride ?? layout
+
   // Reset navigation when the underlying document changes.
   useEffect(() => {
     setCollapsed(new Set())
     setFocusId(null)
     setSearch("")
     setExpandDepth(0)
+    setLayoutOverride(null)
   }, [nodes])
 
   // Apply a default expansion depth: collapse every node at/below that level.
@@ -142,7 +149,7 @@ export function RichMindMapCanvas({
   // positions recompute and the map compacts when branches fold.
   const pruned = useMemo(() => pruneCollapsed(roots, collapsed), [roots, collapsed])
   const flat = useMemo(() => flattenTree(pruned), [pruned])
-  const result = useMemo(() => runLayout(layout, pruned), [layout, pruned])
+  const result = useMemo(() => runLayout(activeLayout, pruned), [activeLayout, pruned])
 
   // Ancestor + descendant sets of the focused node — everything else dims.
   const highlight = useMemo(() => {
@@ -250,9 +257,13 @@ export function RichMindMapCanvas({
     setPan({ x: drag.px + (e.clientX - drag.x), y: drag.py + (e.clientY - drag.y) })
   }
   const panEnd = () => setDrag(null)
-  // Click on empty canvas (not a drag) clears the focus dim.
+  // Click on empty canvas (not a drag) clears the focus dim + any pending
+  // connect pick / inline editor.
   const onCanvasClick = () => {
-    if (!movedRef.current) setFocusId(null)
+    if (movedRef.current) return
+    setFocusId(null)
+    if (connectFrom) setConnectFrom(null)
+    if (inlineEdit) setInlineEdit(null)
   }
 
   const worldStyle: CSSProperties = {
@@ -346,12 +357,24 @@ export function RichMindMapCanvas({
   const [tool, setTool] = useState<Tool>("select")
   const [locked, setLocked] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
   const [connectFrom, setConnectFrom] = useState<string | null>(null)
   const [noteId, setNoteId] = useState<string | null>(null)
   const [noteText, setNoteText] = useState("")
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [toolBusy, setToolBusy] = useState(false)
   const [toolErr, setToolErr] = useState<string | null>(null)
+  // Inline node editor (add child / rename) positioned over the node.
+  const [inlineEdit, setInlineEdit] = useState<{
+    mode: "add" | "rename"
+    nodeId: string
+    value: string
+  } | null>(null)
+  // One-level undo: the graph snapshot captured before the last toolbar edit.
+  const [undoSnap, setUndoSnap] = useState<{
+    nodes: TreeNodeDTO[]
+    crossLinks: CrossLinkDTO[]
+  } | null>(null)
 
   // Leaving a tool clears its in-flight picks.
   const pickTool = (t: Tool) => {
@@ -359,7 +382,9 @@ export function RichMindMapCanvas({
     setConnectFrom(null)
     setNoteId(null)
     setDeleteId(null)
+    setInlineEdit(null)
     setMoreOpen(false)
+    setLayoutMenuOpen(false)
     setToolErr(null)
   }
 
@@ -369,6 +394,14 @@ export function RichMindMapCanvas({
     const t = setTimeout(() => setToolErr(null), 4000)
     return () => clearTimeout(t)
   }, [toolErr])
+
+  // The "Deshacer" affordance auto-dismisses so a stale snapshot can't be
+  // applied over unrelated later edits.
+  useEffect(() => {
+    if (!undoSnap) return
+    const t = setTimeout(() => setUndoSnap(null), 6000)
+    return () => clearTimeout(t)
+  }, [undoSnap])
 
   // One-shot PATCH: current graph + a single toolbar edit → onSaveTree.
   const toDTO = (): TreeNodeDTO[] =>
@@ -382,17 +415,32 @@ export function RichMindMapCanvas({
     }))
   const quickEdit = async (edit: TreeEdit) => {
     if (!onSaveTree || toolBusy) return
+    // Snapshot the pre-edit graph so this single change can be undone.
+    const before = { nodes: toDTO(), crossLinks: crossLinks.map((c) => ({ ...c })) }
     setToolBusy(true)
     setToolErr(null)
     try {
-      const out = applyTreeEdits(
-        toDTO(),
-        crossLinks.map((c) => ({ ...c })),
-        [edit],
-      )
+      const out = applyTreeEdits(before.nodes, before.crossLinks, [edit])
       await onSaveTree(out.nodes, out.crossLinks)
+      setUndoSnap(before)
     } catch (e) {
       setToolErr(e instanceof Error ? e.message : "No se pudo guardar el cambio.")
+    } finally {
+      setToolBusy(false)
+    }
+  }
+
+  // Restore the snapshot captured before the last toolbar edit.
+  const undoLast = async () => {
+    if (!onSaveTree || toolBusy || !undoSnap) return
+    const snap = undoSnap
+    setUndoSnap(null)
+    setToolBusy(true)
+    setToolErr(null)
+    try {
+      await onSaveTree(snap.nodes, snap.crossLinks)
+    } catch (e) {
+      setToolErr(e instanceof Error ? e.message : "No se pudo deshacer.")
     } finally {
       setToolBusy(false)
     }
@@ -403,12 +451,34 @@ export function RichMindMapCanvas({
     return children.length + children.reduce((s, c) => s + descendantCount(c.id), 0)
   }
 
+  // Commit the inline editor (Enter): create the child / rename the node.
+  const commitInline = () => {
+    if (!inlineEdit) return
+    const label = inlineEdit.value.trim()
+    const { mode, nodeId } = inlineEdit
+    setInlineEdit(null)
+    if (!label) return
+    if (mode === "add") void quickEdit({ type: "add", parentId: nodeId, label })
+    else void quickEdit({ type: "rename", id: nodeId, label })
+  }
+
+  // Double-click a node: rename inline on an editable map, else send to chat.
+  const onNodeDouble = (id: string, label: string) => {
+    if (onSaveTree) {
+      setInlineEdit({ mode: "rename", nodeId: id, value: label })
+      setNoteId(null)
+      setDeleteId(null)
+    } else {
+      onTopicDouble?.(label)
+    }
+  }
+
   // Tool-aware node click (toolbar modes bypass the default click-to-focus).
   const onNodeToolClick = (id: string): boolean => {
     if (tool === "select") return false
     if (!onSaveTree) return false
     if (tool === "add") {
-      void quickEdit({ type: "add", parentId: id, label: "Nuevo tema" })
+      setInlineEdit({ mode: "add", nodeId: id, value: "" })
     } else if (tool === "connect") {
       if (!connectFrom) setConnectFrom(id)
       else if (connectFrom !== id) {
@@ -449,9 +519,14 @@ export function RichMindMapCanvas({
       if (!pos) continue
       const size = sizeForLevel(node.level)
       const color = node.color ?? FALLBACK_COLOR
+      // Truncate to what fits the box (~6.6px per char at 12.5px) so long
+      // labels don't spill outside the rect in the exported PNG.
+      const maxChars = Math.max(4, Math.floor((size.w - 16) / 6.6))
+      const text =
+        node.label.length > maxChars ? `${node.label.slice(0, maxChars - 1)}…` : node.label
       parts.push(
         `<rect x="${pos.x - size.w / 2}" y="${pos.y - size.h / 2}" width="${size.w}" height="${size.h}" rx="14" fill="#101512" stroke="${color}" stroke-opacity="0.6"/>`,
-        `<text x="${pos.x}" y="${pos.y + 4}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12.5" font-weight="700" fill="#EEF3F0">${esc(node.label)}</text>`,
+        `<text x="${pos.x}" y="${pos.y + 4}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12.5" font-weight="700" fill="#EEF3F0">${esc(text)}</text>`,
       )
     }
     const svg =
@@ -550,7 +625,7 @@ export function RichMindMapCanvas({
               overflow: "visible",
             }}
           >
-            {layout !== "columns_report" &&
+            {activeLayout !== "columns_report" &&
               flat.map((node) => {
                 if (!node.parentId) return null
                 const a = result.positions.get(node.parentId)
@@ -604,6 +679,7 @@ export function RichMindMapCanvas({
             const dimmed = !!highlight && !highlight.has(node.id)
             const isMatch = matchSet.has(node.id)
             const isFocus = focusId === node.id
+            const isConnectSrc = connectFrom === node.id
             const foldable = node.children.length > 0 || node.collapsedCount > 0
             const isCollapsed = node.collapsedCount > 0
             return (
@@ -614,7 +690,10 @@ export function RichMindMapCanvas({
                   if (movedRef.current) return
                   if (!onNodeToolClick(node.id)) focusNode(node.id)
                 }}
-                onDoubleClick={() => onTopicDouble?.(node.label)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  onNodeDouble(node.id, node.label)
+                }}
                 title={title}
                 style={{
                   position: "absolute",
@@ -629,13 +708,15 @@ export function RichMindMapCanvas({
                   justifyContent: "center",
                   cursor: "pointer",
                   opacity: dimmed ? 0.28 : 1,
-                  border: `1px solid ${isMatch ? "#F0C27C" : isFocus ? hexA(color, 0.95) : hexA(color, 0.5)}`,
+                  border: `1px solid ${isConnectSrc ? "#5BE39A" : isMatch ? "#F0C27C" : isFocus ? hexA(color, 0.95) : hexA(color, 0.5)}`,
                   background: `linear-gradient(160deg,${hexA(color, isFocus ? 0.22 : 0.13)},rgba(16,21,18,0.96))`,
-                  boxShadow: isMatch
-                    ? "0 0 0 2px rgba(240,194,124,0.5), 0 10px 24px rgba(0,0,0,0.4)"
-                    : isFocus
-                      ? `0 0 26px ${hexA(color, 0.28)}`
-                      : "0 10px 24px rgba(0,0,0,0.4)",
+                  boxShadow: isConnectSrc
+                    ? "0 0 0 2px rgba(91,227,154,0.6), 0 10px 24px rgba(0,0,0,0.4)"
+                    : isMatch
+                      ? "0 0 0 2px rgba(240,194,124,0.5), 0 10px 24px rgba(0,0,0,0.4)"
+                      : isFocus
+                        ? `0 0 26px ${hexA(color, 0.28)}`
+                        : "0 10px 24px rgba(0,0,0,0.4)",
                   transition: "opacity .18s, box-shadow .18s, border-color .18s",
                 }}
               >
@@ -1238,14 +1319,52 @@ export function RichMindMapCanvas({
                     backdropFilter: "blur(8px)",
                   }}
                 >
-                  <ToolMenuItem
-                    icon={LayoutGrid}
-                    label="Auto-organizar"
-                    onClick={() => {
-                      zoomReset()
-                      setMoreOpen(false)
-                    }}
-                  />
+                  <div className="relative">
+                    <ToolMenuItem
+                      icon={LayoutGrid}
+                      label="Organizar"
+                      trailing={<ChevronRight className="h-3.5 w-3.5" />}
+                      onClick={() => setLayoutMenuOpen((o) => !o)}
+                    />
+                    {layoutMenuOpen && (
+                      <div
+                        className="absolute bottom-0 right-[184px] z-[25] flex w-[180px] flex-col gap-0.5 rounded-[14px] p-1.5"
+                        style={{
+                          background: "rgba(14,18,16,0.98)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
+                          backdropFilter: "blur(8px)",
+                        }}
+                      >
+                        {(
+                          [
+                            { v: "radial" as const, label: "Radial" },
+                            { v: "tree_horizontal" as const, label: "Árbol horizontal" },
+                            { v: "tree_vertical" as const, label: "Árbol vertical" },
+                            { v: "columns_report" as const, label: "Columnas" },
+                          ] as const
+                        ).map(({ v, label }) => (
+                          <button
+                            key={v}
+                            onClick={() => {
+                              setLayoutOverride(v)
+                              setLayoutMenuOpen(false)
+                              setMoreOpen(false)
+                            }}
+                            className="flex items-center justify-between rounded-[9px] px-2.5 py-2 text-left text-[12px] font-semibold"
+                            style={{
+                              color: activeLayout === v ? "#9FEDC4" : "#C9D2CD",
+                              background:
+                                activeLayout === v ? "rgba(63,191,132,0.12)" : "transparent",
+                            }}
+                          >
+                            {label}
+                            {activeLayout === v && <Check className="h-3.5 w-3.5" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <ToolMenuItem
                     icon={locked ? Unlock : Lock}
                     label={locked ? "Desbloquear lienzo" : "Bloquear lienzo"}
@@ -1264,6 +1383,20 @@ export function RichMindMapCanvas({
                 </div>
               )}
             </div>
+            {undoSnap && !toolBusy && (
+              <button
+                onClick={undoLast}
+                title="Deshacer el último cambio"
+                className="ml-1 flex h-9 items-center gap-1.5 rounded-[11px] px-2.5 text-[12px] font-bold text-[#9FEDC4]"
+                style={{
+                  border: "1px solid rgba(63,191,132,0.4)",
+                  background: "rgba(63,191,132,0.12)",
+                }}
+              >
+                <Undo2 className="h-4 w-4" />
+                Deshacer
+              </button>
+            )}
             {toolBusy && <Loader2 className="ml-1 h-4 w-4 animate-spin text-[#5BE39A]" />}
           </div>
         )}
@@ -1297,6 +1430,53 @@ export function RichMindMapCanvas({
                     : "Haz clic en el nodo que quieres eliminar")}
           </div>
         )}
+
+        {/* inline node editor (add child label / rename) — positioned over the node */}
+        {inlineEdit &&
+          (() => {
+            const p = result.positions.get(inlineEdit.nodeId)
+            if (!p) return null
+            const x = p.x * zoom + pan.x
+            const y = p.y * zoom + pan.y
+            const isAdd = inlineEdit.mode === "add"
+            return (
+              <div
+                className="absolute z-[27] w-[190px] -translate-x-1/2 rounded-[11px] p-2"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  left: Math.max(100, Math.min(x, (viewportRef.current?.clientWidth ?? 860) - 100)),
+                  top: Math.max(10, Math.min(y + (isAdd ? 30 : -22), VIEW_H - 60)),
+                  background: "rgba(11,15,13,0.98)",
+                  border: "1px solid rgba(63,191,132,0.45)",
+                  boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
+                }}
+              >
+                <input
+                  value={inlineEdit.value}
+                  autoFocus
+                  maxLength={80}
+                  onChange={(e) => setInlineEdit((s) => (s ? { ...s, value: e.target.value } : s))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitInline()
+                    else if (e.key === "Escape") setInlineEdit(null)
+                  }}
+                  // Cancel (not commit) on blur — commit is Enter-only, so a
+                  // blur fired by the Enter-unmount can't double-create.
+                  onBlur={() => setInlineEdit(null)}
+                  placeholder={isAdd ? "Nuevo subtema…" : "Renombrar…"}
+                  className="w-full rounded-[8px] px-2.5 py-1.5 text-[12px] font-semibold text-[#E8EDEA] outline-none placeholder:text-[#5F6A64]"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(255,255,255,0.03)",
+                  }}
+                />
+                <div className="mt-1 text-center text-[9.5px] text-[#5F6A64]">
+                  Enter para guardar · Esc para cancelar
+                </div>
+              </div>
+            )
+          })()}
 
         {noteId && (
           <div
@@ -1476,11 +1656,13 @@ function ToolMenuItem({
   label,
   onClick,
   danger = false,
+  trailing,
 }: {
   icon: typeof Trash2
   label: string
   onClick: () => void
   danger?: boolean
+  trailing?: React.ReactNode
 }) {
   return (
     <button
@@ -1489,7 +1671,8 @@ function ToolMenuItem({
       style={{ color: danger ? "#F0A6A6" : "#C9D2CD" }}
     >
       <Icon className="h-4 w-4 flex-none" style={{ color: danger ? "#F0A6A6" : "#9FEDC4" }} />
-      {label}
+      <span className="flex-1">{label}</span>
+      {trailing}
     </button>
   )
 }
