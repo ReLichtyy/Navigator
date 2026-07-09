@@ -17,14 +17,44 @@ import type {
   LayoutKind,
 } from "../repositories/graph.repo"
 
-const NodeSchema = z.object({
-  id: z.string().min(1).max(40),
-  label: z.string().min(1).max(80),
-  level: z.number().int().min(1).max(6),
-  parentId: z.string().min(1).max(40).nullable(),
-  weight: z.number().min(0).max(100).nullable().optional(),
-  detail: z.string().max(140).nullable().optional(),
-})
+const MAX_LABEL_WORDS = 4
+const MAX_DETAIL_CHARS = 140
+
+const wordCount = (s: string) => s.trim().split(/\s+/).length
+
+/**
+ * Enforces the label rule (≤4 words, no ":", no trailing "."). If the LLM
+ * violates it, the label is shortened deterministically and the original
+ * text is preserved in `detail` (which the UI shows on hover/expand).
+ */
+function normalizeNodeLabel<T extends { id: string; label: string; detail?: string | null }>(
+  node: T,
+): T {
+  const original = node.label.trim()
+  let label = original.replace(/\.+$/, "")
+  if (label.includes(":")) {
+    const parts = label.split(":").map((p) => p.trim())
+    label = parts[parts.length - 1] || parts[0]
+  }
+  if (wordCount(label) > MAX_LABEL_WORDS) {
+    label = label.split(/\s+/).slice(0, MAX_LABEL_WORDS).join(" ")
+  }
+  if (label === original) return node
+  logWarn("rag.graph_gen.label_normalized", { id: node.id, original, label })
+  const detail = node.detail?.trim() || original
+  return { ...node, label, detail: detail.slice(0, MAX_DETAIL_CHARS) }
+}
+
+const NodeSchema = z
+  .object({
+    id: z.string().min(1).max(40),
+    label: z.string().min(1).max(80),
+    level: z.number().int().min(1).max(6),
+    parentId: z.string().min(1).max(40).nullable(),
+    weight: z.number().min(0).max(100).nullable().optional(),
+    detail: z.string().max(140).nullable().optional(),
+  })
+  .transform(normalizeNodeLabel)
 
 const CrossLinkSchema = z.object({
   source: z.string().min(1).max(40),
@@ -60,10 +90,23 @@ STRUCTURE RULES (mandatory):
    - Every node with level > 1 MUST have a non-null parentId pointing to an existing node whose
      level is exactly one less.
 
-2. KEYWORDS, NOT SENTENCES:
-   - Every node at level 1-2: label is at most 4 words.
-   - Detail nodes (level 3+, "leaf nodes") may carry a "detail" field up to 140 characters —
-     NEVER put detail content in the label.
+2. LABELS — MAX 4 WORDS, NO COLONS (strict, schema-validated — not a suggestion):
+   - EVERY node's "label" is at most 4 words and must not contain ":" or end in ".".
+     Correct: "API de nodos", "Eventos del DOM", "Selección de elementos".
+     INCORRECT (never output these):
+       "Insertar elementos en el DOM: API Nodos" (7 words, has ":")
+       "Navegar a través de elementos DOM: API de inserción adyacente" (10 words)
+   - If the source concept is long, SPLIT it:
+       "label": the core idea in 2-4 words.
+       "detail": the rest of the explanation, up to 140 characters. "detail" is NOT rendered
+       inside the node box — it only appears on hover/expand — so it may be a fuller phrase.
+     Any node at any level may carry "detail"; NEVER put detail content in the label.
+     Example transformation:
+       Source concept: "Insertar elementos en el DOM usando la API de Nodos"
+       → label: "API de Nodos"
+       → detail: "Insertar elementos en el DOM usando métodos como appendChild o insertBefore"
+   - Before responding, re-check every generated label: if it has more than 4 words or
+     contains ":", SHORTEN it yourself before returning the JSON.
 
 3. CHOOSE ONE LAYOUT BASED ON THE CONTENT'S SHAPE (pick exactly one, do not ask):
    - "radial": content has 3-7 independent, parallel categories/ideas with no strong progression

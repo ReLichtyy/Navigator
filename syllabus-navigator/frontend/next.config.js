@@ -9,7 +9,10 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://img.clerk.com",
   "font-src 'self' data:",
-  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk-telemetry.com https://*.blob.vercel-storage.com" +
+  // Vercel Blob: client uploads PUT to the apex host (blob.vercel-storage.com);
+  // the wildcard only covers the per-store read subdomains (*.public.blob…), so
+  // the apex must be listed explicitly or the browser CSP-blocks the upload.
+  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk-telemetry.com https://blob.vercel-storage.com https://*.blob.vercel-storage.com" +
     (isDev ? " ws: wss:" : ""),
   "worker-src 'self' blob:",
   "frame-src https://challenges.cloudflare.com https://*.clerk.accounts.dev https://*.clerk.com",
