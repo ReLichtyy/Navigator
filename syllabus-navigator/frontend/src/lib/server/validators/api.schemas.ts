@@ -70,6 +70,20 @@ export const GraphUpdateSchema = z.object({
 
 export type GraphUpdateInput = z.infer<typeof GraphUpdateSchema>
 
+// Regenerate the whole-course mind map from a subset of the course's documents
+// (the "Editar mapa" drawer): multi-select of files + optional focus topics +
+// free-form instructions for the generator.
+export const CourseGraphRegenerateSchema = z.object({
+  fileIds: z
+    .array(z.string().uuid("Invalid document ID"))
+    .min(1, "Selecciona un documento")
+    .max(40),
+  focusTopics: z.array(z.string().trim().min(1).max(120)).max(10).optional(),
+  instructions: z.string().trim().max(600).optional(),
+})
+
+export type CourseGraphRegenerateInput = z.infer<typeof CourseGraphRegenerateSchema>
+
 export const FlashcardReviewSchema = z.object({
   syllabus_id: z.string().uuid("Invalid syllabus ID"),
   card_key: z.string().min(1, "card_key required").max(200),

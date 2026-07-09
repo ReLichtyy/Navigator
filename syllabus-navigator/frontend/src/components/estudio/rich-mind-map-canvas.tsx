@@ -16,6 +16,17 @@ import {
   Check,
   Search,
   SlidersHorizontal,
+  MousePointer2,
+  SquarePlus,
+  Link2,
+  StickyNote,
+  MoreHorizontal,
+  Lock,
+  Unlock,
+  LayoutGrid,
+  Download,
+  Sparkles,
+  FileText,
 } from "lucide-react"
 import type { GraphResponseAPI } from "@/types/api"
 import {
@@ -56,6 +67,20 @@ type Props = {
   onSaveTree?: (nodes: TreeNodeDTO[], crossLinks: CrossLinkDTO[]) => Promise<void>
   /** Regenerate the whole map from the document from scratch (no AI params — see plan §5). */
   onRegenerate?: () => void
+  /** Course documents for the AI drawer's file multi-select (course maps only). */
+  courseFiles?: { id: string; name: string }[]
+  /** Docs that fed the current map — initial state of the multi-select. */
+  sourceDocIds?: string[]
+  /**
+   * AI regeneration with params (course maps). When present, the "Editar mapa"
+   * drawer becomes the design's "Regenerar con IA" panel (files + focus topics
+   * + instructions) and takes precedence over plain onRegenerate.
+   */
+  onRegenerateAI?: (payload: {
+    fileIds: string[]
+    focusTopics: string[]
+    instructions: string
+  }) => void
 }
 
 /**
@@ -76,6 +101,9 @@ export function RichMindMapCanvas({
   onTopicDouble,
   onSaveTree,
   onRegenerate,
+  courseFiles,
+  sourceDocIds,
+  onRegenerateAI,
 }: Props) {
   const VIEW_H = 560
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -212,11 +240,13 @@ export function RichMindMapCanvas({
 
   const panStart = (e: React.MouseEvent) => {
     movedRef.current = false
+    if (locked) return
     setDrag({ x: e.clientX, y: e.clientY, px: pan.x, py: pan.y })
   }
   const panMove = (e: React.MouseEvent) => {
     if (!drag) return
-    if (Math.abs(e.clientX - drag.x) > 3 || Math.abs(e.clientY - drag.y) > 3) movedRef.current = true
+    if (Math.abs(e.clientX - drag.x) > 3 || Math.abs(e.clientY - drag.y) > 3)
+      movedRef.current = true
     setPan({ x: drag.px + (e.clientX - drag.x), y: drag.py + (e.clientY - drag.y) })
   }
   const panEnd = () => setDrag(null)
@@ -311,6 +341,183 @@ export function RichMindMapCanvas({
   const draftValid = draftNodes.length > 0 && draftNodes.every((n) => n.label.trim().length > 0)
   const draftRoots = draftNodes.filter((n) => n.parentId === null)
 
+  // --- canvas toolbar (design: seleccionar / añadir / conectar / nota / más) ---
+  type Tool = "select" | "add" | "connect" | "note" | "delete"
+  const [tool, setTool] = useState<Tool>("select")
+  const [locked, setLocked] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [connectFrom, setConnectFrom] = useState<string | null>(null)
+  const [noteId, setNoteId] = useState<string | null>(null)
+  const [noteText, setNoteText] = useState("")
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [toolBusy, setToolBusy] = useState(false)
+  const [toolErr, setToolErr] = useState<string | null>(null)
+
+  // Leaving a tool clears its in-flight picks.
+  const pickTool = (t: Tool) => {
+    setTool(t)
+    setConnectFrom(null)
+    setNoteId(null)
+    setDeleteId(null)
+    setMoreOpen(false)
+    setToolErr(null)
+  }
+
+  // Tool errors auto-dismiss.
+  useEffect(() => {
+    if (!toolErr) return
+    const t = setTimeout(() => setToolErr(null), 4000)
+    return () => clearTimeout(t)
+  }, [toolErr])
+
+  // One-shot PATCH: current graph + a single toolbar edit → onSaveTree.
+  const toDTO = (): TreeNodeDTO[] =>
+    nodes.map((n) => ({
+      id: n.id,
+      label: n.label,
+      weight_percent: n.weight_percent,
+      level: n.level,
+      parentId: n.parent_id,
+      detail: n.detail,
+    }))
+  const quickEdit = async (edit: TreeEdit) => {
+    if (!onSaveTree || toolBusy) return
+    setToolBusy(true)
+    setToolErr(null)
+    try {
+      const out = applyTreeEdits(
+        toDTO(),
+        crossLinks.map((c) => ({ ...c })),
+        [edit],
+      )
+      await onSaveTree(out.nodes, out.crossLinks)
+    } catch (e) {
+      setToolErr(e instanceof Error ? e.message : "No se pudo guardar el cambio.")
+    } finally {
+      setToolBusy(false)
+    }
+  }
+
+  const descendantCount = (id: string): number => {
+    const children = nodes.filter((n) => n.parent_id === id)
+    return children.length + children.reduce((s, c) => s + descendantCount(c.id), 0)
+  }
+
+  // Tool-aware node click (toolbar modes bypass the default click-to-focus).
+  const onNodeToolClick = (id: string): boolean => {
+    if (tool === "select") return false
+    if (!onSaveTree) return false
+    if (tool === "add") {
+      void quickEdit({ type: "add", parentId: id, label: "Nuevo tema" })
+    } else if (tool === "connect") {
+      if (!connectFrom) setConnectFrom(id)
+      else if (connectFrom !== id) {
+        void quickEdit({ type: "link", source: connectFrom, target: id, label: "se relaciona" })
+        setConnectFrom(null)
+      }
+    } else if (tool === "note") {
+      setNoteId(id)
+      setNoteText(nodes.find((n) => n.id === id)?.detail ?? "")
+    } else if (tool === "delete") {
+      const roots = nodes.filter((n) => n.parent_id === null)
+      const isLastRoot = roots.length === 1 && roots[0].id === id
+      if (isLastRoot) setToolErr("No puedes eliminar la única rama del mapa.")
+      else setDeleteId(id)
+    }
+    return true
+  }
+
+  // PNG export: standalone SVG snapshot (edges + node boxes) rasterized 2x.
+  const exportImage = () => {
+    setMoreOpen(false)
+    const pad = 40
+    const esc = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    const parts: string[] = []
+    for (const node of flat) {
+      if (!node.parentId) continue
+      const a = result.positions.get(node.parentId)
+      const b = result.positions.get(node.id)
+      if (!a || !b) continue
+      const midX = (a.x + b.x) / 2
+      parts.push(
+        `<path d="M${a.x},${a.y} C${midX},${a.y} ${midX},${b.y} ${b.x},${b.y}" fill="none" stroke="${node.color ?? FALLBACK_COLOR}" stroke-width="1.8" stroke-opacity="0.55" stroke-linecap="round"/>`,
+      )
+    }
+    for (const node of flat) {
+      const pos = result.positions.get(node.id)
+      if (!pos) continue
+      const size = sizeForLevel(node.level)
+      const color = node.color ?? FALLBACK_COLOR
+      parts.push(
+        `<rect x="${pos.x - size.w / 2}" y="${pos.y - size.h / 2}" width="${size.w}" height="${size.h}" rx="14" fill="#101512" stroke="${color}" stroke-opacity="0.6"/>`,
+        `<text x="${pos.x}" y="${pos.y + 4}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12.5" font-weight="700" fill="#EEF3F0">${esc(node.label)}</text>`,
+      )
+    }
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${result.width + pad * 2}" height="${result.height + pad * 2}" viewBox="${-pad} ${-pad} ${result.width + pad * 2} ${result.height + pad * 2}">` +
+      `<rect x="${-pad}" y="${-pad}" width="100%" height="100%" fill="#080B09"/>${parts.join("")}</svg>`
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement("canvas")
+      canvas.width = (result.width + pad * 2) * 2
+      canvas.height = (result.height + pad * 2) * 2
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return
+      ctx.scale(2, 2)
+      ctx.drawImage(img, 0, 0)
+      const a = document.createElement("a")
+      a.href = canvas.toDataURL("image/png")
+      a.download = `${(centerTitle ?? "mapa-mental").replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}.png`
+      a.click()
+    }
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  }
+
+  // --- AI drawer state (course maps: files + focus topics + instructions) ---
+  const [fileSel, setFileSel] = useState<Set<string>>(new Set())
+  const [focusSel, setFocusSel] = useState<Set<string>>(new Set())
+  const [instructions, setInstructions] = useState("")
+  const rootLabels = useMemo(() => roots.map((r) => r.label).slice(0, 10), [roots])
+  const recos = useMemo(() => {
+    const heaviest = [...roots].sort((a, b) => (b.weightPercent ?? 0) - (a.weightPercent ?? 0))[0]
+    const out = [
+      heaviest ? `Expande "${heaviest.label}" con más subtemas y ejemplos.` : "",
+      "Enfatiza las relaciones entre conceptos de distintas ramas.",
+      "Usa lenguaje sencillo, pensado para repasar antes del examen.",
+    ]
+    return out.filter(Boolean)
+  }, [roots])
+
+  const [manualOpen, setManualOpen] = useState(false)
+  const openAIDrawer = () => {
+    const all = (courseFiles ?? []).map((f) => f.id)
+    const initial = (sourceDocIds ?? []).filter((id) => all.includes(id))
+    setFileSel(new Set(initial.length > 0 ? initial : all))
+    setFocusSel(new Set())
+    setInstructions("")
+    setManualOpen(false)
+    // The collapsible manual editor reuses the structural drafts.
+    openDrawer()
+  }
+
+  const toggleIn = (set: Set<string>, v: string) => {
+    const next = new Set(set)
+    if (next.has(v)) next.delete(v)
+    else next.add(v)
+    return next
+  }
+
+  const fireRegenerateAI = () => {
+    if (!onRegenerateAI || fileSel.size === 0) return
+    setEditOpen(false)
+    onRegenerateAI({
+      fileIds: [...fileSel],
+      focusTopics: [...focusSel],
+      instructions: instructions.trim(),
+    })
+  }
+
   return (
     <div>
       <div
@@ -327,7 +534,7 @@ export function RichMindMapCanvas({
           backgroundColor: "#080B09",
           backgroundImage: "radial-gradient(circle,rgba(255,255,255,0.045) 1px,transparent 1px)",
           backgroundSize: "28px 28px",
-          cursor: drag ? "grabbing" : "grab",
+          cursor: drag ? "grabbing" : locked ? "default" : "grab",
           userSelect: "none",
         }}
       >
@@ -335,7 +542,13 @@ export function RichMindMapCanvas({
           <svg
             width={result.width}
             height={result.height}
-            style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none", overflow: "visible" }}
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              pointerEvents: "none",
+              overflow: "visible",
+            }}
           >
             {layout !== "columns_report" &&
               flat.map((node) => {
@@ -398,7 +611,8 @@ export function RichMindMapCanvas({
                 key={node.id}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (!movedRef.current) focusNode(node.id)
+                  if (movedRef.current) return
+                  if (!onNodeToolClick(node.id)) focusNode(node.id)
                 }}
                 onDoubleClick={() => onTopicDouble?.(node.label)}
                 title={title}
@@ -624,9 +838,11 @@ export function RichMindMapCanvas({
             )}
           </div>
 
-          {(onSaveTree || onRegenerate) && (
+          {(onSaveTree || onRegenerate || onRegenerateAI) && (
             <button
-              onClick={() => (editOpen ? setEditOpen(false) : openDrawer())}
+              onClick={() =>
+                editOpen ? setEditOpen(false) : onRegenerateAI ? openAIDrawer() : openDrawer()
+              }
               className="flex items-center gap-1.5 rounded-[11px] px-[15px] py-[9px] text-[12.5px] font-bold"
               style={{
                 backdropFilter: "blur(6px)",
@@ -655,7 +871,19 @@ export function RichMindMapCanvas({
               className="flex flex-none items-center justify-between px-5 py-[18px]"
               style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
             >
-              <div className="text-[14.5px] font-extrabold text-[#F2F6F4]">Editar mapa</div>
+              <div className="flex items-center gap-2.5">
+                {onRegenerateAI && (
+                  <span
+                    className="flex h-[30px] w-[30px] items-center justify-center rounded-[9px]"
+                    style={{ background: "rgba(63,191,132,0.14)" }}
+                  >
+                    <Sparkles className="h-[15px] w-[15px] text-[#5BE39A]" />
+                  </span>
+                )}
+                <div className="text-[14.5px] font-extrabold text-[#F2F6F4]">
+                  {onRegenerateAI ? "Regenerar con IA" : "Editar mapa"}
+                </div>
+              </div>
               <button
                 onClick={() => setEditOpen(false)}
                 className="flex items-center justify-center"
@@ -672,7 +900,158 @@ export function RichMindMapCanvas({
             </div>
 
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-[18px]">
-              {onSaveTree && (
+              {onRegenerateAI && (
+                <>
+                  {(courseFiles?.length ?? 0) > 0 && (
+                    <div>
+                      <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                        Archivos del curso
+                      </div>
+                      <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
+                        Elige qué documentos alimentan el mapa. Tu selección se guarda.
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        {courseFiles!.map((f) => {
+                          const on = fileSel.has(f.id)
+                          return (
+                            <button
+                              key={f.id}
+                              onClick={() => setFileSel((s) => toggleIn(s, f.id))}
+                              className="flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-left text-[12px] font-semibold"
+                              style={{
+                                border: `1px solid ${on ? "rgba(63,191,132,0.45)" : "rgba(255,255,255,0.1)"}`,
+                                background: on
+                                  ? "rgba(63,191,132,0.08)"
+                                  : "rgba(255,255,255,0.015)",
+                                color: on ? "#E8EDEA" : "#9AA39E",
+                              }}
+                            >
+                              <span
+                                className="flex h-4 w-4 flex-none items-center justify-center rounded"
+                                style={{
+                                  border: `1px solid ${on ? "#5BE39A" : "rgba(255,255,255,0.25)"}`,
+                                  background: on ? "rgba(63,191,132,0.25)" : "transparent",
+                                }}
+                              >
+                                {on && <Check className="h-3 w-3 text-[#5BE39A]" />}
+                              </span>
+                              <FileText className="h-3.5 w-3.5 flex-none text-[#6FCB9A]" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {f.name.replace(/\.(pdf|docx|pptx|xlsx)$/i, "")}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {fileSel.size === 0 && (
+                        <div className="mt-1.5 text-[11px] text-[#F0A0A0]">
+                          Selecciona al menos un documento.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {rootLabels.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                        Enfócate en temas
+                      </div>
+                      <div className="mb-2.5 text-[11.5px] leading-[1.4] text-[#7C8983]">
+                        Selecciona los temas que quieres expandir con más detalle.
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {rootLabels.map((label) => {
+                          const on = focusSel.has(label)
+                          return (
+                            <button
+                              key={label}
+                              onClick={() => setFocusSel((s) => toggleIn(s, label))}
+                              className="rounded-[9px] px-2.5 py-1.5 text-[11.5px] font-semibold"
+                              style={{
+                                border: `1px solid ${on ? "rgba(63,191,132,0.5)" : "rgba(255,255,255,0.1)"}`,
+                                background: on ? "rgba(63,191,132,0.14)" : "transparent",
+                                color: on ? "#9FEDC4" : "#9AA39E",
+                              }}
+                            >
+                              {label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                      Recomendaciones
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {recos.map((r) => (
+                        <button
+                          key={r}
+                          onClick={() =>
+                            setInstructions((t) => (t.trim() ? `${t.trim()}\n${r}` : r))
+                          }
+                          className="rounded-[10px] px-3 py-2 text-left text-[11.5px] font-medium leading-[1.4] text-[#C9D2CD]"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            background: "rgba(255,255,255,0.015)",
+                          }}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                      Instrucciones
+                    </div>
+                    <textarea
+                      value={instructions}
+                      onChange={(e) => setInstructions(e.target.value)}
+                      maxLength={600}
+                      placeholder="Escribe cómo quieres regenerar el mapa… ej. enfatiza las relaciones entre conceptos, usa lenguaje sencillo."
+                      className="min-h-[88px] w-full resize-y rounded-xl px-3 py-2.5 text-[12.5px] leading-[1.5] text-[#E8EDEA] outline-none placeholder:text-[#5F6A64]"
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        background: "rgba(255,255,255,0.02)",
+                      }}
+                    />
+                  </div>
+
+                  <button
+                    onClick={fireRegenerateAI}
+                    disabled={fileSel.size === 0}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl py-[12px] text-[13.5px] font-bold disabled:opacity-50"
+                    style={{
+                      background: "linear-gradient(135deg,#3FBF84,#2c9a66)",
+                      color: "#06140D",
+                      boxShadow: "0 6px 20px rgba(63,191,132,0.25)",
+                    }}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Regenerar mapa
+                  </button>
+
+                  {onSaveTree && (
+                    <button
+                      onClick={() => setManualOpen((o) => !o)}
+                      className="flex items-center justify-between rounded-[10px] px-3 py-2 text-[11.5px] font-bold text-[#9AA39E]"
+                      style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                    >
+                      Edición manual de temas
+                      <ChevronDown
+                        className="h-3.5 w-3.5"
+                        style={{ transform: manualOpen ? "rotate(180deg)" : undefined }}
+                      />
+                    </button>
+                  )}
+                </>
+              )}
+
+              {(!onRegenerateAI || manualOpen) && onSaveTree && (
                 <div>
                   <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
                     Temas del mapa
@@ -778,7 +1157,7 @@ export function RichMindMapCanvas({
                 </div>
               )}
 
-              {onRegenerate && (
+              {!onRegenerateAI && onRegenerate && (
                 <div>
                   <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
                     Regenerar
@@ -800,6 +1179,220 @@ export function RichMindMapCanvas({
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* bottom-center toolbar (design: seleccionar / añadir / conectar / nota / más) */}
+        {onSaveTree && (
+          <div
+            className="absolute bottom-[18px] left-1/2 z-[20] flex -translate-x-1/2 items-center gap-1.5 rounded-2xl p-2"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "rgba(12,16,14,0.9)",
+              border: "1px solid rgba(255,255,255,0.09)",
+              backdropFilter: "blur(8px)",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+            }}
+          >
+            {(
+              [
+                { t: "select" as const, title: "Seleccionar", icon: MousePointer2 },
+                { t: "add" as const, title: "Añadir subtema (clic en un nodo)", icon: SquarePlus },
+                { t: "connect" as const, title: "Conectar dos nodos", icon: Link2 },
+                { t: "note" as const, title: "Nota del nodo", icon: StickyNote },
+              ] as const
+            ).map(({ t, title, icon: Icon }) => (
+              <button
+                key={t}
+                onClick={() => pickTool(tool === t ? "select" : t)}
+                title={title}
+                className="flex h-9 w-9 items-center justify-center rounded-[11px]"
+                style={{
+                  border: `1px solid ${tool === t ? "rgba(63,191,132,0.5)" : "transparent"}`,
+                  background: tool === t ? "rgba(63,191,132,0.16)" : "transparent",
+                  color: tool === t ? "#9FEDC4" : "#C9D2CD",
+                }}
+              >
+                <Icon className="h-[18px] w-[18px]" />
+              </button>
+            ))}
+            <div className="mx-0.5 h-[26px] w-px" style={{ background: "rgba(255,255,255,0.1)" }} />
+            <div className="relative">
+              <button
+                onClick={() => setMoreOpen((o) => !o)}
+                title="Más herramientas"
+                className="flex h-9 w-9 items-center justify-center rounded-[11px] text-[#C9D2CD]"
+                style={{ background: moreOpen ? "rgba(255,255,255,0.06)" : "transparent" }}
+              >
+                <MoreHorizontal className="h-[18px] w-[18px]" />
+              </button>
+              {moreOpen && (
+                <div
+                  className="absolute bottom-[52px] right-0 z-[24] flex w-[190px] flex-col gap-0.5 rounded-[14px] p-1.5"
+                  style={{
+                    background: "rgba(14,18,16,0.97)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
+                    backdropFilter: "blur(8px)",
+                  }}
+                >
+                  <ToolMenuItem
+                    icon={LayoutGrid}
+                    label="Auto-organizar"
+                    onClick={() => {
+                      zoomReset()
+                      setMoreOpen(false)
+                    }}
+                  />
+                  <ToolMenuItem
+                    icon={locked ? Unlock : Lock}
+                    label={locked ? "Desbloquear lienzo" : "Bloquear lienzo"}
+                    onClick={() => {
+                      setLocked((l) => !l)
+                      setMoreOpen(false)
+                    }}
+                  />
+                  <ToolMenuItem icon={Download} label="Exportar imagen" onClick={exportImage} />
+                  <ToolMenuItem
+                    icon={Trash2}
+                    label="Eliminar nodo"
+                    danger
+                    onClick={() => pickTool("delete")}
+                  />
+                </div>
+              )}
+            </div>
+            {toolBusy && <Loader2 className="ml-1 h-4 w-4 animate-spin text-[#5BE39A]" />}
+          </div>
+        )}
+
+        {/* tool hints + note editor + delete confirm */}
+        {(tool === "connect" ||
+          tool === "add" ||
+          tool === "note" ||
+          tool === "delete" ||
+          toolErr) && (
+          <div
+            className="absolute left-1/2 top-[14px] z-[21] -translate-x-1/2 rounded-full px-3.5 py-1.5 text-[11.5px] font-semibold"
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              background: "rgba(12,16,14,0.92)",
+              border: `1px solid ${toolErr ? "rgba(240,160,160,0.4)" : "rgba(63,191,132,0.35)"}`,
+              color: toolErr ? "#F0A0A0" : "#9FEDC4",
+              backdropFilter: "blur(6px)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {toolErr ??
+              (tool === "add"
+                ? "Haz clic en un nodo para añadirle un subtema"
+                : tool === "connect"
+                  ? connectFrom
+                    ? "Ahora haz clic en el nodo destino"
+                    : "Haz clic en el nodo origen de la conexión"
+                  : tool === "note"
+                    ? "Haz clic en un nodo para editar su nota"
+                    : "Haz clic en el nodo que quieres eliminar")}
+          </div>
+        )}
+
+        {noteId && (
+          <div
+            className="absolute left-1/2 top-[52px] z-[26] w-[300px] -translate-x-1/2 rounded-[14px] p-3.5"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "rgba(11,15,13,0.98)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+              Nota — {nodes.find((n) => n.id === noteId)?.label}
+            </div>
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              maxLength={140}
+              autoFocus
+              placeholder="Detalle del tema (aparece al pasar el cursor)…"
+              className="min-h-[70px] w-full resize-none rounded-[10px] px-2.5 py-2 text-[12px] leading-[1.45] text-[#E8EDEA] outline-none placeholder:text-[#5F6A64]"
+              style={{
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "rgba(255,255,255,0.02)",
+              }}
+            />
+            <div className="mt-1 text-right font-mono text-[9.5px] text-[#5F6A64]">
+              {noteText.length}/140
+            </div>
+            <div className="mt-1.5 flex gap-2">
+              <button
+                onClick={() => {
+                  const id = noteId
+                  setNoteId(null)
+                  void quickEdit({ type: "note", id, detail: noteText })
+                }}
+                className="flex-1 rounded-lg py-1.5 text-[11.5px] font-bold text-[#9FEDC4]"
+                style={{
+                  border: "1px solid rgba(63,191,132,0.45)",
+                  background: "rgba(63,191,132,0.14)",
+                }}
+              >
+                Guardar nota
+              </button>
+              <button
+                onClick={() => setNoteId(null)}
+                className="flex-1 rounded-lg py-1.5 text-[11.5px] font-bold text-[#9AA39E]"
+                style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {deleteId && (
+          <div
+            className="absolute left-1/2 top-[52px] z-[26] w-[300px] -translate-x-1/2 rounded-[14px] p-3.5"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "rgba(11,15,13,0.98)",
+              border: "1px solid rgba(240,160,160,0.35)",
+              boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
+            }}
+          >
+            <p className="text-[12px] leading-[1.45] text-[#F0C7C7]">
+              Se eliminará «{nodes.find((n) => n.id === deleteId)?.label}»
+              {descendantCount(deleteId) > 0 ? ` y sus ${descendantCount(deleteId)} subtemas` : ""}.
+              ¿Continuar?
+            </p>
+            <div className="mt-2.5 flex gap-2">
+              <button
+                onClick={() => {
+                  const id = deleteId
+                  setDeleteId(null)
+                  pickTool("select")
+                  void quickEdit({ type: "delete", id })
+                }}
+                className="flex-1 rounded-lg py-1.5 text-[11.5px] font-bold"
+                style={{
+                  background: "rgba(240,160,160,0.18)",
+                  color: "#F0A0A0",
+                  border: "1px solid rgba(240,160,160,0.4)",
+                }}
+              >
+                Eliminar
+              </button>
+              <button
+                onClick={() => setDeleteId(null)}
+                className="flex-1 rounded-lg py-1.5 text-[11.5px] font-bold text-[#9AA39E]"
+                style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         )}
@@ -878,6 +1471,29 @@ export function RichMindMapCanvas({
   )
 }
 
+function ToolMenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  danger = false,
+}: {
+  icon: typeof Trash2
+  label: string
+  onClick: () => void
+  danger?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-[12px] font-semibold"
+      style={{ color: danger ? "#F0A6A6" : "#C9D2CD" }}
+    >
+      <Icon className="h-4 w-4 flex-none" style={{ color: danger ? "#F0A6A6" : "#9FEDC4" }} />
+      {label}
+    </button>
+  )
+}
+
 function TreeRow({
   node,
   depth,
@@ -904,7 +1520,10 @@ function TreeRow({
           onChange={(e) => onRename(node.id, e.target.value)}
           aria-label="Nombre del tema"
           className="min-w-0 flex-1 rounded-[9px] px-2.5 py-1.5 text-[11.5px] font-semibold text-[#E8EDEA] outline-none"
-          style={{ border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.02)" }}
+          style={{
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.02)",
+          }}
         />
         <div
           className="flex h-[26px] flex-none flex-col overflow-hidden rounded-lg"

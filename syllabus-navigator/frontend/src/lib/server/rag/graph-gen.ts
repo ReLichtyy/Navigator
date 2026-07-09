@@ -65,7 +65,10 @@ const CrossLinkSchema = z.object({
 const SyllabusGraphV2Schema = z.object({
   layout: z.enum(["radial", "tree_horizontal", "tree_vertical", "columns_report"]),
   nodes: z.array(NodeSchema).min(1).max(220),
-  prerequisites: z.array(z.object({ from: z.string(), to: z.string() })).max(300).default([]),
+  prerequisites: z
+    .array(z.object({ from: z.string(), to: z.string() }))
+    .max(300)
+    .default([]),
   crossLinks: z.array(CrossLinkSchema).max(60).default([]),
 })
 
@@ -156,7 +159,9 @@ function clampToSevenRoots(nodes: RawNode[]): RawNode[] {
 }
 
 /** Validates the parent/child tree is well-formed. Throws on the first violation. */
-export function validateTree(nodes: { id: string; level: number; parentId: string | null }[]): void {
+export function validateTree(
+  nodes: { id: string; level: number; parentId: string | null }[],
+): void {
   const seen = new Set<string>()
   for (const n of nodes) {
     if (seen.has(n.id)) throw new Error(`Duplicate node id: ${n.id}`)
@@ -231,15 +236,38 @@ function dedupeCrossLinks(links: GraphCrossLinkInput[]): GraphCrossLinkInput[] {
   return out
 }
 
+export interface GraphGenOptions {
+  /** Topic labels the user wants expanded with extra depth/detail. */
+  focusTopics?: string[]
+  /** Free-form user instructions for the regeneration (tone, emphasis, structure). */
+  instructions?: string
+}
+
 /** Extract a hierarchical topic map (tree + prerequisites + cross-links + layout) from syllabus text. */
-export async function extractGraphFromText(syllabusText: string): Promise<ExtractedGraph> {
+export async function extractGraphFromText(
+  syllabusText: string,
+  opts: GraphGenOptions = {},
+): Promise<ExtractedGraph> {
   try {
+    const focus = (opts.focusTopics ?? []).map((t) => t.trim()).filter(Boolean)
+    const instructions = opts.instructions?.trim()
+    const extras = [
+      focus.length > 0
+        ? `FOCUS TOPICS (user request): expand these topics with MORE sub-branches and detail than the rest: ${focus.map((t) => `"${t}"`).join(", ")}.`
+        : "",
+      instructions
+        ? `USER INSTRUCTIONS for this map (follow them as long as they don't break the structure rules): ${instructions}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n")
+
     // Cap the prompt so a large document doesn't make this call slow/costly.
     // ~15k tokens covers a syllabus' structure; the graph is an overview map.
     const { result: raw, ms } = await timed("rag.graph_gen.llm_call", () =>
       ragJson(
         SYSTEM_PROMPT,
-        `Extract the hierarchical topic map from the following syllabus text:\n\n${syllabusText.slice(0, 60_000)}`,
+        `Extract the hierarchical topic map from the following syllabus text:${extras ? `\n\n${extras}` : ""}\n\n${syllabusText.slice(0, 60_000)}`,
       ),
     )
     logInfo("rag.graph_gen.llm_call", { latencyMs: ms })
@@ -250,7 +278,9 @@ export async function extractGraphFromText(syllabusText: string): Promise<Extrac
 
     const nodeIds = new Set(nodes.map((n) => n.id))
     const prerequisites = dedupePairs(
-      parsed.prerequisites.filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to) && e.from !== e.to),
+      parsed.prerequisites.filter(
+        (e) => nodeIds.has(e.from) && nodeIds.has(e.to) && e.from !== e.to,
+      ),
     )
     validateNoCycles([...nodeIds], prerequisites)
 

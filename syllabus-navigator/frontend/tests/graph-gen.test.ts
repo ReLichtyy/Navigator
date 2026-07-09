@@ -114,7 +114,14 @@ describe("extractGraphFromText — label rule (≤4 words, no ':')", () => {
     ragJson.mockResolvedValue(
       graphWith([
         root,
-        { id: "n1", label: "Eventos del DOM.", level: 2, parentId: "r", weight: null, detail: null },
+        {
+          id: "n1",
+          label: "Eventos del DOM.",
+          level: 2,
+          parentId: "r",
+          weight: null,
+          detail: null,
+        },
       ]),
     )
     const g = await extractGraphFromText("texto")

@@ -426,6 +426,22 @@ CREATE TABLE IF NOT EXISTS course_study_sets (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Whole-course mind map: ONE graph per course generated from the user-selected
+-- subset of its documents (source_doc_ids persists that selection so the edit
+-- drawer re-opens with it). Stored as JSONB (same shape the /api/graph client
+-- consumes: {layout, nodes, edges, crossLinks}) instead of `topics` rows —
+-- per-document graphs keep feeding mastery/recommendations, this is the
+-- presentation layer for /mapa. Cascades with the course.
+CREATE TABLE IF NOT EXISTS course_graphs (
+  course_id      UUID        PRIMARY KEY REFERENCES user_courses(id) ON DELETE CASCADE,
+  data           JSONB,                              -- NULL until first generation succeeds
+  source_doc_ids UUID[]      NOT NULL DEFAULT '{}',
+  status         TEXT        NOT NULL DEFAULT 'pending',  -- pending|processing|ready|failed
+  error          TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---------------------------------------------------------------------------
 -- Study Engine — Step 1: versioned cache + persistent item bank
 -- ---------------------------------------------------------------------------

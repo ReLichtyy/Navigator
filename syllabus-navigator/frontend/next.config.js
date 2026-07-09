@@ -13,7 +13,7 @@ const csp = [
   // API at https://vercel.com/api/blob, then transfers to the store hosts
   // (blob.vercel-storage.com apex + *.public.blob… read subdomains). All three
   // must be allowed or the browser CSP-blocks the upload and it hangs forever.
-  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk-telemetry.com https://vercel.com https://blob.vercel-storage.com https://*.blob.vercel-storage.com" +
+  "connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com https://clerk-telemetry.com https://vercel.com https://blob.vercel-storage.com https://*.blob.vercel-storage.com https://*.private.blob.vercel-storage.com https://*.public.blob.vercel-storage.com" +
     (isDev ? " ws: wss:" : ""),
   "worker-src 'self' blob:",
   "frame-src https://challenges.cloudflare.com https://*.clerk.accounts.dev https://*.clerk.com",

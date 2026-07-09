@@ -142,6 +142,41 @@ export const ChunkRepository = {
   },
 
   /**
+   * Full text of a user-selected SUBSET of a course's documents, grouped per
+   * document (filename header + ordered chunks) like getConcatenatedTextByCourse.
+   * Used to generate the whole-course mind map from the docs picked in the
+   * "Editar mapa" drawer. Ownership + course membership enforced in SQL.
+   */
+  async getConcatenatedTextByDocs(
+    userId: string,
+    courseId: string,
+    docIds: string[],
+  ): Promise<string> {
+    if (docIds.length === 0) return ""
+    const rows = await sql`
+      SELECT su.original_filename, c.content
+      FROM chunks c
+      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId}
+        AND su.id = ANY(${docIds}::uuid[])
+      ORDER BY su.original_filename ASC, c.chunk_index ASC
+    `
+    const docs = rows as { original_filename: string; content: string }[]
+    const byDoc = new Map<string, string[]>()
+    for (const r of docs) {
+      const arr = byDoc.get(r.original_filename) ?? []
+      arr.push(r.content)
+      byDoc.set(r.original_filename, arr)
+    }
+    return [...byDoc.entries()]
+      .map(
+        ([name, parts]) =>
+          `## ${name.replace(/\.(pdf|docx|pptx|xlsx)$/i, "")}\n\n${parts.join("\n\n")}`,
+      )
+      .join("\n\n")
+  },
+
+  /**
    * Cheap content fingerprint for a syllabus — changes whenever its chunks change
    * (re-upload / edit). Used to invalidate the versioned study-set cache without
    * hashing the full text. Returns "" when the syllabus has no chunks.

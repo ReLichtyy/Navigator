@@ -129,7 +129,9 @@ function buildResult(all: RetrievedChunk[], withSource: boolean, query: string):
       syllabus_id: c.syllabus_id ?? null,
       source_type: (c.source_type as CitationAPI["source_type"]) ?? null,
       source_url: c.source_url ?? null,
-      file_url: c.file_url ?? null,
+      // PRIVATE-store docs: hand the client the authed proxy route, not the raw
+      // (non-fetchable) blob URL. Citation links open it with #page=N.
+      file_url: c.file_url && c.syllabus_id ? `/api/upload/${c.syllabus_id}/file` : null,
     })
   })
 

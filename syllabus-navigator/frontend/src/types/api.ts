@@ -101,3 +101,20 @@ export interface GraphResponseAPI {
   edges: { source: string; target: string }[]
   crossLinks: { source: string; target: string; label: string }[]
 }
+
+/**
+ * Whole-course mind map (one per course, generated from the docs selected in
+ * the "Editar mapa" drawer). Same node/edge shape as GraphResponseAPI.
+ * graph_status "none" = never generated yet (client shows the initial CTA).
+ */
+export interface CourseGraphResponseAPI {
+  course_id: string
+  graph_status: "none" | "pending" | "processing" | "ready" | "failed"
+  graph_error: string | null
+  /** Docs that fed the current map — the drawer's persisted multi-select. */
+  source_doc_ids: string[]
+  layout: GraphResponseAPI["layout"]
+  nodes: GraphResponseAPI["nodes"]
+  edges: GraphResponseAPI["edges"]
+  crossLinks: GraphResponseAPI["crossLinks"]
+}

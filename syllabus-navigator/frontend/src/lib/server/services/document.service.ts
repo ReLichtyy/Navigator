@@ -10,7 +10,7 @@ import {
   meaningfulTextLength,
   capChunks,
 } from "../rag/chunking"
-import { storePdf, delBlob } from "../storage/blob"
+import { storePdf, delBlob, fetchPrivateBlob } from "../storage/blob"
 import { logInfo } from "@/lib/observability/logger"
 import type { Role } from "@/lib/auth/rbac"
 import crypto from "crypto"
@@ -261,7 +261,8 @@ export const DocumentService = {
       throw new ApiErrorResponse("URL is not a Vercel Blob URL.", 400)
     }
 
-    const res = await fetch(input.url).catch(() => null)
+    // Private-store blobs 403 on a plain GET — read with the RW token.
+    const res = await fetchPrivateBlob(input.url)
     if (!res || !res.ok) {
       throw new ApiErrorResponse("Could not fetch the uploaded file.", 502)
     }

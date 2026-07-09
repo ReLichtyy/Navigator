@@ -29,6 +29,9 @@ export type TreeEdit =
   | { type: "delete"; id: string }
   | { type: "add"; parentId: string | null; label: string }
   | { type: "reorder"; id: string; direction: "up" | "down" }
+  // Canvas toolbar edits:
+  | { type: "note"; id: string; detail: string | null }
+  | { type: "link"; source: string; target: string; label: string }
 
 const MAX_TREE_LEVEL = 6
 
@@ -64,7 +67,11 @@ function descendantsOf(id: string, nodes: TreeNodeDTO[]): Set<string> {
  *   blank label, or exceeding the 6-level cap silently skips the edit;
  * - `reorder` swaps a node with its adjacent sibling (same `parentId`) —
  *   array order IS the persisted `sort_order`, same convention as the root
- *   editor's "order round-trips" behavior.
+ *   editor's "order round-trips" behavior;
+ * - `note` sets/clears a node's `detail` (hover blurb, ≤140 chars enforced
+ *   server-side; trimmed, blank → null);
+ * - `link` adds a cross-link between two EXISTING distinct nodes (blank label,
+ *   missing endpoint, self-link, or an already-linked pair silently skips).
  */
 export function applyTreeEdits(
   nodes: TreeNodeDTO[],
@@ -99,6 +106,16 @@ export function applyTreeEdits(
         level: parent ? parent.level + 1 : 1,
         parentId: parent ? parent.id : null,
       })
+    } else if (edit.type === "note") {
+      const detail = edit.detail?.trim() || null
+      working = working.map((n) => (n.id === edit.id ? { ...n, detail } : n))
+    } else if (edit.type === "link") {
+      const label = edit.label.trim()
+      if (!label || edit.source === edit.target) continue
+      const ids = new Set(working.map((n) => n.id))
+      if (!ids.has(edit.source) || !ids.has(edit.target)) continue
+      if (links.some((l) => l.source === edit.source && l.target === edit.target)) continue
+      links.push({ source: edit.source, target: edit.target, label: label.slice(0, 60) })
     } else if (edit.type === "reorder") {
       const node = working.find((n) => n.id === edit.id)
       if (!node) continue

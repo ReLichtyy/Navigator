@@ -106,4 +106,32 @@ describe("applyTreeEdits", () => {
     ])
     expect(out.nodes.find((n) => n.id === "b")?.level).toBe(1) // untouched
   })
+
+  it("note sets a node's detail (trimmed) and blank clears it to null", () => {
+    const set = applyTreeEdits(treeNodes, treeCrossLinks, [
+      { type: "note", id: "c", detail: "  Operaciones con matrices  " },
+    ])
+    expect(set.nodes.find((n) => n.id === "c")?.detail).toBe("Operaciones con matrices")
+    const cleared = applyTreeEdits(set.nodes, treeCrossLinks, [
+      { type: "note", id: "e", detail: "   " },
+    ])
+    expect(cleared.nodes.find((n) => n.id === "e")?.detail).toBeNull()
+  })
+
+  it("link adds a cross-link between two existing nodes", () => {
+    const out = applyTreeEdits(treeNodes, treeCrossLinks, [
+      { type: "link", source: "c", target: "b", label: "se relaciona" },
+    ])
+    expect(out.crossLinks).toContainEqual({ source: "c", target: "b", label: "se relaciona" })
+    expect(out.crossLinks).toHaveLength(2)
+  })
+
+  it("link skips self-links, missing endpoints, and duplicate pairs", () => {
+    const out = applyTreeEdits(treeNodes, treeCrossLinks, [
+      { type: "link", source: "c", target: "c", label: "x" },
+      { type: "link", source: "c", target: "zz", label: "x" },
+      { type: "link", source: "d", target: "b", label: "duplicada" }, // already linked
+    ])
+    expect(out.crossLinks).toEqual(treeCrossLinks)
+  })
 })

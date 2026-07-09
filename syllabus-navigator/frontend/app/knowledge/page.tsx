@@ -1543,7 +1543,9 @@ export default function KnowledgeBasePage() {
                 onReprocess={handleReprocess}
                 editable
                 syllabusId={previewDoc.id}
-                onSaved={(g) => setPreviewGraph(g)}
+                onSaved={(g) => {
+                  if ("syllabus_id" in g) setPreviewGraph(g)
+                }}
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">

@@ -62,6 +62,7 @@ import type {
   MessageOutAPI,
   SyllabusUploadAPI,
   GraphResponseAPI,
+  CourseGraphResponseAPI,
   CourseAPI,
 } from "@/types/api"
 
@@ -72,6 +73,7 @@ export type {
   MessageOutAPI,
   SyllabusUploadAPI,
   GraphResponseAPI,
+  CourseGraphResponseAPI,
   CourseAPI,
 }
 
@@ -282,7 +284,10 @@ export async function uploadSyllabusViaBlob(file: File) {
   try {
     const { upload } = await import("@vercel/blob/client")
     const blob = await upload(file.name, file, {
-      access: "public",
+      // Documents live in the PRIVATE store — never a public URL. They're served
+      // back through the authed proxy route (/api/upload/[id]/file). The token
+      // route mints a private-store client token to match.
+      access: "private",
       handleUploadUrl: `${API_BASE}/upload/blob`,
       contentType,
     })
@@ -497,6 +502,40 @@ export async function reprocessGraph(syllabusId: string) {
   return request<GraphResponseAPI>(`/graph/${syllabusId}/reprocess`, {
     method: "POST",
     json: false,
+  })
+}
+
+/** Whole-course mind map. graph_status "none" = never generated yet. */
+export async function fetchCourseGraph(courseId: string) {
+  return request<CourseGraphResponseAPI>(`/graph/course/${courseId}`, {
+    method: "GET",
+    json: false,
+  })
+}
+
+export interface CourseGraphRegeneratePayload {
+  /** Course documents that feed the map (the drawer's multi-select). */
+  fileIds: string[]
+  focusTopics?: string[]
+  instructions?: string
+}
+
+/** (Re)generate the course map from the selected documents. Synchronous. */
+export async function regenerateCourseGraph(
+  courseId: string,
+  payload: CourseGraphRegeneratePayload,
+) {
+  return request<CourseGraphResponseAPI>(`/graph/course/${courseId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+/** Save a user-edited course map (same payload shape as the per-doc PATCH). */
+export async function updateCourseGraph(courseId: string, graph: GraphUpdatePayload) {
+  return request<CourseGraphResponseAPI>(`/graph/course/${courseId}`, {
+    method: "PATCH",
+    body: JSON.stringify(graph),
   })
 }
 

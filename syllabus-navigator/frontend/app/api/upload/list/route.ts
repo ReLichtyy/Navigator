@@ -14,9 +14,16 @@ export async function GET() {
   try {
     const { userId } = await requireAuth()
 
-    const uploads = await cached(`uploads:list:${userId}`, 10, async () => {
+    const rows = await cached(`uploads:list:${userId}`, 10, async () => {
       return DocumentRepository.listUploads(userId)
     })
+
+    // Documents live in the PRIVATE blob store; never expose the raw blob URL.
+    // Swap it for the authed proxy route the client can actually fetch.
+    const uploads = rows.map((u) => ({
+      ...u,
+      file_url: u.file_url ? `/api/upload/${u.id}/file` : null,
+    }))
 
     return NextResponse.json({ uploads })
   } catch (err) {

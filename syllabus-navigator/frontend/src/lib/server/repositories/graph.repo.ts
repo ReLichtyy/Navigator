@@ -62,8 +62,9 @@ export interface GraphCrossLink {
  * Assign a color per topic: level-1 nodes get PALETTE[index-among-siblings],
  * every descendant inherits its level-1 ancestor's color. Never LLM output —
  * keeps color assignment deterministic and independent of prompt drift.
+ * Exported for the course-graph service (JSONB graphs reuse the same palette).
  */
-function assignColors(topics: GraphNodeInput[]): Map<string, string> {
+export function assignColors(topics: GraphNodeInput[]): Map<string, string> {
   const byExternalId = new Map(topics.map((t) => [t.externalId, t]))
   const colorByExternalId = new Map<string, string>()
 

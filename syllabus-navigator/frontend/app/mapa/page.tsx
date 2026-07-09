@@ -9,12 +9,16 @@ import {
   listCourses,
   fetchGraph,
   reprocessGraph,
+  fetchCourseGraph,
+  regenerateCourseGraph,
   type SyllabusUploadAPI,
   type CourseAPI,
   type GraphResponseAPI,
+  type CourseGraphResponseAPI,
+  type CourseGraphRegeneratePayload,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
-import { Network, Loader2, AlertCircle, BookText, FolderOpen, FileText } from "lucide-react"
+import { Network, Loader2, AlertCircle, BookText, FolderOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"
@@ -41,10 +45,12 @@ function MapaContent() {
   const [coursesLoading, setCoursesLoading] = useState(true)
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
 
-  const [graph, setGraph] = useState<GraphResponseAPI | null>(null)
+  // Course-level map (real course folders) / per-doc fallback ("sin curso").
+  const [courseGraph, setCourseGraph] = useState<CourseGraphResponseAPI | null>(null)
+  const [docGraph, setDocGraph] = useState<GraphResponseAPI | null>(null)
   const [graphLoading, setGraphLoading] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Group uploads into real course folders; keep only folders with ≥1 ready doc.
@@ -64,19 +70,19 @@ function MapaContent() {
     () => (selectedGroup ? selectedGroup.docs.filter(isReady) : []),
     [selectedGroup],
   )
+  const courseId = selectedGroup?.id ?? null
+  // "Sin curso" folders have no course entity — fall back to the first doc's map.
+  const fallbackDocId = courseId ? null : (readyDocs[0]?.id ?? null)
 
   const ask = useCallback(
     (text: string) =>
       askInChat(
         text,
         selectedGroup
-          ? {
-              courseId: selectedGroup.id,
-              syllabusId: selectedGroup.id ? null : selectedDocId,
-            }
+          ? { courseId: selectedGroup.id, syllabusId: selectedGroup.id ? null : fallbackDocId }
           : undefined,
       ),
-    [askInChat, selectedGroup, selectedDocId],
+    [askInChat, selectedGroup, fallbackDocId],
   )
 
   // Load the user's uploads + course folders.
@@ -101,40 +107,67 @@ function MapaContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, status])
 
-  // Pick the initial course folder + doc once groups are available, honoring
+  // Pick the initial course folder once groups are available, honoring
   // ?course=<docId|courseId> (the deep link from /estudio's "Mapa mental" button).
   useEffect(() => {
     if (selectedKey !== null || groups.length === 0) return
     const wanted = params.get("course")
     const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted && isReady(d)))
     const byCourse = groups.find((g) => g.id === wanted)
-    const pick = byDoc ?? byCourse ?? groups[0]
-    setSelectedKey(folderKey(pick))
-    const wantedDoc = pick.docs.find((d) => d.id === wanted && isReady(d))
-    setSelectedDocId(wantedDoc?.id ?? pick.docs.filter(isReady)[0]?.id ?? null)
+    setSelectedKey(folderKey(byDoc ?? byCourse ?? groups[0]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
 
-  // Keep the selected doc valid whenever the course folder changes.
-  useEffect(() => {
-    if (!selectedGroup) return
-    if (!selectedDocId || !readyDocs.some((d) => d.id === selectedDocId)) {
-      setSelectedDocId(readyDocs[0]?.id ?? null)
+  // Regenerate the course map (initial generation or from the AI drawer).
+  // Synchronous POST — the canvas shows "Procesando mapa…" while it runs.
+  const regenSeq = useRef(0)
+  const regenerate = useCallback(async (cid: string, payload: CourseGraphRegeneratePayload) => {
+    const seq = ++regenSeq.current
+    setRegenerating(true)
+    setError(null)
+    try {
+      const g = await regenerateCourseGraph(cid, payload)
+      if (seq === regenSeq.current) setCourseGraph(g)
+    } catch (e) {
+      if (seq === regenSeq.current) {
+        setError(e instanceof Error ? e.message : "No se pudo generar el mapa del curso.")
+      }
+    } finally {
+      if (seq === regenSeq.current) setRegenerating(false)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey])
+  }, [])
 
-  // Load the graph whenever the selected doc changes. Monotonic guard so a slow
+  // Load the map whenever the selected folder changes. Course folders read the
+  // course map (auto-generating it from ALL ready docs the first time); "sin
+  // curso" folders keep the per-document graph. Monotonic guard so a slow
   // earlier fetch can't overwrite a newer selection.
   const loadSeq = useRef(0)
-  const loadGraph = useCallback(async (docId: string) => {
+  const autoGenTried = useRef(new Set<string>())
+  const loadGraph = useCallback(async () => {
     const seq = ++loadSeq.current
     setGraphLoading(true)
     setError(null)
-    setGraph(null)
+    setCourseGraph(null)
+    setDocGraph(null)
     try {
-      const g = await fetchGraph(docId)
-      if (seq === loadSeq.current) setGraph(g)
+      if (courseId) {
+        const g = await fetchCourseGraph(courseId)
+        if (seq !== loadSeq.current) return
+        setCourseGraph(g)
+        // First visit: generate from every ready doc, once per course per session.
+        if (
+          g.graph_status === "none" &&
+          readyDocs.length > 0 &&
+          !autoGenTried.current.has(courseId)
+        ) {
+          autoGenTried.current.add(courseId)
+          void regenerate(courseId, { fileIds: readyDocs.map((d) => d.id) })
+        }
+      } else if (fallbackDocId) {
+        const g = await fetchGraph(fallbackDocId)
+        if (seq !== loadSeq.current) return
+        setDocGraph(g)
+      }
     } catch (e) {
       if (seq === loadSeq.current) {
         setError(e instanceof Error ? e.message : "No se pudo cargar el mapa mental.")
@@ -142,13 +175,13 @@ function MapaContent() {
     } finally {
       if (seq === loadSeq.current) setGraphLoading(false)
     }
-  }, [])
+  }, [courseId, fallbackDocId, readyDocs, regenerate])
 
   useEffect(() => {
-    if (selectedDocId) loadGraph(selectedDocId)
-  }, [selectedDocId, loadGraph])
+    if (courseId || fallbackDocId) void loadGraph()
+  }, [courseId, fallbackDocId, loadGraph])
 
-  // Reprocess: re-enqueue generation, then poll until the graph settles.
+  // Per-doc fallback reprocess: re-enqueue generation, then poll until it settles.
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stopPoll = () => {
     if (pollRef.current) clearInterval(pollRef.current)
@@ -156,17 +189,17 @@ function MapaContent() {
   }
   useEffect(() => stopPoll, [])
 
-  const handleReprocess = useCallback(async () => {
-    if (!selectedDocId) return
+  const handleReprocessDoc = useCallback(async () => {
+    if (!fallbackDocId) return
     try {
-      const pending = await reprocessGraph(selectedDocId)
-      setGraph(pending)
+      const pending = await reprocessGraph(fallbackDocId)
+      setDocGraph(pending)
       stopPoll()
       pollRef.current = setInterval(async () => {
         try {
-          const g = await fetchGraph(selectedDocId)
+          const g = await fetchGraph(fallbackDocId)
           if (g.graph_status !== "pending" && g.graph_status !== "processing") {
-            setGraph(g)
+            setDocGraph(g)
             stopPoll()
           }
         } catch {
@@ -176,7 +209,7 @@ function MapaContent() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo reprocesar el mapa.")
     }
-  }, [selectedDocId])
+  }, [fallbackDocId])
 
   if (ready && (status === "anonymous" || status === "guest")) {
     return (
@@ -195,12 +228,30 @@ function MapaContent() {
     )
   }
 
+  const isCourseMode = !!courseId
+  const graphStatus = isCourseMode
+    ? regenerating
+      ? "processing"
+      : (courseGraph?.graph_status ?? undefined)
+    : docGraph?.graph_status
+  const nodes = isCourseMode ? courseGraph?.nodes : docGraph?.nodes
+  const edges = isCourseMode ? courseGraph?.edges : docGraph?.edges
+  const crossLinks = isCourseMode ? courseGraph?.crossLinks : docGraph?.crossLinks
+  const layout = isCourseMode ? courseGraph?.layout : docGraph?.layout
+  const graphError = isCourseMode ? courseGraph?.graph_error : docGraph?.graph_error
+  const hasGraph = isCourseMode ? !!courseGraph : !!docGraph
+
   return (
     <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:px-6">
         <MobileNav />
         <Network className="hidden h-5 w-5 text-accent sm:inline" />
         <h1 className="text-lg font-semibold">Mapa mental</h1>
+        {selectedGroup && (
+          <span className="hidden text-[13px] text-muted-foreground sm:inline">
+            · {selectedGroup.name}
+          </span>
+        )}
       </header>
 
       <div className="flex-1 overflow-auto p-4 sm:px-10 sm:py-9">
@@ -211,9 +262,9 @@ function MapaContent() {
             <Empty />
           ) : (
             <>
-              {/* course folder selector */}
+              {/* course picker — the map covers the WHOLE course */}
               <div className="mb-3 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-                <FolderOpen className="h-3.5 w-3.5 text-accent" /> Curso
+                <FolderOpen className="h-3.5 w-3.5 text-accent" /> Mapa de:
               </div>
               <div className="mb-4 flex flex-wrap gap-2.5">
                 {groups.map((g) => {
@@ -243,64 +294,72 @@ function MapaContent() {
                 })}
               </div>
 
-              {/* doc selector — only when the course has more than one ready PDF */}
-              {readyDocs.length > 1 && (
-                <>
-                  <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-                    <FileText className="h-3.5 w-3.5 text-accent" /> Documento
-                  </div>
-                  <div className="mb-4 flex flex-wrap gap-2">
-                    {readyDocs.map((d) => {
-                      const active = d.id === selectedDocId
-                      return (
-                        <button
-                          key={d.id}
-                          onClick={() => setSelectedDocId(d.id)}
-                          className={`rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
-                            active
-                              ? "border-accent/40 bg-accent/10 text-foreground"
-                              : "border-border text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {cleanName(d.original_filename)}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </>
-              )}
-
               <div className="mt-2">
                 {graphLoading ? (
                   <CenterSpinner label="Cargando mapa mental…" />
                 ) : error ? (
                   <ErrorBox
                     message={error}
-                    onRetry={() => selectedDocId && loadGraph(selectedDocId)}
+                    onRetry={() => {
+                      if (courseId) {
+                        const src =
+                          courseGraph && courseGraph.source_doc_ids.length > 0
+                            ? courseGraph.source_doc_ids
+                            : readyDocs.map((d) => d.id)
+                        void regenerate(courseId, { fileIds: src })
+                      } else {
+                        void loadGraph()
+                      }
+                    }}
                   />
-                ) : graph && selectedGroup ? (
+                ) : hasGraph && selectedGroup ? (
                   <SelectionAsk onAsk={ask}>
                     <GraphCanvas
-                      nodes={graph.nodes}
-                      edges={graph.edges}
-                      crossLinks={graph.crossLinks}
-                      layout={graph.layout}
-                      graphStatus={graph.graph_status}
-                      graphError={graph.graph_error}
+                      nodes={nodes}
+                      edges={edges}
+                      crossLinks={crossLinks}
+                      layout={layout}
+                      graphStatus={graphStatus}
+                      graphError={graphError}
                       centerTitle={
                         selectedGroup.id
                           ? selectedGroup.name
-                          : selectedDocId
+                          : fallbackDocId
                             ? cleanName(
-                                readyDocs.find((d) => d.id === selectedDocId)?.original_filename ??
+                                readyDocs.find((d) => d.id === fallbackDocId)?.original_filename ??
                                   selectedGroup.name,
                               )
                             : selectedGroup.name
                       }
-                      onReprocess={handleReprocess}
                       editable
-                      syllabusId={selectedDocId ?? undefined}
-                      onSaved={(g) => setGraph(g)}
+                      // Course mode: edits + AI regeneration on the course map.
+                      courseId={courseId ?? undefined}
+                      courseFiles={
+                        courseId
+                          ? readyDocs.map((d) => ({ id: d.id, name: d.original_filename }))
+                          : undefined
+                      }
+                      sourceDocIds={courseId ? courseGraph?.source_doc_ids : undefined}
+                      onRegenerateAI={
+                        courseId ? (payload) => void regenerate(courseId, payload) : undefined
+                      }
+                      // "Sin curso" fallback: per-document map with its reprocess.
+                      syllabusId={fallbackDocId ?? undefined}
+                      onReprocess={
+                        courseId
+                          ? () => {
+                              const src =
+                                courseGraph && courseGraph.source_doc_ids.length > 0
+                                  ? courseGraph.source_doc_ids
+                                  : readyDocs.map((d) => d.id)
+                              void regenerate(courseId, { fileIds: src })
+                            }
+                          : handleReprocessDoc
+                      }
+                      onSaved={(g) => {
+                        if ("course_id" in g) setCourseGraph(g)
+                        else setDocGraph(g)
+                      }}
                     />
                   </SelectionAsk>
                 ) : null}

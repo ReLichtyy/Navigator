@@ -5,8 +5,8 @@ import { useSyllabus } from "@/context/SyllabusContext"
 import { RotateCcw, X } from "lucide-react"
 import { RichMindMapCanvas } from "@/components/estudio/rich-mind-map-canvas"
 import type { TreeNodeDTO, CrossLinkDTO } from "@/lib/ui/graph-edit"
-import { updateGraph } from "@/lib/api"
-import type { GraphResponseAPI } from "@/types/api"
+import { updateGraph, updateCourseGraph } from "@/lib/api"
+import type { GraphResponseAPI, CourseGraphResponseAPI } from "@/types/api"
 
 type GraphNode = GraphResponseAPI["nodes"][number]
 type GraphEdge = { source: string; target: string }
@@ -23,7 +23,19 @@ type Props = {
   onReprocess?: () => void
   editable?: boolean
   syllabusId?: string
-  onSaved?: (graph: GraphResponseAPI) => void
+  /** Course-map mode: edits PATCH /graph/course/[courseId] instead of the per-doc route. */
+  courseId?: string
+  /** Course documents for the AI drawer's multi-select (course-map mode). */
+  courseFiles?: { id: string; name: string }[]
+  /** Docs that fed the current course map (persisted multi-select state). */
+  sourceDocIds?: string[]
+  /** AI regeneration with params — turns the drawer into "Regenerar con IA". */
+  onRegenerateAI?: (payload: {
+    fileIds: string[]
+    focusTopics: string[]
+    instructions: string
+  }) => void
+  onSaved?: (graph: GraphResponseAPI | CourseGraphResponseAPI) => void
   /** Title shown in the central node (usually the course name). */
   centerTitle?: string
 }
@@ -45,6 +57,10 @@ export default function GraphCanvas({
   onReprocess,
   editable = false,
   syllabusId,
+  courseId,
+  courseFiles,
+  sourceDocIds,
+  onRegenerateAI,
   onSaved,
   centerTitle,
 }: Props) {
@@ -71,7 +87,7 @@ export default function GraphCanvas({
     return () => {
       if (timer.current) clearTimeout(timer.current)
     }
-  }, [syllabusId, runLoad])
+  }, [syllabusId, courseId, runLoad])
 
   const loading = selfLoading || graphStatus === "processing" || graphStatus === "pending"
 
@@ -82,8 +98,8 @@ export default function GraphCanvas({
   // `edges` passes through unchanged. Thrown errors surface in the drawer.
   const saveTree = useCallback(
     async (treeNodes: TreeNodeDTO[], treeCrossLinks: CrossLinkDTO[]) => {
-      if (!syllabusId) return
-      const saved = await updateGraph(syllabusId, {
+      if (!syllabusId && !courseId) return
+      const payload = {
         nodes: treeNodes.map((n) => ({
           id: n.id,
           label: n.label,
@@ -94,10 +110,13 @@ export default function GraphCanvas({
         })),
         edges,
         crossLinks: treeCrossLinks,
-      })
+      }
+      const saved = courseId
+        ? await updateCourseGraph(courseId, payload)
+        : await updateGraph(syllabusId!, payload)
       onSaved?.(saved)
     },
-    [syllabusId, edges, onSaved],
+    [syllabusId, courseId, edges, onSaved],
   )
 
   // Failed graph generation — offer a retry.
@@ -141,12 +160,22 @@ export default function GraphCanvas({
       centerTitle={center}
       loading={loading}
       onTopicDouble={(label) => queryTopicInChat(label)}
-      onSaveTree={editable && syllabusId ? saveTree : undefined}
+      onSaveTree={editable && (syllabusId || courseId) ? saveTree : undefined}
       onRegenerate={
         editable && onReprocess
           ? () => {
               runLoad()
               onReprocess()
+            }
+          : undefined
+      }
+      courseFiles={courseFiles}
+      sourceDocIds={sourceDocIds}
+      onRegenerateAI={
+        editable && onRegenerateAI
+          ? (payload) => {
+              runLoad()
+              onRegenerateAI(payload)
             }
           : undefined
       }
