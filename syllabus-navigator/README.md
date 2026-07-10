@@ -34,3 +34,4 @@ Graph-oriented tables from `docker/postgres/init.sql` (`programs`, `courses`, `s
 MVP pipeline implemented: PDF upload with header **`X-User-Id`**, chunking + OpenAI embeddings into **Chroma** (filtered by `user_id` + `syllabus_id`), grounded **`/chat/query`** with citations. Operational guide: [`docs/cursor-playbook.md`](docs/cursor-playbook.md).
 
 Backend tests: from `backend/`, run `python -m pytest -q` (uses [`backend/pytest.ini`](backend/pytest.ini)).
+s
