@@ -5,7 +5,7 @@ import { useSyllabus } from "@/context/SyllabusContext"
 import { RotateCcw, X } from "lucide-react"
 import { RichMindMapCanvas } from "@/components/estudio/rich-mind-map-canvas"
 import type { TreeNodeDTO, CrossLinkDTO } from "@/lib/ui/graph-edit"
-import { updateGraph, updateCourseGraph } from "@/lib/api"
+import { updateGraph, updateCourseGraph, askGraph } from "@/lib/api"
 import type { GraphResponseAPI, CourseGraphResponseAPI } from "@/types/api"
 
 type GraphNode = GraphResponseAPI["nodes"][number]
@@ -38,6 +38,10 @@ type Props = {
   onSaved?: (graph: GraphResponseAPI | CourseGraphResponseAPI) => void
   /** Title shown in the central node (usually the course name). */
   centerTitle?: string
+  /** Course folders for the drawer's "Curso del mapa" picker (design v3). */
+  courses?: { key: string; name: string; color?: string | null; count?: number }[]
+  selectedCourseKey?: string | null
+  onSelectCourse?: (key: string) => void
 }
 
 /**
@@ -63,8 +67,33 @@ export default function GraphCanvas({
   onRegenerateAI,
   onSaved,
   centerTitle,
+  courses,
+  selectedCourseKey,
+  onSelectCourse,
 }: Props) {
   const { queryTopicInChat } = useSyllabus()
+
+  // Inline "ask about this map" → grounded answer for the canvas question bar.
+  // Scoped to the course map, or the per-doc ("sin curso") fallback map.
+  const onAsk = useCallback(
+    async (args: {
+      question?: string
+      refine?: "concise" | "detail" | "translate" | "regenerate"
+      previousAnswer?: string
+      lang?: string
+    }) => {
+      const { answer } = await askGraph({
+        courseId: courseId,
+        syllabusId: courseId ? undefined : syllabusId,
+        question: args.question,
+        refine: args.refine,
+        previousAnswer: args.previousAnswer,
+        lang: args.lang,
+      })
+      return answer
+    },
+    [courseId, syllabusId],
+  )
 
   const nodes = useMemo(() => propNodes ?? [], [propNodes])
   const edges = useMemo(() => propEdges ?? [], [propEdges])
@@ -179,6 +208,10 @@ export default function GraphCanvas({
             }
           : undefined
       }
+      courses={courses}
+      selectedCourseKey={selectedCourseKey}
+      onSelectCourse={onSelectCourse}
+      onAsk={courseId || syllabusId ? onAsk : undefined}
     />
   )
 }

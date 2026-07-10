@@ -14,20 +14,18 @@ import {
   ChevronDown,
   ChevronRight,
   Check,
-  Search,
-  SlidersHorizontal,
   MousePointer2,
   SquarePlus,
   Link2,
-  StickyNote,
-  MoreHorizontal,
-  Lock,
-  Unlock,
-  LayoutGrid,
-  Download,
+  Undo2,
   Sparkles,
   FileText,
-  Undo2,
+  Layers,
+  Send,
+  Languages,
+  AlignLeft,
+  AlignJustify,
+  BookText,
 } from "lucide-react"
 import type { GraphResponseAPI } from "@/types/api"
 import {
@@ -40,6 +38,7 @@ import {
 } from "./mind-map/build-tree"
 import { runLayout } from "./mind-map/layouts"
 import { sizeForLevel } from "./mind-map/types"
+import { SKELETONS, BRANCH_PALETTES, BG_PALETTES } from "./mind-map/skins"
 import {
   applyTreeEdits,
   type TreeNodeDTO,
@@ -54,6 +53,9 @@ function hexA(hex: string, a: number): string {
 }
 
 const FALLBACK_COLOR = "#5BE39A"
+
+/** Refine actions fired by the question-bar quick chips. */
+type AskRefine = "concise" | "detail" | "translate" | "regenerate"
 
 type Props = {
   nodes: GraphResponseAPI["nodes"]
@@ -82,16 +84,34 @@ type Props = {
     focusTopics: string[]
     instructions: string
   }) => void
+  /**
+   * Course folders shown in the "Curso del mapa" picker inside the Editar drawer
+   * (design v3 moves course selection off the page and into the canvas).
+   */
+  courses?: { key: string; name: string; color?: string | null; count?: number }[]
+  selectedCourseKey?: string | null
+  onSelectCourse?: (key: string) => void
+  /**
+   * Inline "ask about this map" (question bar). Returns the assistant's answer
+   * text. `refine` chips transform `previousAnswer` instead of asking anew.
+   */
+  onAsk?: (args: {
+    question?: string
+    refine?: AskRefine
+    previousAnswer?: string
+    lang?: string
+  }) => Promise<string>
 }
 
 /**
  * Renders the 3+ level hierarchical mind map (tree + prerequisite-independent
  * cross-links) across the 4 layouts the generator can choose (radial /
- * tree_horizontal / tree_vertical / columns_report). Navigation: collapse/
- * expand subtrees, click-to-focus (center + zoom, dims the rest), search/jump,
- * and view options (default depth, toggle cross-links, toggle weights). The
- * sole mind-map canvas — used by /mapa, /knowledge preview and the chat panel
- * via {@link GraphCanvas}; legacy flat graphs (no `layout`) render as radial.
+ * tree_horizontal / tree_vertical / columns_report). Full-bleed canvas (design
+ * Navigator v3): navigate by collapse/expand, click-to-focus, pan/zoom; restyle
+ * via the "Lienzo" panel (skeleton layout + branch/background palettes); edit
+ * structure via the right toolbar + "Editar mapa" drawer; and ask grounded
+ * questions from the bottom question bar. The sole mind-map canvas — used by
+ * /mapa, /knowledge preview and the chat panel via {@link GraphCanvas}.
  */
 export function RichMindMapCanvas({
   nodes,
@@ -105,37 +125,86 @@ export function RichMindMapCanvas({
   courseFiles,
   sourceDocIds,
   onRegenerateAI,
+  courses,
+  selectedCourseKey,
+  onSelectCourse,
+  onAsk,
 }: Props) {
-  const VIEW_H = 560
   const viewportRef = useRef<HTMLDivElement>(null)
+  // The canvas fills its parent now (design is full-bleed). Measure the real
+  // viewport box so focus-centering, fit-zoom and the minimap stay correct.
+  const [viewH, setViewH] = useState(560)
+  const [viewW, setViewW] = useState(860)
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const measure = () => {
+      setViewH(el.clientHeight || 560)
+      setViewW(el.clientWidth || 860)
+    }
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    measure()
+    return () => ro.disconnect()
+  }, [])
 
   const roots = useMemo(() => buildTree(nodes), [nodes])
-  const allFlat = useMemo(() => flattenTree(roots), [roots]) // every node (for search)
+  const allFlat = useMemo(() => flattenTree(roots), [roots]) // every node (for focus)
   const treeDepth = useMemo(() => roots.reduce((m, r) => Math.max(m, maxDepth(r)), 1), [roots])
+
+  // Root-branch index of every node (for palette recoloring — each root branch
+  // gets one palette slot; descendants inherit it).
+  const rootIndexById = useMemo(() => {
+    const m = new Map<string, number>()
+    roots.forEach((r, i) => {
+      const walk = (n: RichNode) => {
+        m.set(n.id, i)
+        n.children.forEach(walk)
+      }
+      walk(r)
+    })
+    return m
+  }, [roots])
 
   // --- navigation state (all local, not persisted) ---
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [focusId, setFocusId] = useState<string | null>(null)
-  const [search, setSearch] = useState("")
-  const [searchIdx, setSearchIdx] = useState(0)
-  const [optionsOpen, setOptionsOpen] = useState(false)
-  // View options ("configuración"): default expansion depth + toggles.
+  // View options (now in the Lienzo panel): default expansion depth + toggles.
   const [expandDepth, setExpandDepth] = useState(0) // 0 = show all levels
   const [showCrossLinks, setShowCrossLinks] = useState(true)
   const [showWeights, setShowWeights] = useState(true)
 
-  // Local layout override ("Organizar" tool) — view-only, not persisted. null =
-  // use the generator's chosen layout.
+  // Local layout override ("Esqueleto") — view-only, not persisted. null = use
+  // the generator's chosen layout.
   const [layoutOverride, setLayoutOverride] = useState<GraphResponseAPI["layout"] | null>(null)
   const activeLayout = layoutOverride ?? layout
 
-  // Reset navigation when the underlying document changes.
+  // "Lienzo" skins (view-only): branch palette + background palette.
+  const [lienzoOpen, setLienzoOpen] = useState(false)
+  const [branchIdx, setBranchIdx] = useState(0)
+  const [bgIdx, setBgIdx] = useState(0)
+  const bg = BG_PALETTES[bgIdx] ?? BG_PALETTES[0]
+  const branchColors = BRANCH_PALETTES[branchIdx]?.colors ?? []
+  // Effective color of a node: palette slot by root branch, else its own color.
+  const colorOf = (node: { id: string; color: string | null }): string => {
+    if (branchColors.length > 0) {
+      const idx = rootIndexById.get(node.id) ?? 0
+      return branchColors[idx % branchColors.length]
+    }
+    return node.color ?? FALLBACK_COLOR
+  }
+
+  // Reset navigation + skins when the underlying document changes.
   useEffect(() => {
     setCollapsed(new Set())
     setFocusId(null)
-    setSearch("")
     setExpandDepth(0)
     setLayoutOverride(null)
+    setBranchIdx(0)
+    setBgIdx(0)
+    setAskOpen(false)
+    setAskTxt("")
+    setAskQ("")
   }, [nodes])
 
   // Apply a default expansion depth: collapse every node at/below that level.
@@ -166,26 +235,19 @@ export function RichMindMapCanvas({
     return set
   }, [focusId, allFlat])
 
-  // Search matches (over ALL nodes so a hidden match can be jumped to).
-  const matchIds = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return [] as string[]
-    return allFlat.filter((n) => n.label.toLowerCase().includes(q)).map((n) => n.id)
-  }, [search, allFlat])
-  const matchSet = useMemo(() => new Set(matchIds), [matchIds])
-
-  const fitZoom = Math.min(1, Math.max(0.3, 860 / result.width, (VIEW_H - 100) / result.height))
+  const fitZoom = Math.min(1, Math.max(0.3, (viewW - 40) / result.width, (viewH - 100) / result.height))
   const [zoom, setZoom] = useState(fitZoom)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [drag, setDrag] = useState<{ x: number; y: number; px: number; py: number } | null>(null)
   const movedRef = useRef(false)
 
-  // Re-fit whenever the world size changes (doc switch / collapse-expand).
+  // Re-fit whenever the world or viewport size changes (doc switch / collapse /
+  // panel resize).
   useEffect(() => {
     setZoom(fitZoom)
     setPan({ x: 0, y: 0 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result.width, result.height])
+  }, [result.width, result.height, viewH, viewW])
 
   const zoomBy = (f: number) => setZoom((z) => Math.min(2.2, Math.max(0.25, +(z * f).toFixed(2))))
   const zoomReset = () => {
@@ -194,47 +256,17 @@ export function RichMindMapCanvas({
     setPan({ x: 0, y: 0 })
   }
 
-  // Center + zoom onto a node (click-to-focus / search jump).
+  // Center + zoom onto a node (click-to-focus).
   const centerOn = (id: string) => {
     const p = result.positions.get(id)
     if (!p) return
-    const vw = viewportRef.current?.clientWidth ?? 860
     const z = 1.15
     setZoom(z)
-    setPan({ x: vw / 2 - p.x * z, y: VIEW_H / 2 - p.y * z })
+    setPan({ x: viewW / 2 - p.x * z, y: viewH / 2 - p.y * z })
   }
   const focusNode = (id: string) => {
     setFocusId(id)
     centerOn(id)
-  }
-
-  // Jump to a node possibly hidden inside a collapsed subtree: expand its
-  // ancestors first, then focus once the layout has recomputed.
-  const [pendingFocus, setPendingFocus] = useState<string | null>(null)
-  const jumpTo = (id: string) => {
-    const byId = new Map(allFlat.map((n) => [n.id, n]))
-    const next = new Set(collapsed)
-    let cur = byId.get(id)
-    while (cur?.parentId) {
-      next.delete(cur.parentId)
-      cur = byId.get(cur.parentId)
-    }
-    setCollapsed(next)
-    setPendingFocus(id)
-  }
-  useEffect(() => {
-    if (pendingFocus && result.positions.has(pendingFocus)) {
-      focusNode(pendingFocus)
-      setPendingFocus(null)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, pendingFocus])
-
-  const cycleSearch = () => {
-    if (matchIds.length === 0) return
-    const idx = searchIdx % matchIds.length
-    jumpTo(matchIds[idx])
-    setSearchIdx((i) => (i + 1) % matchIds.length)
   }
 
   const toggleCollapse = (id: string) =>
@@ -247,7 +279,6 @@ export function RichMindMapCanvas({
 
   const panStart = (e: React.MouseEvent) => {
     movedRef.current = false
-    if (locked) return
     setDrag({ x: e.clientX, y: e.clientY, px: pan.x, py: pan.y })
   }
   const panMove = (e: React.MouseEvent) => {
@@ -258,12 +289,14 @@ export function RichMindMapCanvas({
   }
   const panEnd = () => setDrag(null)
   // Click on empty canvas (not a drag) clears the focus dim + any pending
-  // connect pick / inline editor.
+  // connect pick / inline editor / open menus.
   const onCanvasClick = () => {
     if (movedRef.current) return
     setFocusId(null)
     if (connectFrom) setConnectFrom(null)
     if (inlineEdit) setInlineEdit(null)
+    if (lienzoOpen) setLienzoOpen(false)
+    if (langOpen) setLangOpen(false)
   }
 
   const worldStyle: CSSProperties = {
@@ -277,7 +310,7 @@ export function RichMindMapCanvas({
     transition: drag ? "none" : "transform .18s ease",
   }
 
-  // --- structural editor (recursion-aware: any depth, not just roots) ---
+  // --- structural editor drawer (recursion-aware: any depth) ---
   const [editOpen, setEditOpen] = useState(false)
   const [draftNodes, setDraftNodes] = useState<TreeNodeDTO[]>([])
   const [draftLinks, setDraftLinks] = useState<CrossLinkDTO[]>([])
@@ -352,15 +385,10 @@ export function RichMindMapCanvas({
   const draftValid = draftNodes.length > 0 && draftNodes.every((n) => n.label.trim().length > 0)
   const draftRoots = draftNodes.filter((n) => n.parentId === null)
 
-  // --- canvas toolbar (design: seleccionar / añadir / conectar / nota / más) ---
-  type Tool = "select" | "add" | "connect" | "note" | "delete"
+  // --- canvas toolbar (design v3: vertical — select / add / connect / delete) ---
+  type Tool = "select" | "add" | "connect" | "delete"
   const [tool, setTool] = useState<Tool>("select")
-  const [locked, setLocked] = useState(false)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false)
   const [connectFrom, setConnectFrom] = useState<string | null>(null)
-  const [noteId, setNoteId] = useState<string | null>(null)
-  const [noteText, setNoteText] = useState("")
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [toolBusy, setToolBusy] = useState(false)
   const [toolErr, setToolErr] = useState<string | null>(null)
@@ -380,11 +408,8 @@ export function RichMindMapCanvas({
   const pickTool = (t: Tool) => {
     setTool(t)
     setConnectFrom(null)
-    setNoteId(null)
     setDeleteId(null)
     setInlineEdit(null)
-    setMoreOpen(false)
-    setLayoutMenuOpen(false)
     setToolErr(null)
   }
 
@@ -466,7 +491,6 @@ export function RichMindMapCanvas({
   const onNodeDouble = (id: string, label: string) => {
     if (onSaveTree) {
       setInlineEdit({ mode: "rename", nodeId: id, value: label })
-      setNoteId(null)
       setDeleteId(null)
     } else {
       onTopicDouble?.(label)
@@ -485,68 +509,13 @@ export function RichMindMapCanvas({
         void quickEdit({ type: "link", source: connectFrom, target: id, label: "se relaciona" })
         setConnectFrom(null)
       }
-    } else if (tool === "note") {
-      setNoteId(id)
-      setNoteText(nodes.find((n) => n.id === id)?.detail ?? "")
     } else if (tool === "delete") {
-      const roots = nodes.filter((n) => n.parent_id === null)
-      const isLastRoot = roots.length === 1 && roots[0].id === id
+      const rootNodes = nodes.filter((n) => n.parent_id === null)
+      const isLastRoot = rootNodes.length === 1 && rootNodes[0].id === id
       if (isLastRoot) setToolErr("No puedes eliminar la única rama del mapa.")
       else setDeleteId(id)
     }
     return true
-  }
-
-  // PNG export: standalone SVG snapshot (edges + node boxes) rasterized 2x.
-  const exportImage = () => {
-    setMoreOpen(false)
-    const pad = 40
-    const esc = (s: string) =>
-      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
-    const parts: string[] = []
-    for (const node of flat) {
-      if (!node.parentId) continue
-      const a = result.positions.get(node.parentId)
-      const b = result.positions.get(node.id)
-      if (!a || !b) continue
-      const midX = (a.x + b.x) / 2
-      parts.push(
-        `<path d="M${a.x},${a.y} C${midX},${a.y} ${midX},${b.y} ${b.x},${b.y}" fill="none" stroke="${node.color ?? FALLBACK_COLOR}" stroke-width="1.8" stroke-opacity="0.55" stroke-linecap="round"/>`,
-      )
-    }
-    for (const node of flat) {
-      const pos = result.positions.get(node.id)
-      if (!pos) continue
-      const size = sizeForLevel(node.level)
-      const color = node.color ?? FALLBACK_COLOR
-      // Truncate to what fits the box (~6.6px per char at 12.5px) so long
-      // labels don't spill outside the rect in the exported PNG.
-      const maxChars = Math.max(4, Math.floor((size.w - 16) / 6.6))
-      const text =
-        node.label.length > maxChars ? `${node.label.slice(0, maxChars - 1)}…` : node.label
-      parts.push(
-        `<rect x="${pos.x - size.w / 2}" y="${pos.y - size.h / 2}" width="${size.w}" height="${size.h}" rx="14" fill="#101512" stroke="${color}" stroke-opacity="0.6"/>`,
-        `<text x="${pos.x}" y="${pos.y + 4}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12.5" font-weight="700" fill="#EEF3F0">${esc(text)}</text>`,
-      )
-    }
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${result.width + pad * 2}" height="${result.height + pad * 2}" viewBox="${-pad} ${-pad} ${result.width + pad * 2} ${result.height + pad * 2}">` +
-      `<rect x="${-pad}" y="${-pad}" width="100%" height="100%" fill="#080B09"/>${parts.join("")}</svg>`
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement("canvas")
-      canvas.width = (result.width + pad * 2) * 2
-      canvas.height = (result.height + pad * 2) * 2
-      const ctx = canvas.getContext("2d")
-      if (!ctx) return
-      ctx.scale(2, 2)
-      ctx.drawImage(img, 0, 0)
-      const a = document.createElement("a")
-      a.href = canvas.toDataURL("image/png")
-      a.download = `${(centerTitle ?? "mapa-mental").replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}.png`
-      a.click()
-    }
-    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
   }
 
   // --- AI drawer state (course maps: files + focus topics + instructions) ---
@@ -593,8 +562,47 @@ export function RichMindMapCanvas({
     })
   }
 
+  // --- inline "ask about this map" (question bar) ---
+  const [ask, setAsk] = useState("")
+  const [askQ, setAskQ] = useState("")
+  const [askTxt, setAskTxt] = useState("")
+  const [askOpen, setAskOpen] = useState(false)
+  const [askBusy, setAskBusy] = useState(false)
+  const [askErr, setAskErr] = useState<string | null>(null)
+  const [langOpen, setLangOpen] = useState(false)
+  const LANGS = ["Inglés", "Portugués", "Francés"]
+
+  const runAsk = async (args: {
+    question?: string
+    refine?: AskRefine
+    previousAnswer?: string
+    lang?: string
+  }) => {
+    if (!onAsk || askBusy) return
+    setAskBusy(true)
+    setAskErr(null)
+    setAskOpen(true)
+    setLangOpen(false)
+    try {
+      const answer = await onAsk(args)
+      setAskTxt(answer)
+    } catch (e) {
+      setAskErr(e instanceof Error ? e.message : "No se pudo responder.")
+    } finally {
+      setAskBusy(false)
+    }
+  }
+  const sendAsk = () => {
+    const q = ask.trim()
+    if (!q) return
+    setAskQ(q)
+    setAsk("")
+    void runAsk({ question: q })
+  }
+  const canRefine = askTxt.trim().length > 0 && !askBusy
+
   return (
-    <div>
+    <div className="h-full">
       <div
         ref={viewportRef}
         onMouseDown={panStart}
@@ -602,14 +610,12 @@ export function RichMindMapCanvas({
         onMouseUp={panEnd}
         onMouseLeave={panEnd}
         onClick={onCanvasClick}
-        className="relative overflow-hidden rounded-[20px] border"
+        className="relative h-full overflow-hidden"
         style={{
-          height: VIEW_H,
-          borderColor: "rgba(255,255,255,0.08)",
-          backgroundColor: "#080B09",
-          backgroundImage: "radial-gradient(circle,rgba(255,255,255,0.045) 1px,transparent 1px)",
+          backgroundColor: bg.bg,
+          backgroundImage: `radial-gradient(circle,${bg.dot} 1px,transparent 1px)`,
           backgroundSize: "28px 28px",
-          cursor: drag ? "grabbing" : locked ? "default" : "grab",
+          cursor: drag ? "grabbing" : "grab",
           userSelect: "none",
         }}
       >
@@ -631,7 +637,7 @@ export function RichMindMapCanvas({
                 const a = result.positions.get(node.parentId)
                 const b = result.positions.get(node.id)
                 if (!a || !b) return null
-                const color = node.color ?? FALLBACK_COLOR
+                const color = colorOf(node)
                 const midX = (a.x + b.x) / 2
                 const on = !highlight || (highlight.has(node.id) && highlight.has(node.parentId))
                 return (
@@ -672,12 +678,11 @@ export function RichMindMapCanvas({
             const pos = result.positions.get(node.id)
             if (!pos) return null
             const size = sizeForLevel(node.level)
-            const color = node.color ?? FALLBACK_COLOR
+            const color = colorOf(node)
             const title =
               node.detail ??
               (node.children[0] ? (node.children[0].detail ?? node.children[0].label) : undefined)
             const dimmed = !!highlight && !highlight.has(node.id)
-            const isMatch = matchSet.has(node.id)
             const isFocus = focusId === node.id
             const isConnectSrc = connectFrom === node.id
             const foldable = node.children.length > 0 || node.collapsedCount > 0
@@ -708,15 +713,13 @@ export function RichMindMapCanvas({
                   justifyContent: "center",
                   cursor: "pointer",
                   opacity: dimmed ? 0.28 : 1,
-                  border: `1px solid ${isConnectSrc ? "#5BE39A" : isMatch ? "#F0C27C" : isFocus ? hexA(color, 0.95) : hexA(color, 0.5)}`,
+                  border: `1px solid ${isConnectSrc ? "#5BE39A" : isFocus ? hexA(color, 0.95) : hexA(color, 0.5)}`,
                   background: `linear-gradient(160deg,${hexA(color, isFocus ? 0.22 : 0.13)},rgba(16,21,18,0.96))`,
                   boxShadow: isConnectSrc
                     ? "0 0 0 2px rgba(91,227,154,0.6), 0 10px 24px rgba(0,0,0,0.4)"
-                    : isMatch
-                      ? "0 0 0 2px rgba(240,194,124,0.5), 0 10px 24px rgba(0,0,0,0.4)"
-                      : isFocus
-                        ? `0 0 26px ${hexA(color, 0.28)}`
-                        : "0 10px 24px rgba(0,0,0,0.4)",
+                    : isFocus
+                      ? `0 0 26px ${hexA(color, 0.28)}`
+                      : "0 10px 24px rgba(0,0,0,0.4)",
                   transition: "opacity .18s, box-shadow .18s, border-color .18s",
                 }}
               >
@@ -795,83 +798,177 @@ export function RichMindMapCanvas({
             })}
         </div>
 
-        {/* top-left: title + search */}
-        <div
-          className="absolute left-[18px] top-[18px] flex flex-col items-start gap-2"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {centerTitle && (
-            <div
-              className="pointer-events-none rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-[#9AA39E]"
-              style={{
-                background: "rgba(12,16,14,0.85)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                backdropFilter: "blur(6px)",
-              }}
-            >
-              {centerTitle}
-            </div>
-          )}
+        {/* top-left: title caption */}
+        {centerTitle && (
           <div
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1"
+            className="pointer-events-none absolute left-[18px] top-[18px] rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-[#9AA39E]"
             style={{
               background: "rgba(12,16,14,0.85)",
               border: "1px solid rgba(255,255,255,0.08)",
               backdropFilter: "blur(6px)",
             }}
           >
-            <Search className="h-3.5 w-3.5 flex-none text-[#7C8983]" />
-            <input
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value)
-                setSearchIdx(0)
-              }}
-              onKeyDown={(e) => e.key === "Enter" && cycleSearch()}
-              placeholder="Buscar tema…"
-              className="w-[130px] bg-transparent text-[11.5px] font-semibold text-[#E8EDEA] outline-none placeholder:text-[#5F6A64]"
-            />
-            {search.trim() && (
-              <span className="flex-none font-mono text-[10px] text-[#7C8983]">
-                {matchIds.length}
-              </span>
-            )}
+            {centerTitle}
           </div>
-        </div>
+        )}
 
-        {/* top-right: view options + edit */}
+        {/* top-right: Lienzo (skins) + Editar mapa */}
         <div
-          className="absolute right-4 top-4 flex items-center gap-2"
+          className="absolute right-4 top-4 z-[22] flex items-start gap-2"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="relative">
             <button
-              onClick={() => setOptionsOpen((o) => !o)}
-              title="Opciones de vista"
-              className="flex h-[36px] w-[36px] items-center justify-center rounded-[11px] text-[#9FEDC4]"
+              onClick={() => setLienzoOpen((o) => !o)}
+              className="flex items-center gap-1.5 rounded-[11px] px-[13px] py-[9px] text-[12.5px] font-bold text-[#C9D2CD]"
               style={{
                 backdropFilter: "blur(6px)",
-                border: "1px solid rgba(63,191,132,0.35)",
-                background: optionsOpen ? "rgba(63,191,132,0.24)" : "rgba(63,191,132,0.14)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: lienzoOpen ? "rgba(255,255,255,0.08)" : "rgba(12,16,14,0.85)",
               }}
             >
-              <SlidersHorizontal className="h-4 w-4" />
+              <Layers className="h-3.5 w-3.5" />
+              Lienzo
+              <ChevronDown
+                className="h-3 w-3"
+                style={{ transform: lienzoOpen ? "rotate(180deg)" : undefined }}
+              />
             </button>
-            {optionsOpen && (
+            {lienzoOpen && (
               <div
-                className="absolute right-0 top-[42px] z-[24] w-[210px] rounded-xl p-3"
+                className="absolute right-0 top-[44px] z-[24] w-[268px] overflow-y-auto rounded-2xl p-3.5"
                 style={{
-                  background: "rgba(11,15,13,0.98)",
+                  maxHeight: "min(70vh, 520px)",
+                  background: "rgba(14,18,16,0.97)",
                   border: "1px solid rgba(255,255,255,0.1)",
-                  backdropFilter: "blur(10px)",
+                  boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
+                  backdropFilter: "blur(8px)",
                 }}
               >
-                <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
-                  Profundidad
+                {/* Esqueleto */}
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Esqueleto
                 </div>
-                <div className="mb-3 flex gap-1">
+                <div className="mt-0.5 text-[11px] leading-[1.4] text-[#7C8983]">
+                  Cada esqueleto reorganiza el mapa con su propia estructura visual.
+                </div>
+                <div className="mt-2.5 flex flex-col gap-1">
+                  {SKELETONS.map((sk) => {
+                    const on = activeLayout === sk.layout
+                    const Icon = sk.icon
+                    return (
+                      <button
+                        key={sk.layout}
+                        onClick={() => setLayoutOverride(sk.layout)}
+                        className="flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left"
+                        style={{
+                          border: `1px solid ${on ? "rgba(63,191,132,0.4)" : "rgba(255,255,255,0.08)"}`,
+                          background: on ? "rgba(63,191,132,0.08)" : "transparent",
+                        }}
+                      >
+                        <span
+                          className="flex h-7 w-7 flex-none items-center justify-center rounded-lg"
+                          style={{ background: "rgba(63,191,132,0.12)" }}
+                        >
+                          <Icon className="h-3.5 w-3.5 text-[#5BE39A]" />
+                        </span>
+                        <span className="flex min-w-0 flex-1 flex-col gap-px">
+                          <span className="text-[12.5px] font-bold text-[#EEF3F0]">{sk.name}</span>
+                          <span className="text-[10.5px] font-semibold text-[#7C8983]">
+                            {sk.kind}
+                          </span>
+                        </span>
+                        {on && <Check className="h-[15px] w-[15px] flex-none text-[#5BE39A]" />}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Color del lienzo (ramas) */}
+                <div className="mt-3.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Color de las ramas
+                </div>
+                <div className="mt-2 flex flex-col gap-1">
+                  {BRANCH_PALETTES.map((pl, i) => {
+                    const on = branchIdx === i
+                    const swatches = pl.colors.length > 0 ? pl.colors.slice(0, 4) : ["#5BE39A", "#5BC8E3", "#E0C27C", "#E0745F"]
+                    return (
+                      <button
+                        key={pl.name}
+                        onClick={() => setBranchIdx(i)}
+                        className="flex items-center gap-2.5 rounded-[10px] px-2.5 py-2"
+                        style={{
+                          border: `1px solid ${on ? "rgba(63,191,132,0.4)" : "rgba(255,255,255,0.08)"}`,
+                          background: on ? "rgba(63,191,132,0.08)" : "transparent",
+                        }}
+                      >
+                        <span className="flex flex-none gap-1">
+                          {swatches.map((c, j) => (
+                            <span
+                              key={j}
+                              style={{
+                                width: 14,
+                                height: 14,
+                                borderRadius: 5,
+                                background: c,
+                                opacity: pl.colors.length === 0 ? 0.5 : 1,
+                              }}
+                            />
+                          ))}
+                        </span>
+                        <span className="flex-1 text-left text-[12px] font-semibold text-[#C9D2CD]">
+                          {pl.name}
+                        </span>
+                        {on && <Check className="h-3.5 w-3.5 flex-none text-[#5BE39A]" />}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Fondo del lienzo */}
+                <div className="mt-3.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Fondo del lienzo
+                </div>
+                <div className="mt-2 flex flex-col gap-1">
+                  {BG_PALETTES.map((p, i) => {
+                    const on = bgIdx === i
+                    return (
+                      <button
+                        key={p.name}
+                        onClick={() => setBgIdx(i)}
+                        className="flex items-center gap-2.5 rounded-[10px] px-2.5 py-2"
+                        style={{
+                          border: `1px solid ${on ? "rgba(63,191,132,0.4)" : "rgba(255,255,255,0.08)"}`,
+                          background: on ? "rgba(63,191,132,0.08)" : "transparent",
+                        }}
+                      >
+                        <span
+                          className="flex-none"
+                          style={{
+                            width: 26,
+                            height: 18,
+                            borderRadius: 6,
+                            background: p.bg,
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            backgroundImage: `radial-gradient(circle,${p.dot} 1px,transparent 1px)`,
+                            backgroundSize: "6px 6px",
+                          }}
+                        />
+                        <span className="flex-1 text-left text-[12px] font-semibold text-[#C9D2CD]">
+                          {p.name}
+                        </span>
+                        {on && <Check className="h-3.5 w-3.5 flex-none text-[#5BE39A]" />}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Vista */}
+                <div className="mt-3.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                  Vista
+                </div>
+                <div className="mb-1 mt-2 flex gap-1">
                   {[
                     { d: 1, label: "1" },
                     { d: 2, label: "2" },
@@ -921,9 +1018,12 @@ export function RichMindMapCanvas({
 
           {(onSaveTree || onRegenerate || onRegenerateAI) && (
             <button
-              onClick={() =>
-                editOpen ? setEditOpen(false) : onRegenerateAI ? openAIDrawer() : openDrawer()
-              }
+              onClick={() => {
+                setLienzoOpen(false)
+                if (editOpen) setEditOpen(false)
+                else if (onRegenerateAI) openAIDrawer()
+                else openDrawer()
+              }}
               className="flex items-center gap-1.5 rounded-[11px] px-[15px] py-[9px] text-[12.5px] font-bold"
               style={{
                 backdropFilter: "blur(6px)",
@@ -981,6 +1081,43 @@ export function RichMindMapCanvas({
             </div>
 
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-[18px]">
+              {/* Curso del mapa (design v3: course selection lives here) */}
+              {courses && courses.length > 0 && onSelectCourse && (
+                <div>
+                  <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                    Curso del mapa
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {courses.map((c) => {
+                      const on = c.key === selectedCourseKey
+                      return (
+                        <button
+                          key={c.key}
+                          onClick={() => onSelectCourse(c.key)}
+                          className="flex items-center gap-1.5 rounded-[9px] px-2.5 py-1.5 text-[11.5px] font-semibold"
+                          style={{
+                            border: `1px solid ${on ? "rgba(63,191,132,0.5)" : "rgba(255,255,255,0.1)"}`,
+                            background: on ? "rgba(63,191,132,0.14)" : "transparent",
+                            color: on ? "#E8EDEA" : "#9AA39E",
+                          }}
+                        >
+                          <BookText
+                            className="h-3.5 w-3.5 flex-none"
+                            style={{ color: c.color ?? "#5BE39A" }}
+                          />
+                          <span className="max-w-[150px] truncate">{c.name}</span>
+                          {c.count != null && (
+                            <span className="rounded-full bg-white/10 px-1.5 text-[10px] tabular-nums">
+                              {c.count}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {onRegenerateAI && (
                 <>
                   {(courseFiles?.length ?? 0) > 0 && (
@@ -1264,10 +1401,10 @@ export function RichMindMapCanvas({
           </div>
         )}
 
-        {/* bottom-center toolbar (design: seleccionar / añadir / conectar / nota / más) */}
+        {/* right-center vertical toolbar (design v3: select / add / connect / delete) */}
         {onSaveTree && (
           <div
-            className="absolute bottom-[18px] left-1/2 z-[20] flex -translate-x-1/2 items-center gap-1.5 rounded-2xl p-2"
+            className="absolute right-4 top-1/2 z-[19] flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-2xl p-2"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -1282,7 +1419,6 @@ export function RichMindMapCanvas({
                 { t: "select" as const, title: "Seleccionar", icon: MousePointer2 },
                 { t: "add" as const, title: "Añadir subtema (clic en un nodo)", icon: SquarePlus },
                 { t: "connect" as const, title: "Conectar dos nodos", icon: Link2 },
-                { t: "note" as const, title: "Nota del nodo", icon: StickyNote },
               ] as const
             ).map(({ t, title, icon: Icon }) => (
               <button
@@ -1299,114 +1435,44 @@ export function RichMindMapCanvas({
                 <Icon className="h-[18px] w-[18px]" />
               </button>
             ))}
-            <div className="mx-0.5 h-[26px] w-px" style={{ background: "rgba(255,255,255,0.1)" }} />
-            <div className="relative">
-              <button
-                onClick={() => setMoreOpen((o) => !o)}
-                title="Más herramientas"
-                className="flex h-9 w-9 items-center justify-center rounded-[11px] text-[#C9D2CD]"
-                style={{ background: moreOpen ? "rgba(255,255,255,0.06)" : "transparent" }}
-              >
-                <MoreHorizontal className="h-[18px] w-[18px]" />
-              </button>
-              {moreOpen && (
+            <div className="my-0.5 h-px w-[26px]" style={{ background: "rgba(255,255,255,0.1)" }} />
+            <button
+              onClick={() => pickTool(tool === "delete" ? "select" : "delete")}
+              title="Eliminar nodo"
+              className="flex h-9 w-9 items-center justify-center rounded-[11px]"
+              style={{
+                border: `1px solid ${tool === "delete" ? "rgba(240,160,160,0.5)" : "transparent"}`,
+                background: tool === "delete" ? "rgba(240,160,160,0.14)" : "transparent",
+                color: tool === "delete" ? "#F0A6A6" : "#C9D2CD",
+              }}
+            >
+              <Trash2 className="h-[18px] w-[18px]" />
+            </button>
+            {undoSnap && !toolBusy && (
+              <>
                 <div
-                  className="absolute bottom-[52px] right-0 z-[24] flex w-[190px] flex-col gap-0.5 rounded-[14px] p-1.5"
+                  className="my-0.5 h-px w-[26px]"
+                  style={{ background: "rgba(255,255,255,0.1)" }}
+                />
+                <button
+                  onClick={undoLast}
+                  title="Deshacer el último cambio"
+                  className="flex h-9 w-9 items-center justify-center rounded-[11px] text-[#9FEDC4]"
                   style={{
-                    background: "rgba(14,18,16,0.97)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
-                    backdropFilter: "blur(8px)",
+                    border: "1px solid rgba(63,191,132,0.4)",
+                    background: "rgba(63,191,132,0.12)",
                   }}
                 >
-                  <div className="relative">
-                    <ToolMenuItem
-                      icon={LayoutGrid}
-                      label="Organizar"
-                      trailing={<ChevronRight className="h-3.5 w-3.5" />}
-                      onClick={() => setLayoutMenuOpen((o) => !o)}
-                    />
-                    {layoutMenuOpen && (
-                      <div
-                        className="absolute bottom-0 right-[184px] z-[25] flex w-[180px] flex-col gap-0.5 rounded-[14px] p-1.5"
-                        style={{
-                          background: "rgba(14,18,16,0.98)",
-                          border: "1px solid rgba(255,255,255,0.1)",
-                          boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
-                          backdropFilter: "blur(8px)",
-                        }}
-                      >
-                        {(
-                          [
-                            { v: "radial" as const, label: "Radial" },
-                            { v: "tree_horizontal" as const, label: "Árbol horizontal" },
-                            { v: "tree_vertical" as const, label: "Árbol vertical" },
-                            { v: "columns_report" as const, label: "Columnas" },
-                          ] as const
-                        ).map(({ v, label }) => (
-                          <button
-                            key={v}
-                            onClick={() => {
-                              setLayoutOverride(v)
-                              setLayoutMenuOpen(false)
-                              setMoreOpen(false)
-                            }}
-                            className="flex items-center justify-between rounded-[9px] px-2.5 py-2 text-left text-[12px] font-semibold"
-                            style={{
-                              color: activeLayout === v ? "#9FEDC4" : "#C9D2CD",
-                              background:
-                                activeLayout === v ? "rgba(63,191,132,0.12)" : "transparent",
-                            }}
-                          >
-                            {label}
-                            {activeLayout === v && <Check className="h-3.5 w-3.5" />}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <ToolMenuItem
-                    icon={locked ? Unlock : Lock}
-                    label={locked ? "Desbloquear lienzo" : "Bloquear lienzo"}
-                    onClick={() => {
-                      setLocked((l) => !l)
-                      setMoreOpen(false)
-                    }}
-                  />
-                  <ToolMenuItem icon={Download} label="Exportar imagen" onClick={exportImage} />
-                  <ToolMenuItem
-                    icon={Trash2}
-                    label="Eliminar nodo"
-                    danger
-                    onClick={() => pickTool("delete")}
-                  />
-                </div>
-              )}
-            </div>
-            {undoSnap && !toolBusy && (
-              <button
-                onClick={undoLast}
-                title="Deshacer el último cambio"
-                className="ml-1 flex h-9 items-center gap-1.5 rounded-[11px] px-2.5 text-[12px] font-bold text-[#9FEDC4]"
-                style={{
-                  border: "1px solid rgba(63,191,132,0.4)",
-                  background: "rgba(63,191,132,0.12)",
-                }}
-              >
-                <Undo2 className="h-4 w-4" />
-                Deshacer
-              </button>
+                  <Undo2 className="h-[18px] w-[18px]" />
+                </button>
+              </>
             )}
-            {toolBusy && <Loader2 className="ml-1 h-4 w-4 animate-spin text-[#5BE39A]" />}
+            {toolBusy && <Loader2 className="h-4 w-4 animate-spin text-[#5BE39A]" />}
           </div>
         )}
 
-        {/* tool hints + note editor + delete confirm */}
-        {(tool === "connect" ||
-          tool === "add" ||
-          tool === "note" ||
-          tool === "delete" ||
-          toolErr) && (
+        {/* tool hints */}
+        {(tool === "connect" || tool === "add" || tool === "delete" || toolErr) && (
           <div
             className="absolute left-1/2 top-[14px] z-[21] -translate-x-1/2 rounded-full px-3.5 py-1.5 text-[11.5px] font-semibold"
             onMouseDown={(e) => e.stopPropagation()}
@@ -1425,9 +1491,7 @@ export function RichMindMapCanvas({
                   ? connectFrom
                     ? "Ahora haz clic en el nodo destino"
                     : "Haz clic en el nodo origen de la conexión"
-                  : tool === "note"
-                    ? "Haz clic en un nodo para editar su nota"
-                    : "Haz clic en el nodo que quieres eliminar")}
+                  : "Haz clic en el nodo que quieres eliminar")}
           </div>
         )}
 
@@ -1445,8 +1509,8 @@ export function RichMindMapCanvas({
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  left: Math.max(100, Math.min(x, (viewportRef.current?.clientWidth ?? 860) - 100)),
-                  top: Math.max(10, Math.min(y + (isAdd ? 30 : -22), VIEW_H - 60)),
+                  left: Math.max(100, Math.min(x, viewW - 100)),
+                  top: Math.max(10, Math.min(y + (isAdd ? 30 : -22), viewH - 60)),
                   background: "rgba(11,15,13,0.98)",
                   border: "1px solid rgba(63,191,132,0.45)",
                   boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
@@ -1477,61 +1541,6 @@ export function RichMindMapCanvas({
               </div>
             )
           })()}
-
-        {noteId && (
-          <div
-            className="absolute left-1/2 top-[52px] z-[26] w-[300px] -translate-x-1/2 rounded-[14px] p-3.5"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "rgba(11,15,13,0.98)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
-            }}
-          >
-            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
-              Nota — {nodes.find((n) => n.id === noteId)?.label}
-            </div>
-            <textarea
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              maxLength={140}
-              autoFocus
-              placeholder="Detalle del tema (aparece al pasar el cursor)…"
-              className="min-h-[70px] w-full resize-none rounded-[10px] px-2.5 py-2 text-[12px] leading-[1.45] text-[#E8EDEA] outline-none placeholder:text-[#5F6A64]"
-              style={{
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: "rgba(255,255,255,0.02)",
-              }}
-            />
-            <div className="mt-1 text-right font-mono text-[9.5px] text-[#5F6A64]">
-              {noteText.length}/140
-            </div>
-            <div className="mt-1.5 flex gap-2">
-              <button
-                onClick={() => {
-                  const id = noteId
-                  setNoteId(null)
-                  void quickEdit({ type: "note", id, detail: noteText })
-                }}
-                className="flex-1 rounded-lg py-1.5 text-[11.5px] font-bold text-[#9FEDC4]"
-                style={{
-                  border: "1px solid rgba(63,191,132,0.45)",
-                  background: "rgba(63,191,132,0.14)",
-                }}
-              >
-                Guardar nota
-              </button>
-              <button
-                onClick={() => setNoteId(null)}
-                className="flex-1 rounded-lg py-1.5 text-[11.5px] font-bold text-[#9AA39E]"
-                style={{ border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        )}
 
         {deleteId && (
           <div
@@ -1577,7 +1586,8 @@ export function RichMindMapCanvas({
           </div>
         )}
 
-        <div className="absolute bottom-[18px] left-[18px] flex flex-col items-center gap-1.5">
+        {/* zoom controls */}
+        <div className="absolute bottom-[18px] left-[18px] z-[18] flex flex-col items-center gap-1.5">
           <div
             className="flex flex-col overflow-hidden rounded-xl"
             style={{
@@ -1623,6 +1633,189 @@ export function RichMindMapCanvas({
           </span>
         </div>
 
+        {/* bottom-center: ask about this map (question bar + answer bubble + chips) */}
+        {onAsk && (
+          <div
+            className="absolute bottom-[18px] left-1/2 z-[20] flex -translate-x-1/2 flex-col gap-2"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "min(620px,56vw)" }}
+          >
+            {askOpen && (
+              <div
+                className="rounded-2xl px-4 py-3.5"
+                style={{
+                  border: "1px solid rgba(63,191,132,0.28)",
+                  background: "rgba(12,16,14,0.96)",
+                  backdropFilter: "blur(10px)",
+                  boxShadow: "0 12px 34px rgba(0,0,0,0.5)",
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 flex-none text-[#5BE39A]" />
+                  <span className="min-w-0 flex-1 truncate text-[11.5px] font-bold text-[#7C8983]">
+                    {askQ || "Pregunta sobre el mapa"}
+                  </span>
+                  <button
+                    onClick={() => setAskOpen(false)}
+                    className="flex h-6 w-6 flex-none items-center justify-center rounded-[7px] text-[#7C8983] hover:bg-white/5 hover:text-[#C9D2CD]"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="mt-2 text-[13px] leading-[1.55] text-[#DDE5E1]">
+                  {askBusy ? (
+                    <span className="flex items-center gap-2 text-[#7C8983]">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Pensando…
+                    </span>
+                  ) : askErr ? (
+                    <span className="text-[#F0A0A0]">{askErr}</span>
+                  ) : (
+                    askTxt
+                  )}
+                </div>
+              </div>
+            )}
+
+            {askOpen && (
+              <div className="flex flex-wrap justify-center gap-1.5">
+                <AskChip icon={AlignLeft} label="Más conciso" disabled={!canRefine} onClick={() => runAsk({ refine: "concise", previousAnswer: askTxt })} />
+                <AskChip icon={AlignJustify} label="Añadir detalles" disabled={!canRefine} onClick={() => runAsk({ refine: "detail", previousAnswer: askTxt })} />
+                <div className="relative">
+                  <AskChip
+                    icon={Languages}
+                    label="Traducir a"
+                    trailing={<ChevronDown className="h-3 w-3" />}
+                    disabled={!canRefine}
+                    onClick={() => setLangOpen((o) => !o)}
+                  />
+                  {langOpen && (
+                    <div
+                      className="absolute bottom-[38px] left-1/2 flex w-[150px] -translate-x-1/2 flex-col gap-0.5 rounded-xl p-1.5"
+                      style={{
+                        background: "rgba(14,18,16,0.97)",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        boxShadow: "0 14px 36px rgba(0,0,0,0.5)",
+                        backdropFilter: "blur(8px)",
+                      }}
+                    >
+                      {LANGS.map((lg) => (
+                        <button
+                          key={lg}
+                          onClick={() => runAsk({ refine: "translate", previousAnswer: askTxt, lang: lg })}
+                          className="rounded-lg px-2.5 py-2 text-left text-[12.5px] font-semibold text-[#C9D2CD] hover:bg-white/5 hover:text-[#F2F6F4]"
+                        >
+                          {lg}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <AskChip
+                  icon={RotateCcw}
+                  label="Regenerar"
+                  disabled={!askQ || askBusy}
+                  onClick={() => runAsk({ question: askQ, refine: "regenerate" })}
+                />
+              </div>
+            )}
+
+            <div
+              className="flex items-center gap-2.5 rounded-2xl py-2 pl-[15px] pr-2"
+              style={{
+                border: "1px solid rgba(255,255,255,0.11)",
+                background: "rgba(12,16,14,0.94)",
+                backdropFilter: "blur(10px)",
+                boxShadow: "0 12px 34px rgba(0,0,0,0.5)",
+              }}
+            >
+              <Sparkles className="h-[15px] w-[15px] flex-none text-[#5BE39A]" />
+              <input
+                value={ask}
+                onChange={(e) => setAsk(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendAsk()}
+                placeholder="Pregunta sobre este mapa mental…"
+                className="min-w-0 flex-1 bg-transparent text-[13.5px] text-[#E8EDEA] outline-none placeholder:text-[#5F6A64]"
+              />
+              <button
+                onClick={sendAsk}
+                title="Enviar"
+                disabled={!ask.trim() || askBusy}
+                className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] text-[#06140D] disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(135deg,#3FBF84,#2c9a66)",
+                  boxShadow: "0 4px 14px rgba(63,191,132,0.22)",
+                }}
+              >
+                {askBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* minimap */}
+        {result.width > 0 && result.height > 0 && (
+          <div
+            className="pointer-events-none absolute bottom-[18px] right-[18px] z-[18] overflow-hidden rounded-[13px]"
+            style={{
+              width: 168,
+              height: 100,
+              border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(8,11,9,0.92)",
+              backdropFilter: "blur(6px)",
+            }}
+          >
+            {(() => {
+              const inset = 7
+              const boxW = 168 - inset * 2
+              const boxH = 100 - inset * 2
+              const s = Math.min(boxW / result.width, boxH / result.height)
+              const offX = inset + (boxW - result.width * s) / 2
+              const offY = inset + (boxH - result.height * s) / 2
+              // Visible world rect (canvas → world): [-pan/zoom, (−pan+view)/zoom].
+              const vx = (-pan.x / zoom) * s + offX
+              const vy = (-pan.y / zoom) * s + offY
+              const vw = (viewW / zoom) * s
+              const vh = (viewH / zoom) * s
+              return (
+                <>
+                  {flat.map((node) => {
+                    const p = result.positions.get(node.id)
+                    if (!p) return null
+                    return (
+                      <div
+                        key={`mm-${node.id}`}
+                        style={{
+                          position: "absolute",
+                          left: offX + p.x * s - 1.5,
+                          top: offY + p.y * s - 1.5,
+                          width: 3,
+                          height: 3,
+                          borderRadius: 999,
+                          background: colorOf(node),
+                          opacity: 0.85,
+                        }}
+                      />
+                    )
+                  })}
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: vx,
+                      top: vy,
+                      width: vw,
+                      height: vh,
+                      border: "1px solid rgba(91,227,154,0.7)",
+                      borderRadius: 4,
+                      background: "rgba(91,227,154,0.08)",
+                    }}
+                  />
+                </>
+              )
+            })()}
+          </div>
+        )}
+
         {loading && (
           <div
             className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-[18px]"
@@ -1651,27 +1844,32 @@ export function RichMindMapCanvas({
   )
 }
 
-function ToolMenuItem({
+function AskChip({
   icon: Icon,
   label,
   onClick,
-  danger = false,
+  disabled = false,
   trailing,
 }: {
-  icon: typeof Trash2
+  icon: typeof AlignLeft
   label: string
   onClick: () => void
-  danger?: boolean
+  disabled?: boolean
   trailing?: React.ReactNode
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-left text-[12px] font-semibold"
-      style={{ color: danger ? "#F0A6A6" : "#C9D2CD" }}
+      disabled={disabled}
+      className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-semibold text-[#C9D2CD] disabled:opacity-40"
+      style={{
+        border: "1px solid rgba(255,255,255,0.1)",
+        background: "rgba(12,16,14,0.9)",
+        backdropFilter: "blur(6px)",
+      }}
     >
-      <Icon className="h-4 w-4 flex-none" style={{ color: danger ? "#F0A6A6" : "#9FEDC4" }} />
-      <span className="flex-1">{label}</span>
+      <Icon className="h-3 w-3 flex-none" />
+      {label}
       {trailing}
     </button>
   )

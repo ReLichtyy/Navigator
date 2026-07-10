@@ -24,6 +24,10 @@ const ACE_RATE = 0.85
 const GEN_AHEAD_AFTER = 8
 /** Keep at least this many unseen questions ready so advancing never blocks on generation. */
 const BUFFER_AHEAD = 3
+/** Poll cadence + cap while the server bank is generating in the background. */
+const POLL_MS = 2500
+const MAX_POLLS = 40 // ~100s ceiling so a stuck job can't spin forever
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
 
@@ -125,12 +129,14 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   const [finished, setFinished] = useState(false)
   const [stageDone, setStageDone] = useState(false) // showing a stage's results screen
   const [reviewOpen, setReviewOpen] = useState<number | null>(null) // Repaso count for the empty state
+  const [exhausted, setExhausted] = useState(false) // bank fully consumed → show the "done" aviso
   const [resume, setResume] = useState<QuizSnapshot | null>(null) // saved session → continue/restart screen
   // 0→100% while the FIRST batch of questions generates (empty buffer); stage
   // advances / background top-ups keep their inline spinners.
   const genProgress = useGenerationProgress(loading && buffer.length === 0 && !error && !resume)
 
   const boostRef = useRef(0) // escalation boost carried across stages
+  const generatingRef = useRef(false) // server still filling the bank in the background
   const servedIds = useRef<Set<string>>(new Set())
   const outcomes = useRef<{ label: string; correct: boolean }[]>([])
   const failedTopics = useRef<Map<string, number>>(new Map()) // wrong-answer topics this stage
@@ -156,8 +162,52 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     setClearedInStage(0)
     setAttemptsInStage(0)
     bankDryRef.current = false // fresh stage → the bank may yield more again
+    generatingRef.current = !!data.generating
+    setExhausted(data.questions.length === 0 && !!data.exhausted)
     failedTopics.current = new Map() // per-stage feedback tally
   }, [])
+
+  // Fetch a stage, polling while the server bank generates in the background so a
+  // cold/short bank never lands us on an empty screen. Returns the last response
+  // (which carries `exhausted` when nothing recyclable is left). Excludes served ids.
+  const pollFreshStage = useCallback(
+    async (s: number, b: number): Promise<QuizStageAPI> => {
+      let data = await fetchQuizStage(scope, { stage: s, boost: b, excludeIds: excludeList() })
+      let attempts = 0
+      while (
+        data.questions.filter((x) => x.id && !servedIds.current.has(x.id)).length === 0 &&
+        data.generating &&
+        !data.exhausted &&
+        attempts < MAX_POLLS
+      ) {
+        await sleep(POLL_MS)
+        attempts++
+        data = await fetchQuizStage(scope, { stage: s, boost: b, excludeIds: excludeList() })
+      }
+      return data
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scope],
+  )
+
+  // Start a stage from scratch (initial load / restart): show the generation
+  // progress while the first batch fills, then ingest — or flag exhaustion.
+  const startStage = useCallback(
+    async (s: number, b: number) => {
+      setLoading(true)
+      setError(null)
+      setExhausted(false)
+      try {
+        const data = await pollFreshStage(s, b)
+        ingest(data)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se pudo cargar el quiz.")
+      } finally {
+        setLoading(false)
+      }
+    },
+    [pollFreshStage, ingest],
+  )
 
   const fetchStage = useCallback(
     (s: number, b: number) =>
@@ -175,10 +225,13 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     const p = (async () => {
       try {
         const data = await fetchStage(stage, boostRef.current)
+        generatingRef.current = !!data.generating
         const fresh = data.questions.filter((x) => x.id && !servedIds.current.has(x.id))
         for (const x of fresh) if (x.id) servedIds.current.add(x.id)
         if (fresh.length === 0) {
-          bankDryRef.current = true
+          // Only truly dry when the server isn't still generating. While a fill
+          // job is in flight we leave the bank "wet" so the poll loop retries.
+          if (!data.generating || data.exhausted) bankDryRef.current = true
           return 0
         }
         setBuffer((b) => [...b, ...fresh])
@@ -203,23 +256,8 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
       setLoading(false)
       return
     }
-    let alive = true
-    setLoading(true)
-    fetchStage(0, 0)
-      .then((d) => {
-        if (!alive) return
-        ingest(d)
-        setLoading(false)
-      })
-      .catch((e) => {
-        if (!alive) return
-        setError(e instanceof Error ? e.message : "No se pudo cargar el quiz.")
-        setLoading(false)
-      })
-    return () => {
-      alive = false
-    }
-  }, [fetchStage, ingest, storageKey])
+    void startStage(0, 0)
+  }, [startStage, storageKey])
 
   // Persist the in-progress session after every answer so an exit mid-quiz can be
   // resumed. Cleared when the quiz finishes; untouched while the choice screen shows.
@@ -295,15 +333,12 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     }
     setLoading(true)
     try {
-      const data = await fetchQuizStage(scope, {
-        stage: s.stage,
-        boost: s.boost,
-        excludeIds: s.servedIds,
-      })
+      const data = await pollFreshStage(s.stage, s.boost)
+      generatingRef.current = !!data.generating
       const fresh = data.questions.filter((x) => x.id && !servedIds.current.has(x.id))
       for (const x of fresh) if (x.id) servedIds.current.add(x.id)
       if (fresh.length === 0) {
-        // Bank exhausted for this stage → close it with the restored tally.
+        // Bank truly dry for this stage → close it with the restored tally.
         if (s.stage >= s.stages - 1) setFinished(true)
         else setStageDone(true)
       } else {
@@ -322,16 +357,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   const restartSession = () => {
     clearSnapshot(storageKey)
     setResume(null)
-    setLoading(true)
-    fetchStage(0, 0)
-      .then((d) => {
-        ingest(d)
-        setLoading(false)
-      })
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : "No se pudo cargar el quiz.")
-        setLoading(false)
-      })
+    void startStage(0, 0)
   }
 
   const flushMastery = () => {
@@ -444,11 +470,17 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
       setLoading(true)
       try {
         const key = stageKey(nextStage, nextBoost)
-        const data =
+        // Prefetch is a warmed plain fetch; without one, poll so a cold next-stage
+        // bank fills before we ingest instead of dropping onto an empty screen.
+        let data =
           prefetch.current?.key === key
             ? await prefetch.current.promise
-            : await fetchStage(nextStage, nextBoost)
+            : await pollFreshStage(nextStage, nextBoost)
         prefetch.current = null
+        // A prefetch that came back empty-but-generating → poll it up.
+        if (data.questions.length === 0 && data.generating && !data.exhausted) {
+          data = await pollFreshStage(nextStage, nextBoost)
+        }
         setStage(nextStage)
         ingest(data)
       } catch (e) {
@@ -462,11 +494,20 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   )
 
   // Dry-buffer fallback (shows a spinner): reuse the shared top-up so it can't race
-  // a background pull. Bank-capped → may return nothing.
+  // a background pull. Polls while the server bank is still generating so advancing
+  // waits for the next batch instead of ending the stage prematurely; only stops
+  // when a fresh question arrives or the bank is genuinely dry.
   const loadMoreCurrent = useCallback(async (): Promise<boolean> => {
     setLoading(true)
     try {
-      return (await pullMore()) > 0
+      let got = await pullMore()
+      let attempts = 0
+      while (got === 0 && !bankDryRef.current && generatingRef.current && attempts < MAX_POLLS) {
+        await sleep(POLL_MS)
+        attempts++
+        got = await pullMore()
+      }
+      return got > 0
     } finally {
       setLoading(false)
     }
@@ -661,7 +702,9 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     const label =
       reviewOpen && reviewOpen > 0
         ? "Ya respondiste las preguntas disponibles. Ve a Repaso para dominar las que fallaste."
-        : "No hay preguntas nuevas: completaste el banco disponible o el material aún no está listo."
+        : exhausted
+          ? "Completaste todo el banco de preguntas de este curso. Ve a Repaso o vuelve más tarde."
+          : "No hay preguntas nuevas: el material aún no está listo o se está generando."
     return <EmptyMode onBack={onBack} label={label} />
   }
 

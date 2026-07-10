@@ -52,7 +52,7 @@ vi.mock("@/lib/server/repositories/quiz-review.repo", () => ({
   QuizReviewRepository: { openItemIds: vi.fn(), add: vi.fn(), listOpen: vi.fn(), resolve: vi.fn() },
 }))
 vi.mock("@/lib/server/repositories/quiz-seen.repo", () => ({
-  QuizSeenRepository: { seenItemIds: vi.fn(), markSeen: vi.fn() },
+  QuizSeenRepository: { seenItemIds: vi.fn(), markSeen: vi.fn(), clearForScope: vi.fn() },
 }))
 vi.mock("@/lib/server/rag/retrieval/hybrid", () => ({ buildContextByTopics: vi.fn() }))
 vi.mock("@/lib/server/rag/web-search", () => ({
@@ -67,6 +67,11 @@ vi.mock("@/lib/server/rag/orchestrator/router", () => ({
 vi.mock("@/lib/server/rag/agents/inquisitor", () => ({ inquisitorAgent: vi.fn() }))
 vi.mock("@/lib/server/rag/eval/gates", () => ({ gateQuiz: vi.fn() }))
 vi.mock("@/lib/llm/embeddings", () => ({ embedTexts: vi.fn() }))
+// Generation now lives in the background StudyBankService (own test file); here we
+// only exercise getQuizStage's serve/recycle logic, so mock it out entirely.
+vi.mock("@/lib/server/services/study-bank.service", () => ({
+  StudyBankService: { ensure: vi.fn(), drain: vi.fn(), hasPending: vi.fn() },
+}))
 
 import { DocumentRepository } from "@/lib/server/repositories/document.repo"
 import { GraphRepository } from "@/lib/server/repositories/graph.repo"
@@ -79,6 +84,7 @@ import { buildStudyPlan, orderLabelsByPlan } from "@/lib/server/rag/orchestrator
 import { inquisitorAgent } from "@/lib/server/rag/agents/inquisitor"
 import { gateQuiz } from "@/lib/server/rag/eval/gates"
 import { embedTexts } from "@/lib/llm/embeddings"
+import { StudyBankService } from "@/lib/server/services/study-bank.service"
 import { StudyService } from "@/lib/server/services/study.service"
 import type { QuizQuestion } from "@/lib/server/rag/study-gen"
 
@@ -96,6 +102,7 @@ beforeEach(() => {
   vi.mocked(MasteryRepository.listForSyllabus).mockResolvedValue([] as any)
   vi.mocked(QuizReviewRepository.openItemIds).mockResolvedValue([])
   vi.mocked(QuizSeenRepository.seenItemIds).mockResolvedValue([])
+  vi.mocked(QuizSeenRepository.clearForScope).mockResolvedValue(undefined)
   vi.mocked(buildStudyPlan).mockResolvedValue({ targets: [] } as any)
   vi.mocked(orderLabelsByPlan).mockReturnValue([])
   vi.mocked(buildContextByTopics).mockResolvedValue("x".repeat(200))
@@ -107,33 +114,65 @@ beforeEach(() => {
   vi.mocked(inquisitorAgent).mockImplementation(async (_ev, _opts, count = 20) =>
     Array.from({ length: count }, (_, i) => question(i)),
   )
+  vi.mocked(StudyBankService.ensure).mockResolvedValue(undefined)
+  vi.mocked(StudyBankService.drain).mockResolvedValue({ processed: 0, failed: 0 })
+  vi.mocked(StudyBankService.hasPending).mockResolvedValue(false)
 })
 
-describe("getQuizStage — cold bank generates in parallel sub-batches", () => {
-  it("splits the 18-item generation into 3 parallel gen→gate chains of 6", async () => {
-    const bankItem = (i: number) => ({
-      id: `b${i}`,
-      topicKey: null,
-      payload: question(i),
-      difficulty: "medio",
-    })
-    // 1st listForStage: empty (cold) → generation; 2nd: refilled pool.
+describe("getQuizStage — bank serving", () => {
+  it("cold bank kicks a background fill + drains once, then serves the refilled pool", async () => {
+    const bankItem = (i: number) => ({ id: `b${i}`, topicKey: null, payload: question(i) })
+    // 1st listForStage: empty (cold) → ensure+drain; 2nd: refilled pool.
     vi.mocked(StudyItemsRepository.listForStage)
       .mockResolvedValueOnce([] as any)
       .mockResolvedValueOnce(Array.from({ length: 15 }, (_, i) => bankItem(i)) as any)
 
     const stage = await StudyService.getQuizStage("u1", "s1", { stage: 0 })
 
-    expect(inquisitorAgent).toHaveBeenCalledTimes(3)
-    for (const call of vi.mocked(inquisitorAgent).mock.calls) {
-      expect(call[2]).toBe(6) // GEN_BATCH 18 / 3 sub-batches
-    }
-    expect(gateQuiz).toHaveBeenCalledTimes(3)
-    // The sub-batches are aggregated into a single persist.
-    expect(StudyItemsRepository.insertDeduped).toHaveBeenCalledTimes(1)
-    const inserted = vi.mocked(StudyItemsRepository.insertDeduped).mock.calls[0][1] as unknown[]
-    expect(inserted).toHaveLength(18)
+    // Generation is NOT inline anymore: a fill job is enqueued and one job drained.
+    expect(StudyBankService.ensure).toHaveBeenCalledTimes(1)
+    expect(StudyBankService.drain).toHaveBeenCalledTimes(1)
+    expect(inquisitorAgent).not.toHaveBeenCalled()
     expect(stage.questions).toHaveLength(15)
+    expect(stage.generating).toBe(false)
+  })
+
+  it("empty bank + a pending fill job → generating flag, no exhaustion", async () => {
+    vi.mocked(StudyItemsRepository.listForStage).mockResolvedValue([] as any)
+    vi.mocked(StudyBankService.hasPending).mockResolvedValue(true)
+
+    const stage = await StudyService.getQuizStage("u1", "s1", { stage: 0 })
+
+    expect(stage.questions).toHaveLength(0)
+    expect(stage.generating).toBe(true)
+    expect(stage.exhausted).toBeFalsy()
+  })
+
+  it("bank at target but all seen → recycles (clears seen) and serves again", async () => {
+    // Pool empty even after drain, nothing pending, but the bank holds items → recycle.
+    vi.mocked(StudyItemsRepository.listForStage)
+      .mockResolvedValueOnce([] as any) // initial (all excluded as seen)
+      .mockResolvedValueOnce([] as any) // after drain
+      .mockResolvedValueOnce(
+        Array.from({ length: 15 }, (_, i) => ({ id: `b${i}`, topicKey: null, payload: question(i) })) as any,
+      ) // after clearForScope
+    vi.mocked(StudyItemsRepository.countByTypeDifficulty).mockResolvedValue(70)
+
+    const stage = await StudyService.getQuizStage("u1", "s1", { stage: 0 })
+
+    expect(QuizSeenRepository.clearForScope).toHaveBeenCalledTimes(1)
+    expect(stage.questions).toHaveLength(15)
+    expect(stage.exhausted).toBeFalsy()
+  })
+
+  it("no items at all → exhausted aviso", async () => {
+    vi.mocked(StudyItemsRepository.listForStage).mockResolvedValue([] as any)
+    vi.mocked(StudyItemsRepository.countByTypeDifficulty).mockResolvedValue(0)
+
+    const stage = await StudyService.getQuizStage("u1", "s1", { stage: 0 })
+
+    expect(stage.questions).toHaveLength(0)
+    expect(stage.exhausted).toBe(true)
   })
 
   it("serves shuffled options: answer stays in range and is not always 0", async () => {

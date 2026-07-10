@@ -32,8 +32,7 @@ import { getUserPrefs } from "../utils/user-prefs"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
 import { webSearchContext, appendWebContext } from "../rag/web-search"
 import { orchestrateStudySet } from "../rag/orchestrator/runner"
-import { inquisitorAgent } from "../rag/agents/inquisitor"
-import { gateQuiz } from "../rag/eval/gates"
+import { StudyBankService } from "./study-bank.service"
 import { buildStudyPlan, orderLabelsByPlan } from "../rag/orchestrator/router"
 import { embedTexts } from "@/lib/llm/embeddings"
 import { logError } from "@/lib/observability/logger"
@@ -96,16 +95,10 @@ const SET_QUIZ = 20
 export const STAGE_SIZE = 15 // questions a student must clear per stage
 const STAGE_POOL = 20 // served per stage (15 + buffer so wrong answers can be swapped)
 const STAGES = 3
-// Max quiz items generated per scope PER DIFFICULTY (anti-runaway). Per-difficulty
-// so a bank full of `medio` never starves the `dificil` bucket; 40×3 difficulties
-// = up to 120 distinct questions per scope.
-const BANK_CAP_PER_DIFFICULTY = 40
-const GEN_BATCH = 18 // questions requested per lazy generation (gate drops some)
-// Generation is split into parallel sub-batches (each gen→gate chain runs
-// independently) so cold wall-clock ≈ 1/SUB_BATCHES of a single 18-item call.
-// Sub-batches share `excludeSeen`, so near-duplicates BETWEEN them are possible —
-// acceptable: insertDeduped drops them by embedding at persist time.
-const SUB_BATCHES = 3
+// Quiz item generation no longer happens inline here — it runs as background
+// `study-bank` jobs (see study-bank.service.ts), filling the bank to
+// BANK_TARGET_PER_DIFFICULTY across several short requests. This serve path only
+// reads the bank, kicks a fill job when short, and recycles when exhausted.
 const DIFFICULTY_LADDER: Difficulty[] = ["facil", "medio", "dificil"]
 
 /** A staged-quiz question carries its bank id so the client can exclude served items. */
@@ -119,6 +112,10 @@ export interface QuizStage {
   /** Correct answers required to clear this stage (user pref; default STAGE_SIZE). */
   size: number
   questions: StageQuestion[]
+  /** A background fill job is still producing questions → client keeps polling. */
+  generating?: boolean
+  /** Bank truly exhausted (no items, no recyclable material) → client shows the aviso. */
+  exhausted?: boolean
 }
 
 /**
@@ -148,77 +145,83 @@ function orderByPlan<T extends { topicKey: string | null }>(
   })
 }
 
+type StageItem = { id: string; topicKey: string | null; payload: QuizQuestion }
+
 /**
- * Ensure the bank holds enough quiz items at `difficulty` for a stage; generate a
- * gated batch lazily when short (respecting the per-scope cap), then return the
- * pool (excluding already-served ids). `genEvidence` is only invoked when we must
- * generate, so a warm bank costs no LLM call.
+ * Serve a stage's bank items WITHOUT generating inline. When the bank is short we
+ * (1) kick a background fill job, (2) drain one job so this very request advances
+ * generation a little, and (3) re-read. If the pool is still empty we recycle
+ * already-seen items (bank at target, everything served) or report exhaustion so
+ * the client shows the aviso instead of hanging.
+ *
+ * `clientExclude`/`reviewExclude` are always honored; `seenExclude` is dropped on
+ * recycle. Returns the pool plus `generating`/`exhausted` flags for the client.
  */
-async function stageItems(
+async function fillDrainRecycle(
+  userId: string,
   scope: StudyScope,
   difficulty: Difficulty,
-  excludeIds: string[],
-  genEvidence: () => Promise<{
-    text: string
-    weightedTopics: { label: string; weight: number }[]
-  } | null>,
-  language?: string,
-  sizes: { need: number; pool: number } = { need: STAGE_SIZE, pool: STAGE_POOL },
-): Promise<{ id: string; topicKey: string | null; payload: QuizQuestion }[]> {
+  clientExclude: string[],
+  reviewExclude: string[],
+  seenExclude: string[],
+  sizes: { need: number; pool: number },
+  ownerId: string | undefined,
+  language: string | undefined,
+): Promise<{ items: StageItem[]; generating: boolean; exhausted: boolean }> {
+  const map = (rows: { id: string; topicKey: string | null; payload: QuizQuestion }[]): StageItem[] =>
+    rows.map((p) => ({ id: p.id, topicKey: p.topicKey, payload: p.payload }))
+
+  const allExclude = Array.from(new Set([...clientExclude, ...reviewExclude, ...seenExclude]))
   let pool = await StudyItemsRepository.listForStage<QuizQuestion>(
     scope,
     "quiz",
     difficulty,
     sizes.pool,
-    excludeIds,
+    allExclude,
   )
+
+  let generating = false
   if (pool.length < sizes.need) {
-    const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
-    if (total < BANK_CAP_PER_DIFFICULTY) {
-      try {
-        const ev = await genEvidence()
-        if (ev && ev.text.trim().length >= 80) {
-          const excludeSeen = await StudyItemsRepository.listDedupeTexts(scope, "quiz")
-          const perBatch = Math.ceil(GEN_BATCH / SUB_BATCHES)
-          const batches = await Promise.all(
-            Array.from({ length: SUB_BATCHES }, () =>
-              inquisitorAgent(
-                ev.text,
-                { difficulty, weightedTopics: ev.weightedTopics, excludeSeen, language },
-                perBatch,
-              ).then((raw) => gateQuiz(raw, ev.text)),
-            ),
-          )
-          const gated = batches.flat()
-          if (gated.length > 0) {
-            const embeddings = await embedTexts(gated.map((q) => q.question))
-            const items: NewStudyItem[] = gated.map((q, i) => ({
-              userId: null,
-              type: "quiz",
-              topicKey: q.topic ? topicKey(q.topic) : null,
-              difficulty,
-              payload: q,
-              dedupeText: q.question,
-              embedding: embeddings[i],
-            }))
-            await StudyItemsRepository.insertDeduped(scope, items)
-            pool = await StudyItemsRepository.listForStage<QuizQuestion>(
-              scope,
-              "quiz",
-              difficulty,
-              sizes.pool,
-              excludeIds,
-            )
-          }
-        }
-      } catch (err) {
-        logError("study.stage.gen_error", {
-          error: err instanceof Error ? err.message : String(err),
-        })
-      }
-    }
+    // Kick a background fill (dedupe-guarded), and drain one job so this request
+    // makes progress instead of returning empty on a cold bank.
+    await StudyBankService.ensure(scope, difficulty, ownerId, language)
+    await StudyBankService.drain(1).catch((err) =>
+      logError("study.stage.drain_error", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    )
+    pool = await StudyItemsRepository.listForStage<QuizQuestion>(
+      scope,
+      "quiz",
+      difficulty,
+      sizes.pool,
+      allExclude,
+    )
+    generating = await StudyBankService.hasPending(scope, difficulty)
   }
-  return pool.map((p) => ({ id: p.id, topicKey: p.topicKey, payload: p.payload }))
+
+  if (pool.length > 0) return { items: map(pool), generating, exhausted: false }
+  if (generating) return { items: [], generating: true, exhausted: false }
+
+  // Nothing to serve and nothing in flight. If the bank actually holds items,
+  // everything has been SEEN → recycle: forget the seen ledger and re-read
+  // honoring only the client/review excludes.
+  const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
+  if (total > 0) {
+    await QuizSeenRepository.clearForScope(userId, scope)
+    const recycleExclude = Array.from(new Set([...clientExclude, ...reviewExclude]))
+    pool = await StudyItemsRepository.listForStage<QuizQuestion>(
+      scope,
+      "quiz",
+      difficulty,
+      sizes.pool,
+      recycleExclude,
+    )
+    if (pool.length > 0) return { items: map(pool), generating: false, exhausted: false }
+  }
+
+  // No items at this difficulty at all (or every one still excluded this run).
+  return { items: [], generating: false, exhausted: true }
 }
 
 /** Flatten a generated set into bank items (dedupe text + payload + topic). Pure. */
@@ -577,25 +580,19 @@ export const StudyService = {
       .map((t) => ({ label: t.label, weight: Number(t.weight_percent) }))
     const plan = await buildStudyPlan(userId, syllabusId, weightedTopics, difficulty)
     const orderedKeys = plan.targets.map((t) => t.topicKey)
-    const planLabels = orderLabelsByPlan(plan)
-    const topicLabels = topics.map((t) => t.label.trim()).filter(Boolean)
-    const ordered = planLabels.length > 0 ? planLabels : topicLabels
 
-    // Failed questions live in Repaso, and already-seen ones must not repeat →
-    // exclude both from stages.
-    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude, ...seenExclude]))
-    const items = await stageItems(
+    // Read the bank (background jobs generate it — never inline here). Failed
+    // questions live in Repaso and already-seen ones must not repeat within a run.
+    const { items, generating, exhausted } = await fillDrainRecycle(
+      userId,
       scope,
       difficulty,
-      allExclude,
-      async () => {
-        const text =
-          (await buildContextByTopics({ kind: "doc", id: syllabusId }, ordered)) ??
-          (await ChunkRepository.getConcatenatedText(syllabusId))
-        return text ? { text, weightedTopics } : null
-      },
-      prefs.language,
+      excludeIds,
+      reviewExclude,
+      seenExclude,
       { need: size, pool: poolSize },
+      userId,
+      prefs.language,
     )
 
     const orderedItems = orderByPlan(items, orderedKeys).slice(0, poolSize)
@@ -604,6 +601,8 @@ export const StudyService = {
       stages: STAGES,
       difficulty,
       size,
+      generating,
+      exhausted,
       // Shuffle options on serve: bank payloads keep the generator's biased `answer`.
       questions: orderedItems.map((it) => ({ ...shuffleQuizOptions(it.payload), id: it.id })),
     }
@@ -634,17 +633,16 @@ export const StudyService = {
     ])
     const size = prefs.questionCount ?? STAGE_SIZE
     const poolSize = size + (STAGE_POOL - STAGE_SIZE)
-    const allExclude = Array.from(new Set([...excludeIds, ...reviewExclude, ...seenExclude]))
-    const items = await stageItems(
+    const { items, generating, exhausted } = await fillDrainRecycle(
+      userId,
       scope,
       difficulty,
-      allExclude,
-      async () => {
-        const text = await ChunkRepository.getConcatenatedTextByCourse(userId, courseId)
-        return text ? { text, weightedTopics: [] } : null
-      },
-      prefs.language,
+      excludeIds,
+      reviewExclude,
+      seenExclude,
       { need: size, pool: poolSize },
+      userId, // ownerId — whole-course evidence is assembled from this user's docs
+      prefs.language,
     )
 
     const ordered = orderByPlan(items, []).slice(0, poolSize)
@@ -653,6 +651,8 @@ export const StudyService = {
       stages: STAGES,
       difficulty,
       size,
+      generating,
+      exhausted,
       questions: ordered.map((it) => ({ ...shuffleQuizOptions(it.payload), id: it.id })),
     }
   },

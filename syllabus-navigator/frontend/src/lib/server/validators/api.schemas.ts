@@ -6,6 +6,21 @@ export const MessageRequestSchema = z.object({
   web: z.boolean().optional(),
 })
 
+// Inline "ask about this mind map" (question bar). Either courseId or syllabusId
+// scopes retrieval; refine chips transform the previous answer instead.
+export const GraphAskSchema = z
+  .object({
+    question: z.string().trim().max(1000, "La pregunta es demasiado larga").optional(),
+    courseId: z.string().uuid().optional(),
+    syllabusId: z.string().uuid().optional(),
+    refine: z.enum(["concise", "detail", "translate", "regenerate"]).optional(),
+    previousAnswer: z.string().max(4000).optional(),
+    lang: z.string().max(40).optional(),
+  })
+  .refine((v) => !!v.courseId || !!v.syllabusId, {
+    message: "Falta el mapa (courseId o syllabusId).",
+  })
+
 export const UploadLinkSchema = z.object({
   url: z.string().url("URL inválida").max(2048, "URL demasiado larga"),
 })

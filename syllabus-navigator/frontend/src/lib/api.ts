@@ -539,6 +539,27 @@ export async function updateCourseGraph(courseId: string, graph: GraphUpdatePayl
   })
 }
 
+export type GraphAskRefine = "concise" | "detail" | "translate" | "regenerate"
+
+export interface GraphAskPayload {
+  question?: string
+  /** Scope: course map or the per-doc ("sin curso") fallback map. */
+  courseId?: string
+  syllabusId?: string
+  /** Refine the previous answer instead of asking anew (quick chips). */
+  refine?: GraphAskRefine
+  previousAnswer?: string
+  lang?: string
+}
+
+/** Inline "ask about this mind map" → a short grounded answer for the canvas bubble. */
+export async function askGraph(payload: GraphAskPayload) {
+  return request<{ answer: string }>(`/graph/ask`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
 /** Find an existing chat bound to this syllabus, or create one. */
 export async function findOrCreateChatForDoc(syllabusId: string) {
   return request<ChatOutAPI>(`/chat/by-document/${encodeURIComponent(syllabusId)}`, {
@@ -731,6 +752,10 @@ export interface QuizStageAPI {
   /** Correct answers required to clear the stage (user pref; server default 15). */
   size?: number
   questions: QuizQuestionAPI[]
+  /** A background fill job is still producing questions → keep polling for more. */
+  generating?: boolean
+  /** Bank exhausted (no items, nothing recyclable) → show the "done" state. */
+  exhausted?: boolean
 }
 
 export interface QuizStageOptions {

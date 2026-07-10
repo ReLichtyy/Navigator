@@ -158,6 +158,18 @@ export const RetrievalService = {
     return buildResult(all, true, question)
   },
 
+  /** Retrieve context scoped to every document in one course (course mind map). */
+  async retrieveForCourse(
+    userId: string,
+    courseId: string,
+    question: string,
+  ): Promise<RetrievalResult> {
+    if (!flags.ragEnabled) return EMPTY_RESULT
+    const queryEmbedding = await embedText(question)
+    const all = await ChunkRepository.searchByCourse(userId, courseId, queryEmbedding, CANDIDATE_K)
+    return buildResult(all, true, question)
+  },
+
   /** Compose the user turn with the retrieved context (matches rag_engine.py). */
   buildGroundedUserContent(contextBlock: string, question: string): string {
     return `Contexto del sílabo:\n${contextBlock}\n\nPregunta: ${question}`

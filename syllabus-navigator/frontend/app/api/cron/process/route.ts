@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server"
 import { IngestionService } from "@/lib/server/services/ingestion.service"
+import { StudyBankService } from "@/lib/server/services/study-bank.service"
 import { logError } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
@@ -27,7 +28,13 @@ async function handle(request: Request) {
 
   try {
     const result = await IngestionService.drainQueue()
-    return NextResponse.json({ message: "Queue drained", ...result }, { status: 200 })
+    // Also fill any pending study-bank jobs (staged-quiz question banks) so they
+    // top up even when nobody is actively polling the quiz.
+    const study = await StudyBankService.drain(3).catch((err) => {
+      logError("cron.process.study_drain_error", { error: String(err) })
+      return { processed: 0, failed: 0 }
+    })
+    return NextResponse.json({ message: "Queue drained", ...result, study }, { status: 200 })
   } catch (error) {
     logError("cron.process.error", { error: String(error) })
     return NextResponse.json({ error: "Failed to process queue" }, { status: 500 })

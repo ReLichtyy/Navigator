@@ -13,9 +13,11 @@ export interface DbJob {
 
 export const JobRepository = {
   /**
-   * Enqueue a job, deduplicating on syllabusId: if a pending or processing job
-   * for the same type + syllabusId already exists, returns the existing job's id
-   * instead of inserting a duplicate.
+   * Enqueue a job, deduplicating on a payload key: if a pending or processing job
+   * for the same type + key already exists, returns the existing job's id instead
+   * of inserting a duplicate. By default the key is `payload.syllabusId`; pass
+   * `opts.dedupeKey` to dedupe on a `payload.dedupeKey` value instead (used by
+   * study-bank jobs, which key on scope+type+difficulty, not a syllabus).
    *
    * `kickIfPending` is for user-initiated retries (e.g. the Reprocess button):
    * on a dedupe-hit against a 'pending' job it resets `scheduled_at` to now so
@@ -25,14 +27,17 @@ export const JobRepository = {
   async enqueue(
     type: string,
     payload: Record<string, unknown>,
-    opts?: { kickIfPending?: boolean },
+    opts?: { kickIfPending?: boolean; dedupeKey?: string },
   ): Promise<string> {
-    const syllabusId = payload.syllabusId as string | undefined
-    if (syllabusId) {
+    // Generic dedupe: an explicit dedupeKey matches `payload->>'dedupeKey'`;
+    // otherwise fall back to the legacy syllabusId key.
+    const keyField = opts?.dedupeKey ? "dedupeKey" : "syllabusId"
+    const keyValue = opts?.dedupeKey ?? (payload.syllabusId as string | undefined)
+    if (keyValue) {
       const existing = await sql`
         SELECT id, status FROM jobs
         WHERE type = ${type}
-          AND payload->>'syllabusId' = ${syllabusId}
+          AND payload->>${keyField} = ${keyValue}
           AND status IN ('pending', 'processing')
         LIMIT 1
       `
@@ -83,6 +88,18 @@ export const JobRepository = {
       RETURNING id, type, payload, status, attempts, max_attempts, result, error
     `
     return (rows[0] as DbJob) ?? null
+  },
+
+  /** Is a job for this type + dedupeKey still pending or processing? */
+  async hasPending(type: string, dedupeKey: string): Promise<boolean> {
+    const rows = await sql`
+      SELECT 1 FROM jobs
+      WHERE type = ${type}
+        AND payload->>'dedupeKey' = ${dedupeKey}
+        AND status IN ('pending', 'processing')
+      LIMIT 1
+    `
+    return rows.length > 0
   },
 
   async complete(jobId: string, result: Record<string, unknown>): Promise<void> {

@@ -30,4 +30,16 @@ export const QuizSeenRepository = {
     `
     return (rows as { item_id: string }[]).map((r) => r.item_id)
   },
+
+  /**
+   * Forget every served item for a user+scope. Used when the bank is exhausted
+   * (all items seen) so the staged quiz can recycle older questions instead of
+   * hard-stopping — the "rotación" fallback once the bank hits its target size.
+   */
+  async clearForScope(userId: string, scope: StudyScope): Promise<void> {
+    await sql`
+      DELETE FROM quiz_seen
+      WHERE user_id = ${userId}::uuid AND scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+    `
+  },
 }

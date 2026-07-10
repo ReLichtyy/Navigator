@@ -18,7 +18,7 @@ import {
   type CourseGraphRegeneratePayload,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
-import { Network, Loader2, AlertCircle, BookText, FolderOpen } from "lucide-react"
+import { Network, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"
@@ -241,135 +241,117 @@ function MapaContent() {
   const graphError = isCourseMode ? courseGraph?.graph_error : docGraph?.graph_error
   const hasGraph = isCourseMode ? !!courseGraph : !!docGraph
 
+  // Course folders for the drawer's "Curso del mapa" picker (design v3 moves the
+  // course selector off the page and into the canvas' Editar drawer).
+  const courseOptions = groups.map((g) => ({
+    key: folderKey(g),
+    name: g.name,
+    color: g.color,
+    count: g.docs.filter(isReady).length,
+  }))
+
   return (
     <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:px-6">
+      {/* Slim header for mobile nav only — desktop is a full-bleed canvas. */}
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:hidden">
         <MobileNav />
-        <Network className="hidden h-5 w-5 text-accent sm:inline" />
-        <h1 className="text-lg font-semibold">Mapa mental</h1>
-        {selectedGroup && (
-          <span className="hidden text-[13px] text-muted-foreground sm:inline">
-            · {selectedGroup.name}
-          </span>
-        )}
+        <Network className="h-5 w-5 text-accent" />
+        <h1 className="text-base font-semibold">Mapa mental</h1>
       </header>
 
-      <div className="flex-1 overflow-auto p-4 sm:px-10 sm:py-9">
-        <div className="mx-auto max-w-6xl">
-          {coursesLoading ? (
+      <div className="relative flex-1 overflow-hidden">
+        {coursesLoading ? (
+          <CenterFill>
             <CenterSpinner />
-          ) : groups.length === 0 ? (
+          </CenterFill>
+        ) : groups.length === 0 ? (
+          <CenterFill>
             <Empty />
-          ) : (
-            <>
-              {/* course picker — the map covers the WHOLE course */}
-              <div className="mb-3 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-                <FolderOpen className="h-3.5 w-3.5 text-accent" /> Mapa de:
-              </div>
-              <div className="mb-4 flex flex-wrap gap-2.5">
-                {groups.map((g) => {
-                  const active = folderKey(g) === selectedKey
-                  const count = g.docs.filter(isReady).length
-                  return (
-                    <Button
-                      key={folderKey(g)}
-                      variant={active ? "secondary" : "outline"}
-                      onClick={() => setSelectedKey(folderKey(g))}
-                      className={
-                        active
-                          ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
-                          : "gap-2 text-muted-foreground"
-                      }
-                    >
-                      <BookText
-                        className="h-4 w-4 text-accent"
-                        style={g.color ? { color: g.color } : undefined}
-                      />
-                      {g.name}
-                      <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums text-muted-foreground">
-                        {count}
-                      </span>
-                    </Button>
-                  )
-                })}
-              </div>
-
-              <div className="mt-2">
-                {graphLoading ? (
-                  <CenterSpinner label="Cargando mapa mental…" />
-                ) : error ? (
-                  <ErrorBox
-                    message={error}
-                    onRetry={() => {
-                      if (courseId) {
-                        const src =
-                          courseGraph && courseGraph.source_doc_ids.length > 0
-                            ? courseGraph.source_doc_ids
-                            : readyDocs.map((d) => d.id)
-                        void regenerate(courseId, { fileIds: src })
-                      } else {
-                        void loadGraph()
-                      }
-                    }}
-                  />
-                ) : hasGraph && selectedGroup ? (
-                  <SelectionAsk onAsk={ask}>
-                    <GraphCanvas
-                      nodes={nodes}
-                      edges={edges}
-                      crossLinks={crossLinks}
-                      layout={layout}
-                      graphStatus={graphStatus}
-                      graphError={graphError}
-                      centerTitle={
-                        selectedGroup.id
-                          ? selectedGroup.name
-                          : fallbackDocId
-                            ? cleanName(
-                                readyDocs.find((d) => d.id === fallbackDocId)?.original_filename ??
-                                  selectedGroup.name,
-                              )
-                            : selectedGroup.name
-                      }
-                      editable
-                      // Course mode: edits + AI regeneration on the course map.
-                      courseId={courseId ?? undefined}
-                      courseFiles={
-                        courseId
-                          ? readyDocs.map((d) => ({ id: d.id, name: d.original_filename }))
-                          : undefined
-                      }
-                      sourceDocIds={courseId ? courseGraph?.source_doc_ids : undefined}
-                      onRegenerateAI={
-                        courseId ? (payload) => void regenerate(courseId, payload) : undefined
-                      }
-                      // "Sin curso" fallback: per-document map with its reprocess.
-                      syllabusId={fallbackDocId ?? undefined}
-                      onReprocess={
-                        courseId
-                          ? () => {
-                              const src =
-                                courseGraph && courseGraph.source_doc_ids.length > 0
-                                  ? courseGraph.source_doc_ids
-                                  : readyDocs.map((d) => d.id)
-                              void regenerate(courseId, { fileIds: src })
-                            }
-                          : handleReprocessDoc
-                      }
-                      onSaved={(g) => {
-                        if ("course_id" in g) setCourseGraph(g)
-                        else setDocGraph(g)
-                      }}
-                    />
-                  </SelectionAsk>
-                ) : null}
-              </div>
-            </>
-          )}
-        </div>
+          </CenterFill>
+        ) : graphLoading ? (
+          <CenterFill>
+            <CenterSpinner label="Cargando mapa mental…" />
+          </CenterFill>
+        ) : error ? (
+          <CenterFill>
+            <ErrorBox
+              message={error}
+              onRetry={() => {
+                if (courseId) {
+                  const src =
+                    courseGraph && courseGraph.source_doc_ids.length > 0
+                      ? courseGraph.source_doc_ids
+                      : readyDocs.map((d) => d.id)
+                  void regenerate(courseId, { fileIds: src })
+                } else {
+                  void loadGraph()
+                }
+              }}
+            />
+          </CenterFill>
+        ) : hasGraph && selectedGroup ? (
+          <SelectionAsk onAsk={ask} className="h-full">
+            <GraphCanvas
+              nodes={nodes}
+              edges={edges}
+              crossLinks={crossLinks}
+              layout={layout}
+              graphStatus={graphStatus}
+              graphError={graphError}
+              centerTitle={
+                selectedGroup.id
+                  ? selectedGroup.name
+                  : fallbackDocId
+                    ? cleanName(
+                        readyDocs.find((d) => d.id === fallbackDocId)?.original_filename ??
+                          selectedGroup.name,
+                      )
+                    : selectedGroup.name
+              }
+              editable
+              // Course mode: edits + AI regeneration on the course map.
+              courseId={courseId ?? undefined}
+              courseFiles={
+                courseId
+                  ? readyDocs.map((d) => ({ id: d.id, name: d.original_filename }))
+                  : undefined
+              }
+              sourceDocIds={courseId ? courseGraph?.source_doc_ids : undefined}
+              onRegenerateAI={
+                courseId ? (payload) => void regenerate(courseId, payload) : undefined
+              }
+              // "Sin curso" fallback: per-document map with its reprocess.
+              syllabusId={fallbackDocId ?? undefined}
+              onReprocess={
+                courseId
+                  ? () => {
+                      const src =
+                        courseGraph && courseGraph.source_doc_ids.length > 0
+                          ? courseGraph.source_doc_ids
+                          : readyDocs.map((d) => d.id)
+                      void regenerate(courseId, { fileIds: src })
+                    }
+                  : handleReprocessDoc
+              }
+              onSaved={(g) => {
+                if ("course_id" in g) setCourseGraph(g)
+                else setDocGraph(g)
+              }}
+              // Course selection now lives in the Editar drawer (design v3).
+              courses={courseOptions}
+              selectedCourseKey={selectedKey}
+              onSelectCourse={setSelectedKey}
+            />
+          </SelectionAsk>
+        ) : null}
       </div>
     </main>
   )
+}
+
+/** Centers a small status block (spinner / empty / error) in the full-bleed area. */
+function CenterFill({ children }: { children: React.ReactNode }) {
+  return <div className="flex h-full items-center justify-center p-4">{children}</div>
 }
 
 function CenterSpinner({ label }: { label?: string }) {

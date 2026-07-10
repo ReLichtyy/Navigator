@@ -8,6 +8,8 @@ interface Props {
   onAsk: (text: string) => void
   /** When false, selection is ignored (no floating button). Defaults to true. */
   enabled?: boolean
+  /** Extra classes for the wrapper (e.g. "h-full" when the child fills its box). */
+  className?: string
   children: ReactNode
 }
 
@@ -16,7 +18,7 @@ interface Props {
  * "Preguntar al chat" button positioned over the selection. Used by the mind
  * map so a student can highlight a topic/term and send it straight to the chat.
  */
-export function SelectionAsk({ onAsk, enabled = true, children }: Props) {
+export function SelectionAsk({ onAsk, enabled = true, className, children }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [sel, setSel] = useState<{ text: string; x: number; y: number } | null>(null)
 
@@ -57,7 +59,7 @@ export function SelectionAsk({ onAsk, enabled = true, children }: Props) {
   }, [enabled])
 
   return (
-    <div ref={wrapRef} className="relative">
+    <div ref={wrapRef} className={`relative${className ? ` ${className}` : ""}`}>
       {children}
       {sel && (
         <button
