@@ -41,5 +41,5 @@ export function layoutRadial(roots: RichNode[]): LayoutResult {
     angle += span
   }
 
-  return { width, height, positions }
+  return { width, height, positions, center: { x: cx, y: cy } }
 }

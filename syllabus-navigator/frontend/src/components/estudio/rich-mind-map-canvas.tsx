@@ -178,6 +178,10 @@ export function RichMindMapCanvas({
   // the generator's chosen layout.
   const [layoutOverride, setLayoutOverride] = useState<GraphResponseAPI["layout"] | null>(null)
   const activeLayout = layoutOverride ?? layout
+  // The synthetic "Tema central" hub anchors the branches — drawn for the two
+  // layouts where a single center reads naturally (radial ring / tree pivot).
+  // The outline (tree_vertical) and columns views are already rooted visually.
+  const showHub = activeLayout === "radial" || activeLayout === "tree_horizontal"
 
   // "Lienzo" skins (view-only): branch palette + background palette.
   const [lienzoOpen, setLienzoOpen] = useState(false)
@@ -652,6 +656,27 @@ export function RichMindMapCanvas({
                   />
                 )
               })}
+            {/* hub edges: the central node → each level-1 branch */}
+            {showHub &&
+              pruned.map((root) => {
+                const a = result.center
+                const b = result.positions.get(root.id)
+                if (!b) return null
+                const color = colorOf(root)
+                const midX = (a.x + b.x) / 2
+                const on = !highlight || highlight.has(root.id)
+                return (
+                  <path
+                    key={`hub-${root.id}`}
+                    d={`M${a.x},${a.y} C${midX},${a.y} ${midX},${b.y} ${b.x},${b.y}`}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={2}
+                    strokeOpacity={on ? 0.5 : 0.08}
+                    strokeLinecap="round"
+                  />
+                )
+              })}
             {showCrossLinks &&
               crossLinks.map((c, i) => {
                 const a = result.positions.get(c.source)
@@ -763,6 +788,36 @@ export function RichMindMapCanvas({
               </div>
             )
           })}
+
+          {/* central node ("Tema central") — the hub the branches radiate from */}
+          {showHub && roots.length > 0 && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation()
+                zoomReset()
+              }}
+              className="flex flex-col items-center gap-1 text-center"
+              style={{
+                position: "absolute",
+                left: result.center.x - 100,
+                top: result.center.y - 34,
+                width: 200,
+                padding: "12px 16px",
+                borderRadius: 16,
+                background: "linear-gradient(160deg,#15251c,#0e1712)",
+                border: "1px solid rgba(63,191,132,0.5)",
+                boxShadow: "0 0 34px rgba(63,191,132,0.22), 0 12px 30px rgba(0,0,0,0.5)",
+                cursor: "pointer",
+              }}
+            >
+              <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#6FCB9A]">
+                Tema central
+              </span>
+              <span className="text-[15px] font-extrabold leading-tight text-[#F2F6F4]">
+                {centerTitle || "Mapa mental"}
+              </span>
+            </div>
+          )}
 
           {showCrossLinks &&
             crossLinks.map((c, i) => {

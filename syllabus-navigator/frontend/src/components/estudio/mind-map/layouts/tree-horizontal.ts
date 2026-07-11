@@ -60,5 +60,9 @@ export function layoutTreeHorizontal(roots: RichNode[]): LayoutResult {
   const shifted = new Map<string, { x: number; y: number }>()
   for (const [id, p] of positions) shifted.set(id, { x: p.x + centerX, y: p.y + 70 })
 
-  return { width, height, positions: shifted }
+  // Hub sits on the pivot column, vertically centered on the branch roots.
+  const rootYs = roots.map((r) => shifted.get(r.id)?.y ?? height / 2)
+  const centerY = rootYs.length ? rootYs.reduce((a, b) => a + b, 0) / rootYs.length : height / 2
+
+  return { width, height, positions: shifted, center: { x: centerX, y: centerY } }
 }

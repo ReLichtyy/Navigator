@@ -19,6 +19,7 @@ import type {
 
 const MAX_LABEL_WORDS = 4
 const MAX_DETAIL_CHARS = 140
+const MAX_DEPTH = 4
 
 const wordCount = (s: string) => s.trim().split(/\s+/).length
 
@@ -92,6 +93,15 @@ STRUCTURE RULES (mandatory):
      deeper structure (e.g. a section with subsections with specific points = 3 real levels).
    - Every node with level > 1 MUST have a non-null parentId pointing to an existing node whose
      level is exactly one less.
+   - ONE CENTRAL THEME: the whole document/course is a SINGLE subject. The level-1 nodes are the
+     MAIN BRANCHES of that one theme (they attach to a central node in the UI). Do NOT emit
+     unrelated/parallel top-level topics as if they were separate documents.
+   - NO SINGLE-CHILD CHAINS: never give a node exactly one child. If a topic would have only one
+     sub-point, fold it into the parent (put the extra text in "detail") instead of adding a level.
+   - MAX DEPTH 4 (prefer 3): never nest deeper than 4 levels.
+   - BALANCE: sibling branches at the same level should be comparable in size — avoid one huge
+     branch next to a single-node branch. Merge overlapping/duplicate ideas; never repeat the same
+     concept in two nodes.
 
 2. LABELS — MAX 4 WORDS, NO COLONS (strict, schema-validated — not a suggestion):
    - EVERY node's "label" is at most 4 words and must not contain ":" or end in ".".
@@ -156,6 +166,87 @@ function clampToSevenRoots(nodes: RawNode[]): RawNode[] {
     }
   }
   return nodes.filter((n) => keep.has(n.id))
+}
+
+/**
+ * Deduplication: drop sibling nodes that repeat an earlier sibling's label
+ * (case-insensitive), together with their subtrees. Overlapping ideas the LLM
+ * emitted twice would otherwise clutter the map.
+ */
+function dedupeSiblings(nodes: RawNode[]): RawNode[] {
+  const drop = new Set<string>()
+  const seenByParent = new Map<string, Set<string>>()
+  for (const n of nodes) {
+    const pk = n.parentId ?? "__root__"
+    let seen = seenByParent.get(pk)
+    if (!seen) {
+      seen = new Set()
+      seenByParent.set(pk, seen)
+    }
+    const key = n.label.trim().toLowerCase()
+    if (seen.has(key)) drop.add(n.id)
+    else seen.add(key)
+  }
+  if (drop.size === 0) return nodes
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const n of nodes) {
+      if (!drop.has(n.id) && n.parentId && drop.has(n.parentId)) {
+        drop.add(n.id)
+        changed = true
+      }
+    }
+  }
+  if (drop.size > 0) logWarn("rag.graph_gen.dedupe_siblings", { dropped: drop.size })
+  return nodes.filter((n) => !drop.has(n.id))
+}
+
+/**
+ * Collapse single-child chains: a NON-ROOT node with exactly one child adds a
+ * useless nesting level (the "avoid single-child chains" rule). Lift that child's
+ * own children up to it — decrementing their subtree levels — then drop the child,
+ * preserving its label as the parent's `detail` so no information is lost. Roots
+ * are exempt (one legitimate main branch). Repeats until the tree is stable.
+ */
+function collapseUnaryChains(nodes: RawNode[]): RawNode[] {
+  const list = nodes.map((n) => ({ ...n }))
+  const childrenOf = (id: string) => list.filter((n) => n.parentId === id)
+  let changed = true
+  let guard = 0
+  while (changed && guard++ < list.length + 5) {
+    changed = false
+    for (const p of list) {
+      if (p.level < 2) continue // roots keep their single branch
+      const kids = childrenOf(p.id)
+      if (kids.length !== 1) continue
+      const c = kids[0]
+      // Decrement the levels of c's descendants before reparenting them onto p.
+      const dec = (id: string) => {
+        for (const n of list) {
+          if (n.parentId === id) {
+            n.level -= 1
+            dec(n.id)
+          }
+        }
+      }
+      dec(c.id)
+      for (const gk of childrenOf(c.id)) gk.parentId = p.id
+      if (!p.detail?.trim()) p.detail = c.label.slice(0, MAX_DETAIL_CHARS)
+      list.splice(list.indexOf(c), 1)
+      changed = true
+      break
+    }
+  }
+  return list
+}
+
+/** Depth limit: drop nodes nested deeper than MAX_DEPTH (their parents are always kept). */
+function capDepth(nodes: RawNode[], max = MAX_DEPTH): RawNode[] {
+  const capped = nodes.filter((n) => n.level <= max)
+  if (capped.length !== nodes.length)
+    logWarn("rag.graph_gen.cap_depth", { removed: nodes.length - capped.length, max })
+  return capped
 }
 
 /** Validates the parent/child tree is well-formed. Throws on the first violation. */
@@ -273,7 +364,13 @@ export async function extractGraphFromText(
     logInfo("rag.graph_gen.llm_call", { latencyMs: ms })
 
     const parsed = SyllabusGraphV2Schema.parse(JSON.parse(extractJson(raw)))
-    const nodes = clampToSevenRoots(parsed.nodes)
+    // Refinement pass (study-science limits): keep ≤7 main branches, merge
+    // duplicate ideas, collapse single-child chains, and cap nesting depth —
+    // then validate the result is a well-formed tree.
+    let nodes = clampToSevenRoots(parsed.nodes)
+    nodes = dedupeSiblings(nodes)
+    nodes = collapseUnaryChains(nodes)
+    nodes = capDepth(nodes)
     validateTree(nodes)
 
     const nodeIds = new Set(nodes.map((n) => n.id))

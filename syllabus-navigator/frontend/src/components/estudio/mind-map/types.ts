@@ -19,4 +19,11 @@ export interface LayoutResult {
   height: number
   /** Center point of each positioned node, keyed by node id. */
   positions: Map<string, { x: number; y: number }>
+  /**
+   * The map's hub point — where the synthetic "Tema central" node sits and from
+   * which the level-1 branches radiate. Radial → geometric center; tree_horizontal
+   * → the pivot column. The other layouts still return a point (unused; those
+   * views are inherently rooted as an outline / columns).
+   */
+  center: { x: number; y: number }
 }

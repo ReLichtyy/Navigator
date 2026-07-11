@@ -43,5 +43,5 @@ export function layoutColumnsReport(roots: RichNode[]): LayoutResult {
     })
   })
 
-  return { width, height, positions }
+  return { width, height, positions, center: { x: width / 2, y: 16 } }
 }

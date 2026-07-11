@@ -151,3 +151,65 @@ describe("extractGraphFromText — label rule (≤4 words, no ':')", () => {
     }
   })
 })
+
+describe("extractGraphFromText — refinement limits (structure hygiene)", () => {
+  beforeEach(() => ragJson.mockReset())
+
+  const childCount = (topics: { externalId: string; parentExternalId: string | null }[], id: string) =>
+    topics.filter((t) => t.parentExternalId === id).length
+
+  it("collapses a non-root single-child chain, preserving the child label as detail", async () => {
+    ragJson.mockResolvedValue(
+      graphWith([
+        { id: "r", label: "Tema", level: 1, parentId: null, weight: 100, detail: null },
+        { id: "a", label: "Rama A", level: 2, parentId: "r", weight: null, detail: null },
+        { id: "a1", label: "Sub A", level: 3, parentId: "a", weight: null, detail: null },
+        { id: "c", label: "Rama C", level: 2, parentId: "r", weight: null, detail: null },
+      ]),
+    )
+    const g = await extractGraphFromText("t")
+    const ids = g.topics.map((t) => t.externalId)
+    expect(ids).not.toContain("a1") // the only child was merged up
+    expect(g.topics.find((t) => t.externalId === "a")!.detail).toBe("Sub A")
+    // no non-root node is left with exactly one child
+    for (const t of g.topics) {
+      if (t.parentExternalId) expect(childCount(g.topics, t.externalId)).not.toBe(1)
+    }
+  })
+
+  it("drops a duplicate sibling (case-insensitive) and its subtree", async () => {
+    ragJson.mockResolvedValue(
+      graphWith([
+        { id: "r", label: "Tema", level: 1, parentId: null, weight: 100, detail: null },
+        { id: "x1", label: "Redes", level: 2, parentId: "r", weight: null, detail: null },
+        { id: "x2", label: "redes", level: 2, parentId: "r", weight: null, detail: null },
+        { id: "x2c", label: "Hijo", level: 3, parentId: "x2", weight: null, detail: null },
+        { id: "y", label: "Otro", level: 2, parentId: "r", weight: null, detail: null },
+      ]),
+    )
+    const g = await extractGraphFromText("t")
+    const ids = g.topics.map((t) => t.externalId)
+    expect(ids).toContain("x1")
+    expect(ids).not.toContain("x2")
+    expect(ids).not.toContain("x2c")
+  })
+
+  it("caps nesting depth at 4 levels", async () => {
+    ragJson.mockResolvedValue(
+      graphWith([
+        { id: "r", label: "Tema", level: 1, parentId: null, weight: 100, detail: null },
+        { id: "a", label: "Rama A", level: 2, parentId: "r", weight: null, detail: null },
+        { id: "a2", label: "Rama B", level: 2, parentId: "r", weight: null, detail: null },
+        { id: "b", label: "L3 uno", level: 3, parentId: "a", weight: null, detail: null },
+        { id: "b2", label: "L3 dos", level: 3, parentId: "a", weight: null, detail: null },
+        { id: "c", label: "L4 uno", level: 4, parentId: "b", weight: null, detail: null },
+        { id: "c2", label: "L4 dos", level: 4, parentId: "b", weight: null, detail: null },
+        { id: "d", label: "L5 uno", level: 5, parentId: "c", weight: null, detail: null },
+        { id: "d2", label: "L5 dos", level: 5, parentId: "c", weight: null, detail: null },
+      ]),
+    )
+    const g = await extractGraphFromText("t")
+    for (const t of g.topics) expect(t.level).toBeLessThanOrEqual(4)
+    expect(g.topics.map((t) => t.externalId)).not.toContain("d")
+  })
+})
