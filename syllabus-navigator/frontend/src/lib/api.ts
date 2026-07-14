@@ -605,7 +605,11 @@ export async function fetchSchedule(syllabusId: string) {
 
 export interface UpcomingAssessmentAPI {
   id: string
+  syllabus_id: string
+  course_id: string | null
   course_name: string
+  /** The course's persisted color (hex); null → the UI falls back to a hash. */
+  course_color: string | null
   event_type: string
   title: string
   event_date: string | null

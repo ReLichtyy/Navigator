@@ -16,7 +16,20 @@ import { MobileNav } from "@/components/navigator/mobile-nav"
 import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
 import { DayNotesPanel } from "@/components/agenda/day-notes-panel"
 import { AgendaFilters } from "@/components/agenda/agenda-filters"
-import { applyFilter, pruneFilter, EMPTY_FILTER, type AgendaFilter } from "@/lib/ui/agenda-filter"
+import {
+  applyFilter,
+  pruneFilter,
+  courseKey,
+  EMPTY_FILTER,
+  type AgendaFilter,
+} from "@/lib/ui/agenda-filter"
+import {
+  buildWeekGroups,
+  defaultGroupKey,
+  coursesMissingTermStart,
+  isAssessment,
+} from "@/lib/ui/agenda-weeks"
+import { resolveCourseColor } from "@/lib/ui/course-color"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -104,52 +117,25 @@ export default function AgendaPage() {
   // accordion and the day panel all show the same filtered slice.
   const visible = applyFilter(events, filter)
   const dayBuckets = bucketEventsByDate(visible)
-  const visibleCourses = new Set(visible.map((e) => e.course_name))
+  const visibleCourses = new Set(visible.map(courseKey))
 
-  // Próximos 5 días: only assessments within the next 5 days (auto-updates with `today`).
+  // Próximos 5 días: assessments with a REAL date inside the next 5 days. An
+  // event that only carries "Semana N" has no date until its course gets a
+  // term_start — hence the hint below when this comes back empty.
   const next5 = (plan?.upcoming_assessments ?? []).filter(
     (a) =>
       a.days_until != null &&
       a.days_until >= 0 &&
       a.days_until <= 5 &&
-      visibleCourses.has(a.course_name),
+      visibleCourses.has(a.course_id ?? `doc:${a.syllabus_id}`),
   )
+  // Courses whose "Semana N" items can't be placed on the calendar yet.
+  const needTermStart = coursesMissingTermStart(visible)
 
-  // Group the filtered agenda by week_label (topics + activities), in an accordion.
-  const NO_WEEK = "Sin semana fija"
-  const weekNum = (s: string) => {
-    const m = /(\d+)/.exec(s)
-    return m ? +m[1] : Number.POSITIVE_INFINITY
-  }
-  const weekMap = new Map<string, ScheduleEventAPI[]>()
-  for (const e of visible) {
-    const k = e.week_label?.trim() || NO_WEEK
-    ;(weekMap.get(k) ?? weekMap.set(k, []).get(k)!).push(e)
-  }
-  const weeks = [...weekMap.entries()]
-    .map(([key, evs]) => ({
-      key,
-      evs: [...evs].sort((a, b) => {
-        if (a.event_date && b.event_date) return a.event_date < b.event_date ? -1 : 1
-        if (a.event_date) return -1
-        if (b.event_date) return 1
-        return 0
-      }),
-    }))
-    .sort((a, b) => {
-      if (a.key === NO_WEEK) return 1
-      if (b.key === NO_WEEK) return -1
-      return weekNum(a.key) - weekNum(b.key)
-    })
-
-  // Default-open the week holding the next upcoming dated event (else the first week).
-  const nextDated = visible
-    .filter(
-      (e) => e.event_date && /^\d{4}-\d{2}-\d{2}$/.test(e.event_date) && e.event_date >= todayIso,
-    )
-    .sort((a, b) => (a.event_date! < b.event_date! ? -1 : 1))[0]
-  const currentWeekKey = (nextDated?.week_label?.trim() || NO_WEEK) ?? weeks[0]?.key
-  const defaultWeek = weeks.some((w) => w.key === currentWeekKey) ? currentWeekKey : weeks[0]?.key
+  // Weeks are Monday–Sunday and defined by the event's real date; undated
+  // events group by their source document instead.
+  const groups = buildWeekGroups(visible, todayIso)
+  const defaultGroup = defaultGroupKey(groups)
 
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground overflow-hidden">
@@ -231,8 +217,18 @@ export default function AgendaPage() {
                       {next5.map((a) => {
                         const m = meta(a.event_type)
                         const badge = daysBadge(a.days_until)
+                        // Assessments carry their course's color, so two exams of
+                        // the same course read as the same course at a glance.
+                        const color = resolveCourseColor(
+                          a.course_color,
+                          a.course_id ?? `doc:${a.syllabus_id}`,
+                        )
                         return (
-                          <li key={a.id} className="rounded-lg border border-border/60 bg-card p-3">
+                          <li
+                            key={a.id}
+                            className="rounded-lg border border-l-4 border-border/60 bg-card p-3"
+                            style={{ borderLeftColor: color }}
+                          >
                             <div className="flex flex-wrap items-center gap-2">
                               <Badge variant={m.variant}>
                                 <m.Icon className="h-3 w-3" />
@@ -251,7 +247,11 @@ export default function AgendaPage() {
                                 )}
                               </span>
                             </div>
-                            <p className="mt-1 text-[11px] text-muted-foreground">
+                            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                              <span
+                                className="h-2 w-2 flex-none rounded-full"
+                                style={{ background: color }}
+                              />
                               {a.course_name}
                             </p>
                             {a.review_first.length > 0 && (
@@ -264,6 +264,21 @@ export default function AgendaPage() {
                         )
                       })}
                     </ul>
+                  ) : needTermStart.length > 0 ? (
+                    // The schedule has "Semana N" items that carry no real date:
+                    // without the course's term start they can never land here.
+                    <div className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        No hay evaluaciones con fecha en los próximos 5 días.{" "}
+                        {needTermStart.join(", ")}{" "}
+                        {needTermStart.length === 1 ? "tiene eventos" : "tienen eventos"} en
+                        &ldquo;Semana N&rdquo; sin fecha: fija el inicio del semestre y aparecerán
+                        aquí y en el calendario.
+                      </p>
+                      <Button asChild variant="accent" size="sm">
+                        <Link href="/knowledge">Fijar inicio del semestre</Link>
+                      </Button>
+                    </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
                       Sin evaluaciones en los próximos 5 días. Revisa los temas por semana abajo.
@@ -272,7 +287,7 @@ export default function AgendaPage() {
                 </section>
               )}
 
-              {/* ─── Temas y actividades por semana (collapsed accordion) ─── */}
+              {/* ─── Temas y actividades por semana (real Mon–Sun weeks) ─── */}
               <section>
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
                   <FileText className="h-4 w-4 text-accent/70" />
@@ -281,36 +296,72 @@ export default function AgendaPage() {
                 <Accordion
                   type="single"
                   collapsible
-                  defaultValue={defaultWeek}
+                  defaultValue={defaultGroup}
                   className="space-y-2"
                 >
-                  {weeks.map((w) => (
-                    <AccordionItem key={w.key} value={w.key}>
+                  {groups.map((g) => (
+                    <AccordionItem
+                      key={g.key}
+                      value={g.key}
+                      className={g.isPast ? "opacity-60" : undefined}
+                    >
                       <AccordionTrigger>
-                        <span className="flex-1">{w.key}</span>
-                        {w.key === defaultWeek && (
+                        {g.kind === "doc" ? (
+                          <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        ) : null}
+                        <span className="flex-1 truncate">{g.label}</span>
+                        {g.isCurrent && (
                           <Badge variant="accent" className="shrink-0">
                             Actual
                           </Badge>
                         )}
+                        {g.kind === "doc" && (
+                          <Badge variant="outline" className="shrink-0">
+                            Sin fecha
+                          </Badge>
+                        )}
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          {w.evs.length} {w.evs.length === 1 ? "ítem" : "ítems"}
+                          {g.assessmentCount > 0 &&
+                            `${g.assessmentCount} ${g.assessmentCount === 1 ? "evaluación" : "evaluaciones"}`}
+                          {g.assessmentCount > 0 && g.topicCount > 0 && " · "}
+                          {g.topicCount > 0 &&
+                            `${g.topicCount} ${g.topicCount === 1 ? "tema" : "temas"}`}
                         </span>
                       </AccordionTrigger>
                       <AccordionContent className="space-y-1.5">
-                        {w.evs.map((e) => {
+                        {g.items.map(({ event: e, count }) => {
                           const m = meta(e.event_type)
+                          const assessment = isAssessment(e.event_type)
+                          const color = resolveCourseColor(e.course_color, courseKey(e))
                           return (
                             <div
                               key={e.id}
-                              className="flex items-center gap-3 rounded-lg border border-border/50 bg-card px-3 py-2 text-sm"
+                              className={`flex items-center gap-3 rounded-lg border bg-card px-3 py-2 text-sm ${
+                                assessment ? "border-l-4 font-medium" : "border-border/50"
+                              }`}
+                              style={
+                                assessment
+                                  ? { borderLeftColor: color, borderColor: `${color}55` }
+                                  : undefined
+                              }
                             >
                               <Badge variant={m.variant} className="shrink-0">
                                 <m.Icon className="h-3 w-3" />
                                 {m.label}
                               </Badge>
-                              <span className="flex-1 truncate">{e.title}</span>
-                              <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+                              <span className="flex-1 truncate">
+                                {e.title}
+                                {count > 1 && (
+                                  <span className="ml-1.5 text-[11px] text-muted-foreground">
+                                    ×{count}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="hidden shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+                                <span
+                                  className="h-2 w-2 flex-none rounded-full"
+                                  style={{ background: color }}
+                                />
                                 {e.course_name}
                               </span>
                               {e.weight_percent ? (
@@ -334,9 +385,7 @@ export default function AgendaPage() {
               {(() => {
                 const next = plan?.upcoming_assessments[0]
                 if (!next) return null
-                const syllabusId = events.find(
-                  (e) => e.course_name === next.course_name,
-                )?.syllabus_id
+                const syllabusId = next.syllabus_id
                 if (!syllabusId) return null
                 return (
                   <Card className="flex-col items-start justify-between gap-4 border-accent/30 bg-accent/5 p-5 sm:flex-row sm:items-center">

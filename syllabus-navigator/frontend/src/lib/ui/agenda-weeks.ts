@@ -102,10 +102,16 @@ export function weekRangeLabel(weekStart: string): string {
     : `${a} – ${b}`
 }
 
-/** Identity used to collapse duplicates inside a group. */
-function dedupeKey(e: WeekEvent): string {
+/**
+ * Identity used to collapse duplicates inside a group. In a week group the week
+ * is already fixed, so course + type + title is enough. In an undated document
+ * group the `week_label` is the only thing separating "Tema 1, Semana 2" from
+ * "Tema 1, Semana 5", so it joins the key there.
+ */
+function dedupeKey(e: WeekEvent, withWeekLabel: boolean): string {
   const course = e.course_id ?? `doc:${e.syllabus_id}`
-  return `${course}|${e.event_type}|${e.title.trim().toLowerCase()}`
+  const base = `${course}|${e.event_type}|${e.title.trim().toLowerCase()}`
+  return withWeekLabel ? `${base}|${e.week_label?.trim().toLowerCase() ?? ""}` : base
 }
 
 /**
@@ -131,10 +137,10 @@ export function buildWeekGroups<T extends WeekEvent>(events: T[], today: string)
     }
   }
 
-  const collapse = (evs: T[]): GroupItem<T>[] => {
+  const collapse = (evs: T[], withWeekLabel = false): GroupItem<T>[] => {
     const out = new Map<string, GroupItem<T>>()
     for (const e of evs) {
-      const k = dedupeKey(e)
+      const k = dedupeKey(e, withWeekLabel)
       const cur = out.get(k)
       if (cur) cur.count++
       else out.set(k, { event: e, count: 1 })
@@ -165,7 +171,7 @@ export function buildWeekGroups<T extends WeekEvent>(events: T[], today: string)
 
   const docGroups: EventGroup<T>[] = [...docs.entries()]
     .map(([syllabusId, evs]) => {
-      const items = collapse(evs)
+      const items = collapse(evs, true)
       return {
         key: `d:${syllabusId}`,
         kind: "doc" as const,
