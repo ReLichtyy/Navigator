@@ -32,14 +32,27 @@ export const QuizSeenRepository = {
   },
 
   /**
-   * Forget every served item for a user+scope. Used when the bank is exhausted
-   * (all items seen) so the staged quiz can recycle older questions instead of
-   * hard-stopping — the "rotación" fallback once the bank hits its target size.
+   * Forget the served items of ONE difficulty for a user+scope. Used when that
+   * difficulty's bank is exhausted (every item seen) so the staged quiz recycles
+   * older questions instead of hard-stopping — the "rotación" fallback.
+   *
+   * Scoped to the difficulty on purpose: wiping the whole scope's ledger would
+   * resurrect every `medio` question the student already answered just because
+   * `dificil` ran dry.
    */
-  async clearForScope(userId: string, scope: StudyScope): Promise<void> {
+  async clearForScopeDifficulty(
+    userId: string,
+    scope: StudyScope,
+    difficulty: string,
+  ): Promise<void> {
     await sql`
-      DELETE FROM quiz_seen
-      WHERE user_id = ${userId}::uuid AND scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+      DELETE FROM quiz_seen qs
+      USING study_items si
+      WHERE qs.item_id = si.id
+        AND si.difficulty = ${difficulty}
+        AND qs.user_id = ${userId}::uuid
+        AND qs.scope_kind = ${scope.kind}
+        AND qs.scope_id = ${scope.id}::uuid
     `
   },
 }

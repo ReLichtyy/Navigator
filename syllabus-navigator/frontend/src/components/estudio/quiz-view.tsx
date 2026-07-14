@@ -8,6 +8,7 @@ import {
   fetchQuizStage,
   fetchQuizReview,
   markQuizSeen,
+  warmStudyBank,
   type QuizQuestionAPI,
   type QuizStageAPI,
   type StudyDifficulty,
@@ -30,11 +31,17 @@ const MAX_POLLS = 40 // ~100s ceiling so a stuck job can't spin forever
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
+/** Quiz and Simulacro run the same engine but are separate sessions. */
+export type QuizMode = "quiz" | "simulacro"
+
+/** Difficulty ladder — mirrors DIFFICULTY_LADDER in study.service. */
+const LADDER: StudyDifficulty[] = ["facil", "medio", "dificil"]
 
 /**
- * In-progress session persisted to localStorage (per scope). Leaving mid-quiz and
- * coming back offers "continue where you left off" vs "restart". `remaining` holds
- * the not-yet-answered buffered questions so resuming never re-asks an answered one.
+ * In-progress session persisted to localStorage (per scope AND mode). Leaving
+ * mid-quiz and coming back offers "continue where you left off" vs "restart".
+ * `remaining` holds the not-yet-answered buffered questions so resuming never
+ * re-asks an answered one.
  */
 interface QuizSnapshot {
   v: 1
@@ -54,8 +61,10 @@ interface QuizSnapshot {
   size?: number
 }
 
-const snapshotKey = (scope: Scope) =>
-  `sn:quiz:${scope.kind === "doc" ? `doc:${scope.docId}` : `course:${scope.courseId}`}`
+// Keyed by mode too: Quiz and Simulacro are separate runs, so entering one must not
+// offer to resume (and then overwrite) the other's saved session.
+const snapshotKey = (scope: Scope, mode: QuizMode) =>
+  `sn:${mode}:${scope.kind === "doc" ? `doc:${scope.docId}` : `course:${scope.courseId}`}`
 
 function loadSnapshot(key: string): QuizSnapshot | null {
   if (typeof window === "undefined") return null
@@ -83,8 +92,8 @@ interface Props {
   title: string
   courseLabel: string
   scope: Scope
-  /** When set, per-topic outcomes feed the mastery ledger. Absent for whole-course scope. */
-  syllabusId?: string
+  /** Which menu entry launched this run — keeps the saved sessions separate. */
+  mode: QuizMode
   onBack: () => void
 }
 
@@ -107,7 +116,7 @@ const HEAT_BAR: Record<Heat, string> = {
   hot: "bg-red-500",
 }
 
-export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Props) {
+export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
   // Per-stage buffer (15 to clear + spares for wrong-answer swaps) and cursor.
   const [buffer, setBuffer] = useState<QuizQuestionAPI[]>([])
   const [pos, setPos] = useState(0)
@@ -115,6 +124,8 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   const [stages, setStages] = useState(3)
   const [stageSize, setStageSize] = useState(DEFAULT_STAGE_SIZE)
   const [difficulty, setDifficulty] = useState<StudyDifficulty>("medio")
+  // Ladder rung stage 0 starts from (server-decided: Configuración pref, else mastery).
+  const [base, setBase] = useState(0)
   const [boost, setBoost] = useState(0) // mirrors boostRef for rendering (heat colour)
 
   const [selected, setSelected] = useState<number | null>(null)
@@ -148,24 +159,32 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
 
   const excludeList = () => Array.from(servedIds.current)
   const stageKey = (s: number, b: number) => `${s}:${b}`
-  const storageKey = snapshotKey(scope)
+  const storageKey = snapshotKey(scope, mode)
 
-  const ingest = useCallback((data: QuizStageAPI) => {
-    for (const x of data.questions) if (x.id) servedIds.current.add(x.id)
-    setBuffer(data.questions)
-    setStages(data.stages)
-    setStageSize(data.size ?? DEFAULT_STAGE_SIZE)
-    setDifficulty(data.difficulty)
-    setPos(0)
-    setSelected(null)
-    setAnswered(false)
-    setClearedInStage(0)
-    setAttemptsInStage(0)
-    bankDryRef.current = false // fresh stage → the bank may yield more again
-    generatingRef.current = !!data.generating
-    setExhausted(data.questions.length === 0 && !!data.exhausted)
-    failedTopics.current = new Map() // per-stage feedback tally
-  }, [])
+  const ingest = useCallback(
+    (data: QuizStageAPI) => {
+      for (const x of data.questions) if (x.id) servedIds.current.add(x.id)
+      setBuffer(data.questions)
+      setStages(data.stages)
+      setStageSize(data.size ?? DEFAULT_STAGE_SIZE)
+      setDifficulty(data.difficulty)
+      setBase(data.base ?? 0)
+      setPos(0)
+      setSelected(null)
+      setAnswered(false)
+      setClearedInStage(0)
+      setAttemptsInStage(0)
+      bankDryRef.current = false // fresh stage → the bank may yield more again
+      generatingRef.current = !!data.generating
+      setExhausted(data.questions.length === 0 && !!data.exhausted)
+      failedTopics.current = new Map() // per-stage feedback tally
+      // Top the bank up for the NEXT stage while the student answers this one —
+      // the two-odd minutes they spend here is the only free time we get, and
+      // spending it on generation is what keeps the next stage instant.
+      warmStudyBank(scope)
+    },
+    [scope],
+  )
 
   // Fetch a stage, polling while the server bank generates in the background so a
   // cold/short bank never lands us on an empty screen. Returns the last response
@@ -363,7 +382,8 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
   const flushMastery = () => {
     const batch = outcomes.current
     outcomes.current = []
-    if (syllabusId && batch.length > 0) recordMastery(syllabusId, batch).catch(() => {})
+    // Scope-based: a whole-course quiz now feeds the mastery ledger too.
+    if (batch.length > 0) recordMastery(scope, batch).catch(() => {})
   }
 
   // Persist the bank ids answered so far as "seen" → never served again in a later
@@ -582,7 +602,10 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     return (
       <div className="mx-auto max-w-2xl">
         <BackButton onBack={onBack} />
-        <GenerationProgress pct={genProgress.pct} label="Generando preguntas desde tu material…" />
+        <GenerationProgress
+          pct={genProgress.pct}
+          label="Generando preguntas desde tu material… la primera vez tarda un poco."
+        />
       </div>
     )
   }
@@ -633,9 +656,11 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
     const tier = stageTier(acc)
     const advice = stageAdvice(failed, topMissedTopics(failedTopics.current))
     const heat = heatFor(difficulty, boost)
-    // Each stage escalates; there's still room to climb unless already at the top
-    // (difícil with full boost).
-    const harderNext = difficulty !== "dificil" || boost < 2
+    // Only promise an escalation the next stage will actually deliver: the ladder
+    // caps at difícil, so once we're there the following stage is the same.
+    const nextDifficulty =
+      LADDER[Math.min(LADDER.length - 1, Math.max(0, base + stage + 1 + boost))]
+    const harderNext = nextDifficulty !== difficulty
     return (
       <div className="mx-auto max-w-2xl">
         <BackButton onBack={onBack} />
@@ -665,7 +690,7 @@ export function QuizView({ title, courseLabel, scope, syllabusId, onBack }: Prop
               <span
                 className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${HEAT_CHIP[heat === "base" ? "warn" : heat]}`}
               >
-                Sube la dificultad
+                Sube a {DIFFICULTY_LABEL[nextDifficulty]}
               </span>
               <span className="text-muted-foreground">la siguiente etapa será más exigente.</span>
             </p>

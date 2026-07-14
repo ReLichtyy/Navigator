@@ -69,9 +69,9 @@ export async function getTodaySession(
     .map((t) => ({ label: t.label, weight: Number(t.weight_percent) }))
 
   const [plan, due, bankFlash, bankQuiz] = await Promise.all([
-    buildStudyPlan(userId, syllabusId, weighted, "medio"),
+    buildStudyPlan(userId, scope, weighted, "medio"),
     // spaced OFF → no due-review leg: the session orders purely by the plan.
-    spaced ? StudyStatsRepository.listDue(userId, syllabusId, budget) : Promise.resolve([]),
+    spaced ? StudyStatsRepository.listDue(userId, scope, budget) : Promise.resolve([]),
     StudyItemsRepository.listRecent<Flashcard>(scope, "flashcard", budget),
     StudyItemsRepository.listRecent<QuizQuestion>(scope, "quiz", budget * 2),
   ])

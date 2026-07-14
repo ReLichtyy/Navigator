@@ -14,6 +14,7 @@ import {
   fetchStudyStats,
   fetchStudySession,
   fetchStudyStatus,
+  warmStudyBank,
   type SyllabusUploadAPI,
   type CourseAPI,
   type StudySetAPI,
@@ -424,6 +425,11 @@ function EstudioContent() {
         if (st.cached) loadSet(scope, { difficulty: "medio", topic: null, silent: true })
       })
       .catch(() => {})
+    // Start filling the question bank NOW, in the background. The student is about
+    // to spend a while on this menu; that idle time is what pays for the quiz being
+    // instant when they open it, instead of the generation landing inside their
+    // first request (the old "stuck at 90%").
+    warmStudyBank(qs)
     return () => {
       alive = false
     }
@@ -974,7 +980,7 @@ function ModeRouter({
             courseLabel={scopeLabel}
             cards={set.flashcards}
             onBack={backToMenu}
-            syllabusId={syllabusId ?? undefined}
+            scope={quizScope ?? undefined}
             dueKeys={dueKeys}
           />
         </div>
@@ -982,12 +988,7 @@ function ModeRouter({
     case "repaso":
       if (!quizScope) return narrowScopeNotice
       return (
-        <QuizReviewView
-          courseLabel={scopeLabel}
-          scope={quizScope}
-          syllabusId={syllabusId ?? undefined}
-          onBack={backToMenu}
-        />
+        <QuizReviewView courseLabel={scopeLabel} scope={quizScope} onBack={backToMenu} />
       )
     case "quiz":
     case "simulacro": {
@@ -997,7 +998,7 @@ function ModeRouter({
           title={mode === "simulacro" ? "Simulacro · Prueba corta" : "Quiz dinámico"}
           courseLabel={scopeLabel}
           scope={quizScope}
-          syllabusId={syllabusId ?? undefined}
+          mode={mode}
           onBack={backToMenu}
         />
       )

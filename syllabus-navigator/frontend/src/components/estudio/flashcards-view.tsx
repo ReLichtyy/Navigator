@@ -5,13 +5,16 @@ import { ChevronLeft, ChevronRight, RotateCcw, Check, X, Eye } from "lucide-reac
 import { recordFlashcardReview, flashcardKey, type FlashcardAPI } from "@/lib/api"
 import { orderDueFirst } from "@/lib/ui/study-cards"
 
+/** Doc or whole-course. Combined scopes have no ledger to write to → no scope, no recording. */
+type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
+
 interface Props {
   title: string
   courseLabel: string
   cards: FlashcardAPI[]
   onBack: () => void
-  /** When set, "La sé" / "No la sé" record a review (feeds the streak). */
-  syllabusId?: string
+  /** When set, "La sé" / "No la sé" record a review (feeds the SRS box + streak). */
+  scope?: Scope
   /** SRS keys due today: matching cards are surfaced first (repaso mode). */
   dueKeys?: string[]
 }
@@ -21,7 +24,7 @@ export function FlashcardsView({
   courseLabel,
   cards: rawCards,
   onBack,
-  syllabusId,
+  scope,
   dueKeys,
 }: Props) {
   // Order due (spaced-repetition) cards first, preserving relative order otherwise.
@@ -58,12 +61,11 @@ export function FlashcardsView({
   /** Self-grade the current card, record it, then advance. */
   const grade = useCallback(
     (known: boolean) => {
-      if (card && syllabusId)
-        void recordFlashcardReview(syllabusId, card.front, known).catch(() => {})
+      if (card && scope) void recordFlashcardReview(scope, card.front, known).catch(() => {})
       setGraded((g) => ({ ...g, [i]: known }))
       go(1)
     },
-    [card, syllabusId, i, go],
+    [card, scope, i, go],
   )
 
   const restart = () => {

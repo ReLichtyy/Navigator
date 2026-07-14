@@ -65,11 +65,18 @@ export const JobRepository = {
    * can't grab the same row. Pending jobs are only claimed once `scheduled_at`
    * is due, which is how retry backoff is enforced (see `fail`).
    *
-   * `syllabusId` narrows the claim to that syllabus's job (targeted drain for
-   * user-initiated reprocess); omitted → global queue order.
+   * `filter` narrows the claim to one job: `syllabusId` (targeted drain for a
+   * user-initiated reprocess) or `dedupeKey` (a study-bank job for one
+   * scope+difficulty, so a serve request only ever advances ITS OWN bank).
+   * Omitted → global queue order.
    */
-  async claimNext(type: string, staleMinutes = 10, syllabusId?: string): Promise<DbJob | null> {
-    const syllabusFilter = syllabusId ?? null
+  async claimNext(
+    type: string,
+    staleMinutes = 10,
+    filter?: { syllabusId?: string; dedupeKey?: string },
+  ): Promise<DbJob | null> {
+    const syllabusFilter = filter?.syllabusId ?? null
+    const dedupeFilter = filter?.dedupeKey ?? null
     const rows = await sql`
       UPDATE jobs
       SET status = 'processing', started_at = now(), attempts = attempts + 1
@@ -77,6 +84,7 @@ export const JobRepository = {
         SELECT id FROM jobs
         WHERE type = ${type}
           AND (${syllabusFilter}::text IS NULL OR payload->>'syllabusId' = ${syllabusFilter})
+          AND (${dedupeFilter}::text IS NULL OR payload->>'dedupeKey' = ${dedupeFilter})
           AND (
             (status = 'pending' AND scheduled_at <= now())
             OR (status = 'processing' AND started_at < now() - (${staleMinutes} || ' minutes')::interval)

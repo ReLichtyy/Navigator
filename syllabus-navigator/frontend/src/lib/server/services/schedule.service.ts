@@ -1,7 +1,7 @@
 import { ScheduleRepository, type ScheduleEvent } from "../repositories/schedule.repo"
 import { DocumentRepository } from "../repositories/document.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
-import { resolveEventWeekDates, isoAddDays } from "../rag/week-date"
+import { resolveEventWeekDates } from "../rag/week-date"
 
 function todayISO(): string {
   const d = new Date()
@@ -9,20 +9,16 @@ function todayISO(): string {
 }
 
 export const ScheduleService = {
-  /** The user's upcoming agenda across all their courses. */
+  /**
+   * The user's full agenda across all their courses — past events included, so
+   * the calendar can browse back into earlier months of the term. Events that
+   * only carry a "Semana N" label resolve to a real date when their course has
+   * a term_start.
+   */
   async getAgenda(userId: string): Promise<{ today: string; events: ScheduleEvent[] }> {
     const today = todayISO()
-    const events = await ScheduleRepository.listAgendaByUser(userId, today)
-    // "Semana N" events resolve to real dates when the course has a
-    // term_start. A resolved date is the Monday of that week, so keep it until
-    // its week fully passes (cutoff = today - 6); weeks already behind us drop
-    // out, mirroring the repo's own >= today cutoff for DATED events.
-    const datedInRepo = new Set(events.filter((e) => e.event_date != null).map((e) => e.id))
-    const weekCutoff = isoAddDays(today, -6)
-    const resolved = resolveEventWeekDates(events).filter(
-      (e) => e.event_date === null || datedInRepo.has(e.id) || e.event_date >= weekCutoff,
-    )
-    return { today, events: resolved }
+    const events = await ScheduleRepository.listAllByUser(userId)
+    return { today, events: resolveEventWeekDates(events) }
   },
 
   /** Full schedule for one syllabus the user owns (past included). */

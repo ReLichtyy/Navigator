@@ -28,6 +28,7 @@ import {
 import { QuizReviewRepository, type ReviewQuestion } from "../repositories/quiz-review.repo"
 import { QuizSeenRepository } from "../repositories/quiz-seen.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
+import { assertScopeOwned } from "../utils/scope"
 import { getUserPrefs } from "../utils/user-prefs"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
 import { webSearchContext, appendWebContext } from "../rag/web-search"
@@ -101,6 +102,37 @@ const STAGES = 3
 // reads the bank, kicks a fill job when short, and recycles when exhausted.
 const DIFFICULTY_LADDER: Difficulty[] = ["facil", "medio", "dificil"]
 
+// ── Warm budget (cost control) ───────────────────────────────────────────────
+// Background warming exists to keep the student from waiting, NOT to build a
+// complete bank: every batch is a real gen→gate→embed chain (6 LLM calls), so an
+// unbounded warm is an unbounded bill. Three limits keep it to a middle ground:
+//
+//   WARM_TARGET  — warm only fills a rung to "enough for a couple of stages",
+//                  well below BANK_TARGET_PER_DIFFICULTY. Past this, the rung is
+//                  only topped up on demand (a serve request with an empty pool)
+//                  or by the cron. Free once reached: `ensure` no-ops, `drain`
+//                  finds no job, and the whole call costs two counts.
+//   WARM_BATCHES — one generation per call. The client warms repeatedly, so the
+//                  bank still climbs; it just climbs in cheap steps.
+//   warmRungs()  — only the rungs this student will actually play.
+const WARM_TARGET = 30
+const WARM_BATCHES = 1
+
+/**
+ * The rungs worth pre-filling for this student: the one they start on, plus the
+ * next one up (which they reach after clearing stage 1). Warming the whole ladder
+ * would pay for `dificil` questions most students never see.
+ */
+function warmRungs(pref: Difficulty | undefined, mastery: { confidence: number }[]): Difficulty[] {
+  const avg =
+    mastery.length > 0 ? mastery.reduce((s, m) => s + m.confidence, 0) / mastery.length : 0
+  const base = ladderBase(pref, avg)
+  const next = Math.min(DIFFICULTY_LADDER.length - 1, base + 1)
+  return base === next
+    ? [DIFFICULTY_LADDER[base]]
+    : [DIFFICULTY_LADDER[base], DIFFICULTY_LADDER[next]]
+}
+
 /** A staged-quiz question carries its bank id so the client can exclude served items. */
 export interface StageQuestion extends QuizQuestion {
   id: string
@@ -109,6 +141,12 @@ export interface QuizStage {
   stage: number
   stages: number
   difficulty: Difficulty
+  /**
+   * Ladder index stage 0 starts from (0=fácil, 1=medio, 2=difícil). The client
+   * needs it to know whether the NEXT stage is actually harder — without it the
+   * between-stage screen promises an escalation that may not exist.
+   */
+  base: number
   /** Correct answers required to clear this stage (user pref; default STAGE_SIZE). */
   size: number
   questions: StageQuestion[]
@@ -119,17 +157,28 @@ export interface QuizStage {
 }
 
 /**
- * Hybrid escalation (mastery + score): mastery sets the base rung, the stage index
- * climbs the ladder, and the client-supplied `boost` (earned by acing prior stages)
- * accelerates it. Never drops below the base — failing a stage doesn't punish.
- * Floor is `medio` (idx 1): the quiz always starts from medium and climbs — strong
- * mastery starts at difícil. Difficulty is fully automatic; there's no manual picker.
+ * Where the ladder starts. An explicit Configuración difficulty anchors stage 0;
+ * with "Adaptativa" (no pref) mastery decides, so a strong student skips `fácil`.
  */
-function stageDifficulty(stage: number, masteryAvg: number, boost: number): Difficulty {
-  const base = masteryAvg >= 0.6 ? 2 : 1
-  const idx = Math.min(DIFFICULTY_LADDER.length - 1, Math.max(1, base + stage + boost))
+function ladderBase(pref: Difficulty | undefined, masteryAvg: number): number {
+  if (pref) return DIFFICULTY_LADDER.indexOf(pref)
+  return masteryAvg >= 0.6 ? 1 : 0
+}
+
+/**
+ * Hybrid escalation: `base` sets the starting rung, the stage index climbs the
+ * ladder, and the client-supplied `boost` (earned by acing prior stages)
+ * accelerates it. Never drops below the base — failing a stage doesn't punish.
+ */
+function stageDifficulty(stage: number, base: number, boost: number): Difficulty {
+  const idx = Math.min(DIFFICULTY_LADDER.length - 1, Math.max(0, base + stage + boost))
   return DIFFICULTY_LADDER[idx]
 }
+
+/** Postgres casts the exclude list to uuid[] — a malformed id would 500 the route. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const sanitizeIds = (ids: string[] | undefined): string[] =>
+  (ids ?? []).filter((id) => UUID_RE.test(id)).slice(0, 200)
 
 /** Order bank items by the plan's topic priority (weak/urgent/heavy first); recency otherwise. */
 function orderByPlan<T extends { topicKey: string | null }>(
@@ -148,14 +197,21 @@ function orderByPlan<T extends { topicKey: string | null }>(
 type StageItem = { id: string; topicKey: string | null; payload: QuizQuestion }
 
 /**
- * Serve a stage's bank items WITHOUT generating inline. When the bank is short we
- * (1) kick a background fill job, (2) drain one job so this very request advances
- * generation a little, and (3) re-read. If the pool is still empty we recycle
- * already-seen items (bank at target, everything served) or report exhaustion so
- * the client shows the aviso instead of hanging.
+ * Serve a stage's bank items. When the bank is short we kick a background fill job
+ * (dedupe-guarded) and, ONLY if we'd otherwise return an empty screen, drain that
+ * job inline so this request produces the first batch itself.
  *
- * `clientExclude`/`reviewExclude` are always honored; `seenExclude` is dropped on
- * recycle. Returns the pool plus `generating`/`exhausted` flags for the client.
+ * Draining is a full LLM generation, so it must not be on the path of a request
+ * that already has something to serve: a short-but-non-empty pool is returned
+ * immediately with `generating: true`, and the client's background top-up picks up
+ * the rest. The inline drain is targeted at THIS (scope, difficulty) — an
+ * unfiltered claim would burn the invocation on another scope's bank.
+ *
+ * If the pool is still empty we recycle already-seen items of this difficulty, or
+ * report exhaustion so the client shows the aviso instead of hanging.
+ *
+ * `clientExclude`/`reviewExclude` are always honored; `seenExclude` is what recycle
+ * drops. Returns the pool plus `generating`/`exhausted` flags for the client.
  */
 async function fillDrainRecycle(
   userId: string,
@@ -168,56 +224,47 @@ async function fillDrainRecycle(
   ownerId: string | undefined,
   language: string | undefined,
 ): Promise<{ items: StageItem[]; generating: boolean; exhausted: boolean }> {
-  const map = (rows: { id: string; topicKey: string | null; payload: QuizQuestion }[]): StageItem[] =>
-    rows.map((p) => ({ id: p.id, topicKey: p.topicKey, payload: p.payload }))
+  const map = (
+    rows: { id: string; topicKey: string | null; payload: QuizQuestion }[],
+  ): StageItem[] => rows.map((p) => ({ id: p.id, topicKey: p.topicKey, payload: p.payload }))
+  const read = (exclude: string[]) =>
+    StudyItemsRepository.listForStage<QuizQuestion>(scope, "quiz", difficulty, sizes.pool, exclude)
 
   const allExclude = Array.from(new Set([...clientExclude, ...reviewExclude, ...seenExclude]))
-  let pool = await StudyItemsRepository.listForStage<QuizQuestion>(
-    scope,
-    "quiz",
-    difficulty,
-    sizes.pool,
-    allExclude,
-  )
+  let pool = await read(allExclude)
+  if (pool.length >= sizes.need) return { items: map(pool), generating: false, exhausted: false }
 
-  let generating = false
-  if (pool.length < sizes.need) {
-    // Kick a background fill (dedupe-guarded), and drain one job so this request
-    // makes progress instead of returning empty on a cold bank.
-    await StudyBankService.ensure(scope, difficulty, ownerId, language)
-    await StudyBankService.drain(1).catch((err) =>
-      logError("study.stage.drain_error", {
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    )
-    pool = await StudyItemsRepository.listForStage<QuizQuestion>(
-      scope,
-      "quiz",
-      difficulty,
-      sizes.pool,
-      allExclude,
-    )
-    generating = await StudyBankService.hasPending(scope, difficulty)
+  // Short bank → enqueue a fill. Cheap: a count plus a dedupe-guarded insert.
+  await StudyBankService.ensure(scope, difficulty, ownerId, language)
+
+  // Something to serve already → hand it over now and let the fill run in the
+  // background (cron, or the next poll that finds an empty pool). Blocking on a
+  // generation here would add ~a minute to a request that didn't need it.
+  if (pool.length > 0) {
+    const generating = await StudyBankService.hasPending(scope, difficulty)
+    return { items: map(pool), generating, exhausted: false }
   }
 
+  // Empty pool: this request has nothing to show, so it does the work itself.
+  await StudyBankService.drain(1, { scope, difficulty }).catch((err) =>
+    logError("study.stage.drain_error", {
+      error: err instanceof Error ? err.message : String(err),
+    }),
+  )
+  pool = await read(allExclude)
+  const generating = await StudyBankService.hasPending(scope, difficulty)
   if (pool.length > 0) return { items: map(pool), generating, exhausted: false }
   if (generating) return { items: [], generating: true, exhausted: false }
 
-  // Nothing to serve and nothing in flight. If the bank actually holds items,
-  // everything has been SEEN → recycle: forget the seen ledger and re-read
-  // honoring only the client/review excludes.
-  const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
-  if (total > 0) {
-    await QuizSeenRepository.clearForScope(userId, scope)
-    const recycleExclude = Array.from(new Set([...clientExclude, ...reviewExclude]))
-    pool = await StudyItemsRepository.listForStage<QuizQuestion>(
-      scope,
-      "quiz",
-      difficulty,
-      sizes.pool,
-      recycleExclude,
-    )
-    if (pool.length > 0) return { items: map(pool), generating: false, exhausted: false }
+  // Nothing to serve and nothing in flight. If dropping the seen ledger would
+  // surface items, everything at this difficulty has simply been answered before
+  // → recycle. Only clear the ledger when it's actually the blocker (an empty pool
+  // caused by client/review excludes alone must not wipe the student's history).
+  const recycleExclude = Array.from(new Set([...clientExclude, ...reviewExclude]))
+  const recyclable = seenExclude.length > 0 ? await read(recycleExclude) : []
+  if (recyclable.length > 0) {
+    await QuizSeenRepository.clearForScopeDifficulty(userId, scope, difficulty)
+    return { items: map(recyclable), generating: false, exhausted: false }
   }
 
   // No items at this difficulty at all (or every one still excluded this run).
@@ -271,10 +318,17 @@ async function bankAndAssemble(
   difficulty: Difficulty,
   custom: boolean,
   orderedKeys: string[] = [],
+  /**
+   * Web-augmented sets are grounded on live search results, not on the course's
+   * own material. They're served to whoever asked for them, but they must NOT
+   * enter the shared bank — from there they'd be resurfaced as if the syllabus
+   * itself taught them.
+   */
+  web = false,
 ): Promise<StudySet> {
   try {
     const items = decompose(set)
-    if (items.length > 0) {
+    if (items.length > 0 && !web) {
       const embeddings = await embedTexts(items.map((i) => i.dedupeText))
       const toInsert: NewStudyItem[] = items.map((it, i) => ({
         userId: null, // shared per scope for now (avoids guest FK; bank is sharable)
@@ -318,18 +372,6 @@ async function bankAndAssemble(
     logError("study.bank.error", { error: err instanceof Error ? err.message : String(err) })
     return shuffleSetQuiz(set) // banking failed → still serve the freshly generated set
   }
-}
-
-/** Verify the caller owns the doc/course behind a scope; returns the scope or throws 404. */
-async function assertScopeOwned(userId: string, scope: StudyScope): Promise<StudyScope> {
-  if (scope.kind === "doc") {
-    const doc = await DocumentRepository.findByIdAndUser(scope.id, userId)
-    if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
-    return scope
-  }
-  const course = await CourseRepository.findByIdAndUser(scope.id, userId)
-  if (!course) throw new ApiErrorResponse("Course not found", 404)
-  return scope
 }
 
 export const StudyService = {
@@ -386,7 +428,7 @@ export const StudyService = {
     // Step 5: the Router orders topics by student state (mastery gaps × exam
     // weight × schedule urgency × SRS pressure) so weak/urgent topics are studied
     // first. Degrades to graph order on any failure (guest, no signals).
-    const plan = await buildStudyPlan(userId, syllabusId, weightedTopics, difficulty)
+    const plan = await buildStudyPlan(userId, scope, weightedTopics, difficulty)
     const planLabels = orderLabelsByPlan(plan)
     const topicLabels = topics.map((t) => t.label.trim()).filter(Boolean)
     const ordered = planLabels.length > 0 ? planLabels : topicLabels
@@ -427,7 +469,7 @@ export const StudyService = {
 
     // Reconnect the Router → served set: rank the assembled quiz by plan priority.
     const orderedKeys = plan.targets.map((t) => t.topicKey)
-    const served = await bankAndAssemble(scope, set, difficulty, custom, orderedKeys)
+    const served = await bankAndAssemble(scope, set, difficulty, custom, orderedKeys, !!opts.web)
 
     // Only persist the canonical default set.
     if (!custom) await StudyRepository.upsert(syllabusId, served, fingerprint, STUDY_SCHEMA_VERSION)
@@ -499,7 +541,7 @@ export const StudyService = {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
     }
 
-    const served = await bankAndAssemble(scope, set, difficulty, custom)
+    const served = await bankAndAssemble(scope, set, difficulty, custom, [], !!opts.web)
 
     if (!custom)
       await StudyRepository.upsertByCourse(courseId, served, fingerprint, STUDY_SCHEMA_VERSION)
@@ -553,14 +595,14 @@ export const StudyService = {
 
     const stage = Math.min(Math.max(Math.trunc(opts.stage ?? 0), 0), STAGES - 1)
     const boost = Math.min(Math.max(Math.trunc(opts.boost ?? 0), 0), 2)
-    const excludeIds = (opts.excludeIds ?? []).slice(0, 200)
+    const excludeIds = sanitizeIds(opts.excludeIds)
     const scope: StudyScope = { kind: "doc", id: syllabusId }
 
     // Independent reads in parallel: mastery (escalation base), the topic graph,
     // the Repaso exclusion set, the per-user "already seen" set (no repeats
-    // across sessions), and the user's prefs (output language).
+    // across sessions), and the user's prefs (output language, difficulty, size).
     const [mastery, graph, reviewExclude, seenExclude, prefs] = await Promise.all([
-      MasteryRepository.listForSyllabus(userId, syllabusId).catch(() => []),
+      MasteryRepository.listForScope(userId, scope).catch(() => []),
       GraphRepository.getGraph(syllabusId),
       QuizReviewRepository.openItemIds(userId, scope).catch(() => []),
       QuizSeenRepository.seenItemIds(userId, scope).catch(() => []),
@@ -571,14 +613,16 @@ export const StudyService = {
     const poolSize = size + (STAGE_POOL - STAGE_SIZE)
     const masteryAvg =
       mastery.length > 0 ? mastery.reduce((s, m) => s + m.confidence, 0) / mastery.length : 0
-    const difficulty = stageDifficulty(stage, masteryAvg, boost)
+    // Dificultad (Configuración) anchors the ladder; "Adaptativa" leaves it to mastery.
+    const base = ladderBase(prefs.difficulty, masteryAvg)
+    const difficulty = stageDifficulty(stage, base, boost)
 
     // Plan ordering (computed once; reused for generation evidence when needed).
     const { topics } = graph
     const weightedTopics = topics
       .filter((t) => (t.weight_percent ?? 0) > 0)
       .map((t) => ({ label: t.label, weight: Number(t.weight_percent) }))
-    const plan = await buildStudyPlan(userId, syllabusId, weightedTopics, difficulty)
+    const plan = await buildStudyPlan(userId, scope, weightedTopics, difficulty)
     const orderedKeys = plan.targets.map((t) => t.topicKey)
 
     // Read the bank (background jobs generate it — never inline here). Failed
@@ -600,6 +644,7 @@ export const StudyService = {
       stage,
       stages: STAGES,
       difficulty,
+      base,
       size,
       generating,
       exhausted,
@@ -609,8 +654,9 @@ export const StudyService = {
   },
 
   /**
-   * One stage of the staged quiz for a whole course. No per-syllabus mastery, so
-   * the escalation is base-0 (fácil→medio→difícil) plus `boost`. 404 when not owned.
+   * One stage of the staged quiz for a whole course. Since the mastery ledger is
+   * scope-based, this escalates off the student's REAL course mastery — it used to
+   * be hardcoded to 0, so a whole-course quiz never adapted. 404 when not owned.
    */
   async getCourseQuizStage(
     userId: string,
@@ -622,17 +668,21 @@ export const StudyService = {
 
     const stage = Math.min(Math.max(Math.trunc(opts.stage ?? 0), 0), STAGES - 1)
     const boost = Math.min(Math.max(Math.trunc(opts.boost ?? 0), 0), 2)
-    const excludeIds = (opts.excludeIds ?? []).slice(0, 200)
+    const excludeIds = sanitizeIds(opts.excludeIds)
     const scope: StudyScope = { kind: "course", id: courseId }
-    const difficulty = stageDifficulty(stage, 0, boost)
 
-    const [reviewExclude, seenExclude, prefs] = await Promise.all([
+    const [mastery, reviewExclude, seenExclude, prefs] = await Promise.all([
+      MasteryRepository.listForScope(userId, scope).catch(() => []),
       QuizReviewRepository.openItemIds(userId, scope).catch(() => []),
       QuizSeenRepository.seenItemIds(userId, scope).catch(() => []),
       getStudyPrefs(userId),
     ])
     const size = prefs.questionCount ?? STAGE_SIZE
     const poolSize = size + (STAGE_POOL - STAGE_SIZE)
+    const masteryAvg =
+      mastery.length > 0 ? mastery.reduce((s, m) => s + m.confidence, 0) / mastery.length : 0
+    const base = ladderBase(prefs.difficulty, masteryAvg)
+    const difficulty = stageDifficulty(stage, base, boost)
     const { items, generating, exhausted } = await fillDrainRecycle(
       userId,
       scope,
@@ -650,11 +700,60 @@ export const StudyService = {
       stage,
       stages: STAGES,
       difficulty,
+      base,
       size,
       generating,
       exhausted,
       questions: ordered.map((it) => ({ ...shuffleQuizOptions(it.payload), id: it.id })),
     }
+  },
+
+  /**
+   * Fill the question bank OFF the critical path.
+   *
+   * The bank only grows when a `study-bank` job is drained, and the only drainers
+   * are (a) the daily cron and (b) a serve request that found an empty pool. So
+   * without this, every generation lands inside a request the student is waiting
+   * on — which is why the quiz sat at "90%" on every open, not just the first.
+   *
+   * The client calls this fire-and-forget while the student is reading the menu or
+   * answering the current stage (minutes of idle), so by the time they need the
+   * next questions the bank already has them. Idempotent and ownership-checked;
+   * concurrent calls can't double-generate (atomic claim + job dedupe).
+   */
+  async warmBank(
+    userId: string,
+    scope: StudyScope,
+    opts: { difficulties?: Difficulty[]; batches?: number } = {},
+  ): Promise<{ drained: number; rungs: Difficulty[] }> {
+    const s = await assertScopeOwned(userId, scope)
+    const [prefs, mastery] = await Promise.all([
+      getStudyPrefs(userId),
+      MasteryRepository.listForScope(userId, s).catch(() => []),
+    ])
+
+    // Only the rungs this student is actually about to play, and only up to
+    // WARM_TARGET — not the full BANK_TARGET. Warming all three to 70 would burn
+    // ~6× the LLM calls for questions most students never reach.
+    const rungs = opts.difficulties ?? warmRungs(prefs.difficulty, mastery)
+    for (const d of rungs) {
+      await StudyBankService.ensure(s, d, userId, prefs.language, WARM_TARGET)
+    }
+
+    // Drain what's queued for THIS scope (the claim is filtered per
+    // scope+difficulty, so this can't burn the invocation on someone else's bank).
+    // Best-effort: a generation failure must not fail the warm call.
+    const budget = opts.batches ?? WARM_BATCHES
+    let drained = 0
+    for (const d of rungs) {
+      if (drained >= budget) break
+      const { processed } = await StudyBankService.drain(budget - drained, {
+        scope: s,
+        difficulty: d,
+      }).catch(() => ({ processed: 0, failed: 0 }))
+      drained += processed
+    }
+    return { drained, rungs }
   },
 
   /**
@@ -675,10 +774,16 @@ export const StudyService = {
     await QuizSeenRepository.markSeen(userId, s, itemIds)
   },
 
-  /** The user's Repaso queue for a scope: quiz questions still to be re-mastered. */
+  /**
+   * The user's Repaso queue for a scope: quiz questions still to be re-mastered.
+   * Options are reshuffled on every serve — the stored payload keeps whatever
+   * position the answer had when the question was failed, so serving it verbatim
+   * would let the student re-master the POSITION instead of the concept.
+   */
   async listQuizReview(userId: string, scope: StudyScope): Promise<ReviewQuestion[]> {
     const s = await assertScopeOwned(userId, scope)
-    return QuizReviewRepository.listOpen(userId, s)
+    const open = await QuizReviewRepository.listOpen(userId, s)
+    return open.map((q) => ({ ...shuffleQuizOptions(q), id: q.id }))
   },
 
   /** Resolve a Repaso question (answered correctly) so it drops out of the queue. */
@@ -688,16 +793,17 @@ export const StudyService = {
   },
 
   /**
-   * Record a flashcard review (SRS box update). Thin wrapper over the stats
-   * repo so callers (route handler, tools layer) go through the service, not
-   * the repo directly. Ownership is implicit via `userId` scoping.
+   * Record a flashcard review (SRS box update) against a scope the caller owns.
+   * Works for whole-course scope now — before, the course's flashcards recorded
+   * nothing, so neither the streak nor the SRS queue ever saw them.
    */
   async recordReview(
     userId: string,
-    syllabusId: string,
+    scope: StudyScope,
     cardKey: string,
     known: boolean,
   ): Promise<void> {
-    await StudyStatsRepository.recordReview(userId, syllabusId, cardKey, known)
+    const s = await assertScopeOwned(userId, scope)
+    await StudyStatsRepository.recordReview(userId, s, cardKey, known)
   },
 }

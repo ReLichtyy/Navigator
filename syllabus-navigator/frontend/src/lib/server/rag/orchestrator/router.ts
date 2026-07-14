@@ -14,6 +14,7 @@ import { MasteryRepository } from "../../repositories/mastery.repo"
 import { topicKey } from "../../repositories/mastery.repo"
 import { StudyStatsRepository } from "../../repositories/study-stats.repo"
 import { ScheduleRepository } from "../../repositories/schedule.repo"
+import type { StudyScope } from "../../repositories/study-items.repo"
 import { logError } from "@/lib/observability/logger"
 import type { Difficulty } from "../study-gen"
 import type { StudyPlan, TopicTarget } from "./state"
@@ -67,12 +68,17 @@ function urgencyFromSchedule(dates: (string | null)[]): number {
 }
 
 /**
- * Build a StudyPlan for a syllabus. Reads mastery + SRS + schedule; degrades to
- * weight-only ordering on any failure (e.g. guest user, no graph).
+ * Build a StudyPlan for a scope (one document or a whole course). Reads mastery +
+ * SRS + schedule; degrades to weight-only ordering on any failure (e.g. guest
+ * user, no graph).
+ *
+ * Schedule urgency is doc-only: `schedule_events` hang off a syllabus, and there
+ * is no course-level view of them yet, so a course-scope plan scores on mastery +
+ * exam weight + SRS pressure and leaves urgency at 0.
  */
 export async function buildStudyPlan(
   userId: string,
-  syllabusId: string,
+  scope: StudyScope,
   weighted: WeightedTopic[],
   difficulty: Difficulty,
 ): Promise<StudyPlan> {
@@ -81,9 +87,9 @@ export async function buildStudyPlan(
   let srsPressure = 0
   try {
     const [mastery, srs, events] = await Promise.all([
-      MasteryRepository.listForSyllabus(userId, syllabusId),
-      StudyStatsRepository.srsPressure(userId, syllabusId),
-      ScheduleRepository.listBySyllabus(syllabusId),
+      MasteryRepository.listForScope(userId, scope),
+      StudyStatsRepository.srsPressure(userId, scope),
+      scope.kind === "doc" ? ScheduleRepository.listBySyllabus(scope.id) : Promise.resolve([]),
     ])
     masteryByKey = new Map(mastery.map((m) => [m.topic_key, m.confidence]))
     srsPressure = srs.total > 0 ? srs.due / srs.total : 0
@@ -95,7 +101,7 @@ export async function buildStudyPlan(
   }
 
   return {
-    scope: { kind: "doc", id: syllabusId },
+    scope,
     targets: scoreTargets(weighted, masteryByKey, urgency, srsPressure),
     difficulty,
     srsPressure,

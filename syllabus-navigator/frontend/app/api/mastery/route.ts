@@ -1,8 +1,9 @@
 /**
  * /api/mastery
- *   POST — record a batch of quiz outcomes ({ syllabus_id, outcomes:[{label,correct}] }).
- *   GET  — course-level mastery overview across all the caller's syllabi.
- * Both require auth; recording 404s when the syllabus isn't the caller's.
+ *   POST — record a batch of quiz outcomes ({ kind, id, outcomes:[{label,correct}] }).
+ *          `kind`/`id` are a study scope, so a whole-course quiz records mastery too.
+ *   GET  — mastery overview across all the caller's syllabi.
+ * Both require auth; recording 404s when the scope isn't the caller's.
  */
 import { NextResponse } from "next/server"
 import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
@@ -22,7 +23,8 @@ export async function POST(req: Request) {
         { status: 400 },
       )
     }
-    await MasteryService.record(userId, parsed.data.syllabus_id, parsed.data.outcomes)
+    const { kind, id, outcomes } = parsed.data
+    await MasteryService.record(userId, { kind, id }, outcomes)
     return NextResponse.json({ success: true })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {

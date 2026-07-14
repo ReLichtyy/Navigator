@@ -15,6 +15,8 @@ import Link from "next/link"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
 import { DayNotesPanel } from "@/components/agenda/day-notes-panel"
+import { AgendaFilters } from "@/components/agenda/agenda-filters"
+import { applyFilter, pruneFilter, EMPTY_FILTER, type AgendaFilter } from "@/lib/ui/agenda-filter"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -36,6 +38,7 @@ export default function AgendaPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [noteDates, setNoteDates] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState<AgendaFilter>(EMPTY_FILTER)
 
   // Only registered users may keep notes (date_notes FKs users.id).
   const canEditNotes = status !== "anonymous" && status !== "guest"
@@ -52,6 +55,8 @@ export default function AgendaPage() {
         if (!alive) return
         setPlan(p)
         setEvents(a.events)
+        // Drop selections for courses/docs that no longer exist.
+        setFilter((f) => pruneFilter(f, a.events))
       })
       .catch(() => alive && setError("No se pudo cargar la agenda."))
       .finally(() => alive && setLoading(false))
@@ -95,19 +100,29 @@ export default function AgendaPage() {
 
   const todayIso = plan?.today ?? ""
 
+  // Everything below the filter bar renders `visible` — the calendar, the week
+  // accordion and the day panel all show the same filtered slice.
+  const visible = applyFilter(events, filter)
+  const dayBuckets = bucketEventsByDate(visible)
+  const visibleCourses = new Set(visible.map((e) => e.course_name))
+
   // Próximos 5 días: only assessments within the next 5 days (auto-updates with `today`).
   const next5 = (plan?.upcoming_assessments ?? []).filter(
-    (a) => a.days_until != null && a.days_until >= 0 && a.days_until <= 5,
+    (a) =>
+      a.days_until != null &&
+      a.days_until >= 0 &&
+      a.days_until <= 5 &&
+      visibleCourses.has(a.course_name),
   )
 
-  // Group the full agenda by week_label (topics + activities), collapsed in an accordion.
+  // Group the filtered agenda by week_label (topics + activities), in an accordion.
   const NO_WEEK = "Sin semana fija"
   const weekNum = (s: string) => {
     const m = /(\d+)/.exec(s)
     return m ? +m[1] : Number.POSITIVE_INFINITY
   }
   const weekMap = new Map<string, ScheduleEventAPI[]>()
-  for (const e of events) {
+  for (const e of visible) {
     const k = e.week_label?.trim() || NO_WEEK
     ;(weekMap.get(k) ?? weekMap.set(k, []).get(k)!).push(e)
   }
@@ -128,7 +143,7 @@ export default function AgendaPage() {
     })
 
   // Default-open the week holding the next upcoming dated event (else the first week).
-  const nextDated = events
+  const nextDated = visible
     .filter(
       (e) => e.event_date && /^\d{4}-\d{2}-\d{2}$/.test(e.event_date) && e.event_date >= todayIso,
     )
@@ -169,11 +184,19 @@ export default function AgendaPage() {
             </div>
           ) : (
             <>
+              {/* ─── Filters over the dates extracted from the PDFs/cronogramas ─── */}
+              <AgendaFilters
+                events={events}
+                value={filter}
+                onChange={setFilter}
+                shown={visible.length}
+              />
+
               {/* ─── Month calendar HERO (calendar-first view) ─── */}
               <MonthCalendar
                 large
                 showDetectedList={false}
-                events={events}
+                events={visible}
                 today={plan?.today ?? ""}
                 onSelectDay={(iso) => setSelectedDate((cur) => (cur === iso ? null : iso))}
                 selectedDate={selectedDate}
@@ -182,7 +205,7 @@ export default function AgendaPage() {
                   selectedDate ? (
                     <DayNotesPanel
                       date={selectedDate}
-                      dayEvents={bucketEventsByDate(events)[selectedDate] ?? []}
+                      dayEvents={dayBuckets[selectedDate] ?? []}
                       canEdit={canEditNotes}
                       onClose={() => setSelectedDate(null)}
                       onCountChange={handleNoteCountChange}
@@ -190,6 +213,12 @@ export default function AgendaPage() {
                   ) : null
                 }
               />
+
+              {visible.length === 0 && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Ningún evento coincide con los filtros activos.
+                </p>
+              )}
 
               {/* ─── Próximos 5 días (only what's actually near) ─── */}
               {plan && (

@@ -1,6 +1,6 @@
 /**
  * /api/courses/[id] — update or delete a user course.
- *   PATCH  { name?, term_start? } → rename and/or set the "Semana N" anchor
+ *   PATCH  { name?, color?, term_start? } → rename, recolor and/or set the "Semana N" anchor
  *   DELETE                        → remove the course AND its documents (cascade, irreversible)
  * Accounts only; guests get 403.
  */
@@ -30,6 +30,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     const course = await CourseService.updateCourse(id, userId, {
       name: parsed.data.name,
+      color: parsed.data.color,
       termStart: parsed.data.term_start,
     })
     await invalidatePrefix(`uploads:list:${userId}`)

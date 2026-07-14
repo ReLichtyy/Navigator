@@ -99,14 +99,18 @@ export const CourseGraphRegenerateSchema = z.object({
 
 export type CourseGraphRegenerateInput = z.infer<typeof CourseGraphRegenerateSchema>
 
-export const FlashcardReviewSchema = z.object({
-  syllabus_id: z.string().uuid("Invalid syllabus ID"),
+/** A study scope: one document, or a whole course. Mirrors StudyScope server-side. */
+export const StudyScopeSchema = z.object({
+  kind: z.enum(["doc", "course"]),
+  id: z.string().uuid("Invalid scope ID"),
+})
+
+export const FlashcardReviewSchema = StudyScopeSchema.extend({
   card_key: z.string().min(1, "card_key required").max(200),
   known: z.boolean(),
 })
 
-export const MasteryRecordSchema = z.object({
-  syllabus_id: z.string().uuid("Invalid syllabus ID"),
+export const MasteryRecordSchema = StudyScopeSchema.extend({
   outcomes: z
     .array(z.object({ label: z.string().trim().min(1).max(200), correct: z.boolean() }))
     .min(1, "At least one outcome required")
@@ -114,15 +118,21 @@ export const MasteryRecordSchema = z.object({
 })
 
 // --- Course Intelligence Layer ---
+/** Course color: a hex string (#RRGGBB) from the shared palette. */
+const CourseColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Color inválido (usa #RRGGBB)")
+
 export const CreateCourseSchema = z.object({
   name: z.string().trim().min(1, "El nombre es obligatorio").max(120, "Nombre demasiado largo"),
   description: z.string().trim().max(1000).nullish(),
   subject_tags: z.array(z.string().trim().min(1).max(40)).max(12).nullish(),
-  color: z.string().trim().max(32).nullish(),
+  color: CourseColorSchema.nullish(),
 })
 
-// Update a course folder: rename and/or set the term start ("Semana N" → date
-// resolution anchor; null clears it). At least one field required.
+// Update a course folder: rename, set the color, and/or set the term start
+// ("Semana N" → date resolution anchor; null clears it). At least one field.
 export const UpdateCourseSchema = z
   .object({
     name: z
@@ -131,13 +141,14 @@ export const UpdateCourseSchema = z
       .min(1, "El nombre es obligatorio")
       .max(120, "Nombre demasiado largo")
       .optional(),
+    color: CourseColorSchema.nullable().optional(),
     term_start: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha inválida (YYYY-MM-DD)")
       .nullable()
       .optional(),
   })
-  .refine((d) => d.name !== undefined || d.term_start !== undefined, {
+  .refine((d) => d.name !== undefined || d.color !== undefined || d.term_start !== undefined, {
     message: "Nada que actualizar",
   })
 export type UpdateCourseInput = z.infer<typeof UpdateCourseSchema>

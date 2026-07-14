@@ -85,7 +85,13 @@ describe("executeTool dispatch", () => {
   it("record_review calls the service when a syllabus is in scope", async () => {
     const r = await executeTool("record_review", { cardKey: "k", known: false }, ctx)
     expect(r.ok).toBe(true)
-    expect(StudyService.recordReview).toHaveBeenCalledWith("u1", "s1", "k", false)
+    // The chat is always on one syllabus → doc scope.
+    expect(StudyService.recordReview).toHaveBeenCalledWith(
+      "u1",
+      { kind: "doc", id: "s1" },
+      "k",
+      false,
+    )
   })
 
   it("generate_study_set requires scopeId for course scope", async () => {

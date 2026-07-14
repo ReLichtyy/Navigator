@@ -10,14 +10,12 @@ type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string
 interface Props {
   courseLabel: string
   scope: Scope
-  /** When set, correct re-answers feed the mastery ledger (doc scope only). */
-  syllabusId?: string
   onBack: () => void
 }
 
 const GLYPHS = ["A", "B", "C", "D", "E"]
 
-export function QuizReviewView({ courseLabel, scope, syllabusId, onBack }: Props) {
+export function QuizReviewView({ courseLabel, scope, onBack }: Props) {
   const [queue, setQueue] = useState<QuizQuestionAPI[]>([])
   const [idx, setIdx] = useState(0)
   const [selected, setSelected] = useState<number | null>(null)
@@ -49,7 +47,7 @@ export function QuizReviewView({ courseLabel, scope, syllabusId, onBack }: Props
   const flushMastery = () => {
     const batch = outcomes.current
     outcomes.current = []
-    if (syllabusId && batch.length > 0) recordMastery(syllabusId, batch).catch(() => {})
+    if (batch.length > 0) recordMastery(scope, batch).catch(() => {})
   }
 
   const q = queue[idx]

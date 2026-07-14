@@ -367,6 +367,36 @@ CREATE TABLE IF NOT EXISTS topic_mastery (
 );
 CREATE INDEX IF NOT EXISTS topic_mastery_user_idx ON topic_mastery (user_id, syllabus_id);
 
+-- Scope generalization (2026-07-13). Both ledgers above hung off syllabus_id only,
+-- so the whole-course study scope recorded NO progress at all: no mastery, no SRS,
+-- no streak — the quiz there could never adapt. They now carry (scope_kind,
+-- scope_id) like study_items / quiz_review / quiz_seen.
+--
+-- syllabus_id stays populated for doc scope (it keeps the ON DELETE CASCADE), and
+-- is NULL for course scope. Like the other scoped tables, scope_id has no FK, so
+-- deleting a course leaves its rows behind — see CourseService.remove for cleanup.
+ALTER TABLE flashcard_reviews ADD COLUMN IF NOT EXISTS scope_kind TEXT NOT NULL DEFAULT 'doc';
+ALTER TABLE flashcard_reviews ADD COLUMN IF NOT EXISTS scope_id   UUID;
+UPDATE flashcard_reviews SET scope_id = syllabus_id WHERE scope_id IS NULL;
+ALTER TABLE flashcard_reviews ALTER COLUMN scope_id SET NOT NULL;
+ALTER TABLE flashcard_reviews ALTER COLUMN syllabus_id DROP NOT NULL;
+ALTER TABLE flashcard_reviews DROP CONSTRAINT IF EXISTS flashcard_reviews_user_id_syllabus_id_card_key_key;
+CREATE UNIQUE INDEX IF NOT EXISTS flashcard_reviews_scope_card_key
+  ON flashcard_reviews (user_id, scope_kind, scope_id, card_key);
+CREATE INDEX IF NOT EXISTS flashcard_reviews_scope_due_idx
+  ON flashcard_reviews (user_id, scope_kind, scope_id, due_at);
+
+ALTER TABLE topic_mastery ADD COLUMN IF NOT EXISTS scope_kind TEXT NOT NULL DEFAULT 'doc';
+ALTER TABLE topic_mastery ADD COLUMN IF NOT EXISTS scope_id   UUID;
+UPDATE topic_mastery SET scope_id = syllabus_id WHERE scope_id IS NULL;
+ALTER TABLE topic_mastery ALTER COLUMN scope_id SET NOT NULL;
+ALTER TABLE topic_mastery ALTER COLUMN syllabus_id DROP NOT NULL;
+ALTER TABLE topic_mastery DROP CONSTRAINT IF EXISTS topic_mastery_user_id_syllabus_id_topic_key_key;
+CREATE UNIQUE INDEX IF NOT EXISTS topic_mastery_scope_topic_key
+  ON topic_mastery (user_id, scope_kind, scope_id, topic_key);
+CREATE INDEX IF NOT EXISTS topic_mastery_scope_idx
+  ON topic_mastery (user_id, scope_kind, scope_id);
+
 -- ---------------------------------------------------------------------------
 -- Course Intelligence Layer (Navigator) — user-defined courses + auto-inference
 -- ---------------------------------------------------------------------------

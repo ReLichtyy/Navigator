@@ -9,18 +9,30 @@
  *
  * Here generation is a `jobs` row (`type = "study-bank"`) instead. Each job run
  * generates ONE batch (~GEN_BATCH questions) and re-enqueues itself while the bank
- * is below its target — so the bank fills across several short requests rather than
- * one long one. On serverless (Vercel) we can't run true background work after the
- * response, so the queue is drained a little on every serve/poll (`drain(1)`): the
- * client polling the quiz stage is what advances generation, with the cron backstop
- * (`/api/cron/process`) filling in when nobody is polling.
+ * is below its target.
+ *
+ * WHO DRAINS THE QUEUE. On serverless there is no true background work after a
+ * response, and the Vercel cron is on the Hobby plan (once a DAY — a backstop, not
+ * a worker). So the drainers are, in order of preference:
+ *   1. `POST /api/study/warm` — fired fire-and-forget by the client while the
+ *      student is idle (picking a course, answering the current stage). This is
+ *      the one that matters: it moves generation OFF the critical path.
+ *   2. A serve request that found an EMPTY pool — the last-resort path that makes
+ *      the student wait. Keep it, but it should rarely trigger.
+ *   3. `/api/cron/process` — daily safety net.
+ * Relying on 2 alone is what made the quiz sit at "90%" on every open: the bank
+ * could never accumulate, because it only ever grew while someone was waiting.
  *
  * Dedupe: `JobRepository.enqueue` keys study jobs on `payload.dedupeKey`
  * (scope+quiz+difficulty) and `claimNext` is atomic (FOR UPDATE SKIP LOCKED), so
  * concurrent pollers never double-generate.
  */
 
-import { StudyItemsRepository, type StudyScope, type NewStudyItem } from "../repositories/study-items.repo"
+import {
+  StudyItemsRepository,
+  type StudyScope,
+  type NewStudyItem,
+} from "../repositories/study-items.repo"
 import { GraphRepository } from "../repositories/graph.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { JobRepository, type DbJob } from "../repositories/job.repo"
@@ -163,14 +175,22 @@ export const StudyBankService = {
   },
 
   /**
-   * Drain up to `max` study-bank jobs (default 1). Called from the serve/poll path
-   * so each request advances generation a little. Atomic claim → concurrent callers
-   * won't double-generate.
+   * Drain up to `max` study-bank jobs (default 1). Atomic claim → concurrent
+   * callers won't double-generate.
+   *
+   * `target` scopes the claim to one (scope, difficulty). The serve path MUST pass
+   * it: an unfiltered claim makes a student's request spend its whole invocation
+   * generating some other scope's bank while their own stays empty and they keep
+   * polling. The cron backstop drains unfiltered on purpose (it works the queue).
    */
-  async drain(max = 1): Promise<{ processed: number; failed: number }> {
+  async drain(
+    max = 1,
+    target?: { scope: StudyScope; difficulty: Difficulty },
+  ): Promise<{ processed: number; failed: number }> {
     const tally = { processed: 0, failed: 0 }
+    const filter = target ? { dedupeKey: dedupeKeyFor(target.scope, target.difficulty) } : undefined
     for (let i = 0; i < max; i++) {
-      const job = await JobRepository.claimNext(JOB_TYPE_STUDY)
+      const job = await JobRepository.claimNext(JOB_TYPE_STUDY, 10, filter)
       if (!job) break
       await processBankJob(job, tally)
     }

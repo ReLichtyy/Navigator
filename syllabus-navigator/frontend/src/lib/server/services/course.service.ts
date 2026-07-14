@@ -12,6 +12,7 @@
 import { CourseRepository, type CreateCourseInput } from "../repositories/course.repo"
 import { CourseSuggestionRepository } from "../repositories/course-suggestion.repo"
 import { DocumentRepository } from "../repositories/document.repo"
+import { StudyScopeRepository } from "../repositories/study-scope.repo"
 import { inferCourse } from "../rag/course-infer"
 import { delBlob } from "../storage/blob"
 import { ApiErrorResponse } from "../utils/auth-helpers"
@@ -67,11 +68,11 @@ export const CourseService = {
     return CourseRepository.createOrGet(userId, input)
   },
 
-  /** Rename and/or set the term start (anchor to resolve "Semana N" → dates). */
+  /** Rename, recolor and/or set the term start (anchor for "Semana N" → dates). */
   async updateCourse(
     courseId: string,
     userId: string,
-    patch: { name?: string; termStart?: string | null },
+    patch: { name?: string; color?: string | null; termStart?: string | null },
   ) {
     const updated = await CourseRepository.update(courseId, userId, patch)
     if (!updated) throw new ApiErrorResponse("Course not found.", 404)
@@ -82,16 +83,26 @@ export const CourseService = {
    * Delete a course AND its documents (cascade). The documents' dependent rows
    * (chunks, topics, schedule, study material) follow via their own FKs. The
    * UI warns before calling this — it is irreversible.
+   *
+   * The course-scoped study rows have no FK to cascade from (scope_id can point at
+   * a doc or a course, so it can't be one), so they're purged explicitly — before
+   * the course row goes, since that's what proves ownership.
    */
   async deleteCourse(courseId: string, userId: string) {
     // Ownership check first so an unowned id can't delete anything.
     const course = await CourseRepository.findByIdAndUser(courseId, userId)
     if (!course) throw new ApiErrorResponse("Course not found.", 404)
+    const purged = await StudyScopeRepository.purge({ kind: "course", id: courseId })
     const { count, fileUrls } = await DocumentRepository.deleteByCourse(courseId, userId)
     await CourseRepository.deleteByIdAndUser(courseId, userId)
     // Stored files go too (best-effort: a failure only leaves orphan blobs).
     await Promise.all(fileUrls.map((url) => delBlob(url)))
-    logInfo("course.deleted_cascade", { courseId, removedDocs: count, removedBlobs: fileUrls.length })
+    logInfo("course.deleted_cascade", {
+      courseId,
+      removedDocs: count,
+      removedBlobs: fileUrls.length,
+      purged,
+    })
   },
 
   /**

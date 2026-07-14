@@ -4,7 +4,14 @@ import type { ExtractedEvent } from "../rag/schedule-gen"
 export interface ScheduleEvent {
   id: string
   syllabus_id: string
+  /** Real course (user_courses.id) when the doc was filed into one, else null. */
+  course_id: string | null
+  /** Course name when filed, else the source filename. */
   course_name: string
+  /** Source document this date was extracted from (original filename). */
+  doc_name: string
+  /** The course's persisted color (hex), null when unset / no course. */
+  course_color: string | null
   event_type: string
   title: string
   description: string | null
@@ -42,7 +49,10 @@ export const ScheduleRepository = {
   /** All events for one syllabus, ordered (dated first, then undated). */
   async listBySyllabus(syllabusId: string): Promise<ScheduleEvent[]> {
     return (await sql`
-      SELECT se.id, se.syllabus_id, su.original_filename AS course_name,
+      SELECT se.id, se.syllabus_id, su.course_id::text AS course_id,
+             COALESCE(uc.name, su.original_filename) AS course_name,
+             su.original_filename AS doc_name,
+             uc.color AS course_color,
              se.event_type, se.title, se.description,
              to_char(se.event_date, 'YYYY-MM-DD') AS event_date,
              se.week_label, se.weight_percent,
@@ -62,7 +72,10 @@ export const ScheduleRepository = {
    */
   async listAgendaByUser(userId: string, fromDate: string, limit = 60): Promise<ScheduleEvent[]> {
     return (await sql`
-      SELECT se.id, se.syllabus_id, su.original_filename AS course_name,
+      SELECT se.id, se.syllabus_id, su.course_id::text AS course_id,
+             COALESCE(uc.name, su.original_filename) AS course_name,
+             su.original_filename AS doc_name,
+             uc.color AS course_color,
              se.event_type, se.title, se.description,
              to_char(se.event_date, 'YYYY-MM-DD') AS event_date,
              se.week_label, se.weight_percent,
@@ -72,6 +85,30 @@ export const ScheduleRepository = {
       LEFT JOIN user_courses uc ON uc.id = su.course_id
       WHERE se.user_id = ${userId}
         AND (se.event_date IS NULL OR se.event_date >= ${fromDate}::date)
+      ORDER BY se.event_date ASC NULLS LAST, se.created_at ASC
+      LIMIT ${limit}
+    `) as ScheduleEvent[]
+  },
+
+  /**
+   * Every schedule event the user owns — past included. Powers the agenda
+   * calendar, which browses back into earlier months of the term. Chat and
+   * recommendations keep using `listAgendaByUser` (future-only, small budget).
+   */
+  async listAllByUser(userId: string, limit = 500): Promise<ScheduleEvent[]> {
+    return (await sql`
+      SELECT se.id, se.syllabus_id, su.course_id::text AS course_id,
+             COALESCE(uc.name, su.original_filename) AS course_name,
+             su.original_filename AS doc_name,
+             uc.color AS course_color,
+             se.event_type, se.title, se.description,
+             to_char(se.event_date, 'YYYY-MM-DD') AS event_date,
+             se.week_label, se.weight_percent,
+             to_char(uc.term_start, 'YYYY-MM-DD') AS term_start
+      FROM schedule_events se
+      JOIN syllabus_uploads su ON su.id = se.syllabus_id
+      LEFT JOIN user_courses uc ON uc.id = su.course_id
+      WHERE se.user_id = ${userId}
       ORDER BY se.event_date ASC NULLS LAST, se.created_at ASC
       LIMIT ${limit}
     `) as ScheduleEvent[]

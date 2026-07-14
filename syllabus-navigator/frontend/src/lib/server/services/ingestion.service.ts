@@ -18,6 +18,7 @@ import { JobRepository } from "../repositories/job.repo"
 import { extractGraphFromText } from "../rag/graph-gen"
 import { extractScheduleFromText } from "../rag/schedule-gen"
 import { CourseService } from "./course.service"
+import { StudyBankService } from "./study-bank.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 const JOB_TYPE = "ingest"
@@ -103,6 +104,22 @@ export const IngestionService = {
       if (isTransientLLMError(err)) transient = transient ?? `schedule: ${msg}`
     }
 
+    // --- Queue the quiz bank (no LLM here: just the job rows) ---
+    // Enqueuing at ingest means the first background warm has something to drain
+    // instead of the student's first quiz request having to generate from zero.
+    // Only the two rungs a fresh student actually starts on; difícil is queued on
+    // demand once they climb there.
+    try {
+      const scope = { kind: "doc" as const, id: syllabusId }
+      await StudyBankService.ensure(scope, "facil")
+      await StudyBankService.ensure(scope, "medio")
+    } catch (err) {
+      logError("ingestion.bank_enqueue_failed", {
+        syllabusId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+
     // Retryable failure → let drainQueue re-queue the job (embeddings are
     // idempotent, so the retry goes straight to the failed generator).
     if (transient) throw new Error(`Transient enrichment failure — will retry (${transient})`)
@@ -171,7 +188,7 @@ export const IngestionService = {
   ): Promise<{ processed: number; failed: number; retried: number }> {
     const tally = { processed: 0, failed: 0, retried: 0 }
 
-    const job = await JobRepository.claimNext(JOB_TYPE, 10, syllabusId)
+    const job = await JobRepository.claimNext(JOB_TYPE, 10, { syllabusId })
     if (job) await processClaimedJob(job, tally)
 
     if (tally.processed || tally.failed || tally.retried)

@@ -49,10 +49,18 @@ import {
   Type,
   GripVertical,
   CalendarDays,
+  Palette,
 } from "lucide-react"
 import { toast } from "sonner"
 import GraphCanvas from "@/components/GraphCanvas"
 import CourseSuggestions from "@/components/CourseSuggestions"
+import { CourseColorPicker } from "@/components/courses/course-color-picker"
+import {
+  COURSE_COLORS,
+  randomCourseColor,
+  resolveCourseColor,
+  colorTint,
+} from "@/lib/ui/course-color"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -120,9 +128,11 @@ export default function KnowledgeBasePage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [isUploading, setIsUploading] = useState(false)
 
-  // Create-course dialog
+  // Create-course dialog. The color starts random (re-rolled every time the
+  // dialog opens, avoiding hues already taken) but the user can override it.
   const [createCourseOpen, setCreateCourseOpen] = useState(false)
   const [newCourseName, setNewCourseName] = useState("")
+  const [newCourseColor, setNewCourseColor] = useState<string>(COURSE_COLORS[0].hex)
   const [creatingCourse, setCreatingCourse] = useState(false)
   const [previewDoc, setPreviewDoc] = useState<{
     id: string
@@ -145,6 +155,10 @@ export default function KnowledgeBasePage() {
   const [renamingCourseId, setRenamingCourseId] = useState<string | null>(null)
   const [courseRenameValue, setCourseRenameValue] = useState("")
   const [savingCourseRename, setSavingCourseRename] = useState(false)
+
+  // Color editor — per course folder. The color is what the Agenda calendar paints with.
+  const [editingColorCourseId, setEditingColorCourseId] = useState<string | null>(null)
+  const [savingColor, setSavingColor] = useState(false)
 
   // Term-start editor ("Semana N" → real dates) — per course folder.
   const [editingTermCourseId, setEditingTermCourseId] = useState<string | null>(null)
@@ -522,12 +536,18 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  // Open the dialog with a fresh random color (skipping colors already in use).
+  const openCreateCourse = () => {
+    setNewCourseColor(randomCourseColor(courses.map((c) => c.color)))
+    setCreateCourseOpen(true)
+  }
+
   const handleCreateCourse = async () => {
     const name = newCourseName.trim()
     if (!name) return
     setCreatingCourse(true)
     try {
-      await createCourse({ name })
+      await createCourse({ name, color: newCourseColor })
       toast.success(`Curso "${name}" creado.`)
       setNewCourseName("")
       setCreateCourseOpen(false)
@@ -536,6 +556,23 @@ export default function KnowledgeBasePage() {
       toast.error(err?.message ?? "No se pudo crear el curso.")
     } finally {
       setCreatingCourse(false)
+    }
+  }
+
+  // ----- course color (folder + agenda calendar share it) -----
+  const commitCourseColor = async (courseId: string, color: string) => {
+    setSavingColor(true)
+    // Optimistic: the folder repaints immediately; the agenda picks it up on its next load.
+    setCourses((prev) => prev.map((c) => (c.id === courseId ? { ...c, color } : c)))
+    try {
+      await updateCourse(courseId, { color })
+      toast.success("Color actualizado.")
+      setEditingColorCourseId(null)
+    } catch (err: any) {
+      toast.error(err?.message ?? "No se pudo guardar el color.")
+      await fetchUploads(true)
+    } finally {
+      setSavingColor(false)
     }
   }
 
@@ -742,7 +779,7 @@ export default function KnowledgeBasePage() {
           <Button
             onClick={() => {
               setNewCourseName("")
-              setCreateCourseOpen(true)
+              openCreateCourse()
             }}
             disabled={isUploading}
             variant="outline"
@@ -849,6 +886,11 @@ export default function KnowledgeBasePage() {
                   (d) => d.status === "processed" && !(d as any)._optimistic,
                 )
                 const groupKey = course.id ?? "sin-curso"
+                // Same resolution the Agenda calendar uses, so a folder and its
+                // events in the calendar always carry the identical color.
+                const folderColor = course.id
+                  ? resolveCourseColor(course.color, course.id)
+                  : undefined
                 // Highlight a folder as a drop target while dragging a doc from elsewhere.
                 const isDropTarget =
                   !!draggingDoc &&
@@ -877,6 +919,21 @@ export default function KnowledgeBasePage() {
                             <GraduationCap className="h-3.5 w-3.5 text-accent" />
                             <span className="hidden sm:inline">Estudiar</span>
                           </Link>
+                        </Button>
+                      )}
+                      {course.id && (
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setEditingColorCourseId((cur) =>
+                              cur === course.id ? null : course.id!,
+                            )
+                          }
+                          className="h-8 w-8 text-muted-foreground hover:text-accent"
+                          title="Color del curso (se usa en el calendario)"
+                        >
+                          <Palette className="h-3.5 w-3.5" style={{ color: folderColor }} />
                         </Button>
                       )}
                       {course.id && (
@@ -919,15 +976,49 @@ export default function KnowledgeBasePage() {
                         </Button>
                       )}
                     </div>
-                    {editingTermCourseId === course.id && course.id ? (
+                    {editingColorCourseId === course.id && course.id ? (
+                      <div className="flex items-center gap-3 px-4 py-3 pr-24 sm:pr-40">
+                        <div
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                          style={{ backgroundColor: colorTint(folderColor!) }}
+                        >
+                          <Palette className="h-[18px] w-[18px]" style={{ color: folderColor }} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                            Color del curso — se usa en esta carpeta y en el calendario de la Agenda
+                          </span>
+                          <CourseColorPicker
+                            value={folderColor!}
+                            onChange={(hex) => commitCourseColor(course.id!, hex)}
+                            disabled={savingColor}
+                          />
+                        </div>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => setEditingColorCourseId(null)}
+                          title="Cerrar"
+                        >
+                          {savingColor ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <X className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                    ) : editingTermCourseId === course.id && course.id ? (
                       <div className="flex items-center gap-2 px-4 py-3 pr-24 sm:pr-40">
                         <div
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
                           style={
-                            course.color ? { backgroundColor: `${course.color}22` } : undefined
+                            folderColor ? { backgroundColor: colorTint(folderColor) } : undefined
                           }
                         >
-                          <CalendarDays className="h-[18px] w-[18px] text-accent" />
+                          <CalendarDays
+                            className="h-[18px] w-[18px] text-accent"
+                            style={folderColor ? { color: folderColor } : undefined}
+                          />
                         </div>
                         <div className="min-w-0 flex-1">
                           <span className="block text-xs font-medium text-muted-foreground">
@@ -974,10 +1065,13 @@ export default function KnowledgeBasePage() {
                         <div
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
                           style={
-                            course.color ? { backgroundColor: `${course.color}22` } : undefined
+                            folderColor ? { backgroundColor: colorTint(folderColor) } : undefined
                           }
                         >
-                          <BookText className="h-[18px] w-[18px] text-accent" />
+                          <BookText
+                            className="h-[18px] w-[18px] text-accent"
+                            style={folderColor ? { color: folderColor } : undefined}
+                          />
                         </div>
                         <Input
                           autoFocus
@@ -1017,12 +1111,12 @@ export default function KnowledgeBasePage() {
                         <div
                           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10"
                           style={
-                            course.color ? { backgroundColor: `${course.color}22` } : undefined
+                            folderColor ? { backgroundColor: colorTint(folderColor) } : undefined
                           }
                         >
                           <BookText
                             className="h-[18px] w-[18px] text-accent"
-                            style={course.color ? { color: course.color } : undefined}
+                            style={folderColor ? { color: folderColor } : undefined}
                           />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -1256,6 +1350,30 @@ export default function KnowledgeBasePage() {
             onChange={(e) => setNewCourseName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleCreateCourse()}
           />
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Color</span>
+              <span
+                className="h-3.5 w-3.5 rounded-full"
+                style={{ background: newCourseColor }}
+                aria-hidden
+              />
+              <span className="text-[11px] text-muted-foreground">
+                elegido al azar — cámbialo si quieres
+              </span>
+            </div>
+            <CourseColorPicker
+              value={newCourseColor}
+              onChange={setNewCourseColor}
+              disabled={creatingCourse}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Es el color con el que el curso se pinta en la carpeta y en el calendario de la
+              Agenda.
+            </p>
+          </div>
+
           <div className="flex justify-end gap-2">
             <Button
               variant="ghost"
@@ -1461,9 +1579,7 @@ export default function KnowledgeBasePage() {
                   }`}
                 >
                   <FileIcon className="h-3.5 w-3.5" />{" "}
-                  {!previewDoc?.sourceType || previewDoc.sourceType === "pdf"
-                    ? "PDF"
-                    : "Documento"}
+                  {!previewDoc?.sourceType || previewDoc.sourceType === "pdf" ? "PDF" : "Documento"}
                 </button>
                 <button
                   onClick={showGraphPreview}

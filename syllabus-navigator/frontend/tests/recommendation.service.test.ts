@@ -20,7 +20,10 @@ function ev(partial: Partial<ScheduleEvent>): ScheduleEvent {
   return {
     id: "e1",
     syllabus_id: "s1",
+    course_id: null,
     course_name: "Álgebra",
+    doc_name: "algebra.pdf",
+    course_color: null,
     event_type: "class",
     title: "Clase",
     description: null,

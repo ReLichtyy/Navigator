@@ -3,9 +3,12 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, FileText, StickyNote } from "lucide-react"
 import type { ScheduleEventAPI } from "@/lib/api"
+import { meta } from "@/lib/ui/agenda-format"
+import { courseKey } from "@/lib/ui/agenda-filter"
+import { COURSE_COLOR_HEXES, colorIndexFor, resolveCourseColor } from "@/lib/ui/course-color"
 
-const PALETTE = ["bg-accent", "bg-blue-400", "bg-purple-400", "bg-amber-400", "bg-pink-400"]
-const DOT_HEX = ["#3FBF84", "#60a5fa", "#c084fc", "#fbbf24", "#f472b6"]
+/** Palette shared with the Cursos page — see lib/ui/course-color.ts. */
+export const DOT_HEX = COURSE_COLOR_HEXES
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 const MONTHS = [
   "Enero",
@@ -22,11 +25,9 @@ const MONTHS = [
   "Diciembre",
 ]
 
-/** Stable color index for a course name (so the same course keeps its color). */
+/** Fallback color index for a course with no persisted color. */
 export function courseColorIndex(name: string): number {
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
-  return h % PALETTE.length
+  return colorIndexFor(name)
 }
 
 /** Group dated events by ISO yyyy-mm-dd. Undated events are excluded. Pure → testable. */
@@ -91,7 +92,8 @@ export function MonthCalendar({
   }, [anchor, offset])
 
   const buckets = useMemo(() => bucketEventsByDate(events), [events])
-  const colorFor = (name: string) => courseColorIndex(name)
+  // The course's own color when it has one; otherwise a stable hash of its key.
+  const colorFor = (e: ScheduleEventAPI) => resolveCourseColor(e.course_color, courseKey(e))
 
   const daysInMonth = new Date(view.year, view.month + 1, 0).getDate()
   const lead = mondayIndex(view.year, view.month, 1)
@@ -185,23 +187,34 @@ export function MonthCalendar({
                         <StickyNote className="h-3 w-3 text-accent" aria-label="Tiene notas" />
                       )}
                     </div>
-                    {evs.slice(0, large ? 4 : 3).map((e) => (
-                      <div
-                        key={e.id}
-                        className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5"
-                      >
-                        <span
-                          className={`h-1.5 w-1.5 flex-none rounded-full ${PALETTE[colorFor(e.course_name)]}`}
-                        />
-                        <span
-                          className={`min-w-0 flex-1 truncate font-medium text-foreground ${
-                            large ? "text-[10.5px]" : "text-[9.5px]"
-                          }`}
+                    {evs.slice(0, large ? 4 : 3).map((e) => {
+                      const m = meta(e.event_type)
+                      return (
+                        <div
+                          key={e.id}
+                          title={`${m.label} · ${e.course_name} · ${e.title}`}
+                          className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5"
                         >
-                          {e.title}
-                        </span>
-                      </div>
-                    ))}
+                          <span
+                            className="h-1.5 w-1.5 flex-none rounded-full"
+                            style={{ background: colorFor(e) }}
+                          />
+                          <m.Icon className="h-2.5 w-2.5 flex-none text-muted-foreground" />
+                          <span
+                            className={`min-w-0 flex-1 truncate font-medium text-foreground ${
+                              large ? "text-[10.5px]" : "text-[9.5px]"
+                            }`}
+                          >
+                            {e.title}
+                          </span>
+                        </div>
+                      )
+                    })}
+                    {evs.length > (large ? 4 : 3) && (
+                      <span className="px-1 text-[9.5px] font-medium text-muted-foreground">
+                        +{evs.length - (large ? 4 : 3)} más
+                      </span>
+                    )}
                   </button>
                 )
               })}
@@ -219,32 +232,41 @@ export function MonthCalendar({
             Fechas detectadas en los cronogramas
           </div>
           <ul className="flex flex-col gap-2">
-            {detected.map((e) => (
-              <li
-                key={e.id}
-                className="flex items-center gap-3.5 rounded-xl border border-border/50 bg-card px-4 py-3"
-              >
-                <span className="font-mono text-[13px] font-semibold text-foreground">
-                  {e.event_date}
-                </span>
-                <span
-                  className="h-8 w-0.5 flex-none rounded"
-                  style={{ background: DOT_HEX[colorFor(e.course_name)] }}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-foreground">{e.title}</div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-                    <FileText className="h-3 w-3" />
-                    <span className="truncate">{e.course_name}</span>
-                  </div>
-                </div>
-                {e.weight_percent ? (
-                  <span className="flex-none font-mono text-[11px] text-muted-foreground">
-                    {e.weight_percent}%
+            {detected.map((e) => {
+              const m = meta(e.event_type)
+              return (
+                <li
+                  key={e.id}
+                  className="flex items-center gap-3.5 rounded-xl border border-border/50 bg-card px-4 py-3"
+                >
+                  <span className="font-mono text-[13px] font-semibold text-foreground">
+                    {e.event_date}
                   </span>
-                ) : null}
-              </li>
-            ))}
+                  <span
+                    className="h-8 w-0.5 flex-none rounded"
+                    style={{ background: colorFor(e) }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      <m.Icon className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+                      <span className="truncate">{e.title}</span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+                      <FileText className="h-3 w-3" />
+                      <span className="truncate">
+                        {e.course_name}
+                        {e.doc_name && e.doc_name !== e.course_name ? ` · ${e.doc_name}` : ""}
+                      </span>
+                    </div>
+                  </div>
+                  {e.weight_percent ? (
+                    <span className="flex-none font-mono text-[11px] text-muted-foreground">
+                      {e.weight_percent}%
+                    </span>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}

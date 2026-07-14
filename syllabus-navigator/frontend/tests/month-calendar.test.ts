@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest"
-import { bucketEventsByDate, courseColorIndex } from "@/components/agenda/month-calendar"
+import { bucketEventsByDate, courseColorIndex, DOT_HEX } from "@/components/agenda/month-calendar"
 import type { ScheduleEventAPI } from "@/lib/api"
 
 function ev(id: string, date: string | null, course = "ISW-524"): ScheduleEventAPI {
   return {
     id,
     syllabus_id: "s1",
+    course_id: null,
     course_name: course,
+    doc_name: "syllabus.pdf",
+    course_color: null,
     event_type: "quiz",
     title: `Event ${id}`,
     description: null,
@@ -42,7 +45,7 @@ describe("courseColorIndex", () => {
     for (const n of ["ISW-521", "ISW-522", "ISW-523", "ISW-524", "Math"]) {
       const i = courseColorIndex(n)
       expect(i).toBeGreaterThanOrEqual(0)
-      expect(i).toBeLessThan(5)
+      expect(i).toBeLessThan(DOT_HEX.length)
     }
   })
 })

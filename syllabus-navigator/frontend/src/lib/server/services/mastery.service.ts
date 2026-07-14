@@ -1,32 +1,30 @@
 /**
  * MasteryService — topic mastery ledger (Sprint 4).
- * Records quiz outcomes against a syllabus the caller owns and reads back the
- * per-topic / per-course confidence. Ownership enforced like StudyService.
+ * Records quiz outcomes against a scope the caller owns (one document OR a whole
+ * course) and reads back the per-topic / per-course confidence.
  */
-import { DocumentRepository } from "../repositories/document.repo"
 import {
   MasteryRepository,
   type MasteryRow,
   type CourseMastery,
 } from "../repositories/mastery.repo"
-import { ApiErrorResponse } from "../utils/auth-helpers"
+import type { StudyScope } from "../repositories/study-items.repo"
+import { assertScopeOwned } from "../utils/scope"
 
 export const MasteryService = {
   async record(
     userId: string,
-    syllabusId: string,
+    scope: StudyScope,
     outcomes: { label: string; correct: boolean }[],
   ): Promise<void> {
-    const doc = await DocumentRepository.findByIdAndUser(syllabusId, userId)
-    if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
+    const s = await assertScopeOwned(userId, scope)
     if (outcomes.length === 0) return
-    await MasteryRepository.recordOutcomes(userId, syllabusId, outcomes)
+    await MasteryRepository.recordOutcomes(userId, s, outcomes)
   },
 
-  async forSyllabus(userId: string, syllabusId: string): Promise<MasteryRow[]> {
-    const doc = await DocumentRepository.findByIdAndUser(syllabusId, userId)
-    if (!doc) throw new ApiErrorResponse("Syllabus not found", 404)
-    return MasteryRepository.listForSyllabus(userId, syllabusId)
+  async forScope(userId: string, scope: StudyScope): Promise<MasteryRow[]> {
+    const s = await assertScopeOwned(userId, scope)
+    return MasteryRepository.listForScope(userId, s)
   },
 
   async overview(userId: string): Promise<CourseMastery[]> {

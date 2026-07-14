@@ -2,14 +2,22 @@
  * study-stats.repo.ts — flashcard review recording + study streak stats.
  * Backs the sidebar streak card (UI-13) and Modo repaso spaced repetition.
  *
+ * Scoped by (scope_kind, scope_id) so the whole-course study scope tracks SRS too
+ * — it used to key on syllabus_id alone, which meant studying a whole course
+ * recorded nothing at all.
+ *
  * Only real (uuid) users can record reviews — flashcard_reviews.user_id FKs
  * users(id); guests are excluded by that constraint.
  */
 import { sql } from "@/lib/db"
 import { streakFromDates } from "@/lib/ui/streak"
+import type { StudyScope } from "./study-items.repo"
 
 /** Leitner interval (days) per box. Box 0 = same day, grows from there. */
 const BOX_DAYS = [0, 1, 3, 7, 16, 35]
+
+/** Doc scope keeps syllabus_id populated (that's where the cascade lives); course scope nulls it. */
+const syllabusIdOf = (scope: StudyScope) => (scope.kind === "doc" ? scope.id : null)
 
 export interface StudyStats {
   streakDays: number
@@ -20,13 +28,15 @@ export const StudyStatsRepository = {
   /** Record a flashcard review, advancing/resetting its Leitner box. */
   async recordReview(
     userId: string,
-    syllabusId: string,
+    scope: StudyScope,
     cardKey: string,
     known: boolean,
   ): Promise<void> {
     const existing = await sql`
       SELECT box FROM flashcard_reviews
-      WHERE user_id = ${userId}::uuid AND syllabus_id = ${syllabusId}::uuid AND card_key = ${cardKey}
+      WHERE user_id = ${userId}::uuid
+        AND scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+        AND card_key = ${cardKey}
     `
     const prevBox = (existing[0] as { box?: number } | undefined)?.box ?? 0
     const box = known ? Math.min(prevBox + 1, BOX_DAYS.length - 1) : 0
@@ -34,12 +44,13 @@ export const StudyStatsRepository = {
 
     await sql`
       INSERT INTO flashcard_reviews
-        (user_id, syllabus_id, card_key, box, due_at, last_result, reviewed_at)
+        (user_id, scope_kind, scope_id, syllabus_id, card_key, box, due_at, last_result, reviewed_at)
       VALUES (
-        ${userId}::uuid, ${syllabusId}::uuid, ${cardKey}, ${box},
+        ${userId}::uuid, ${scope.kind}, ${scope.id}::uuid, ${syllabusIdOf(scope)}::uuid,
+        ${cardKey}, ${box},
         now() + (${dueDays} || ' days')::interval, ${known ? "known" : "again"}, now()
       )
-      ON CONFLICT (user_id, syllabus_id, card_key) DO UPDATE
+      ON CONFLICT (user_id, scope_kind, scope_id, card_key) DO UPDATE
         SET box = EXCLUDED.box,
             due_at = EXCLUDED.due_at,
             last_result = EXCLUDED.last_result,
@@ -48,26 +59,29 @@ export const StudyStatsRepository = {
   },
 
   /**
-   * Spaced-repetition pressure for a syllabus: how many tracked cards are due now
-   * vs total tracked. Feeds the Router priority + the "today session" planner.
-   * Returns {due:0,total:0} for guests / untracked syllabi.
+   * Spaced-repetition pressure for a scope: how many tracked cards are due now vs
+   * total tracked. Feeds the Router priority + the "today session" planner.
+   * Returns {due:0,total:0} for guests / untracked scopes.
    */
-  async srsPressure(userId: string, syllabusId: string): Promise<{ due: number; total: number }> {
+  async srsPressure(userId: string, scope: StudyScope): Promise<{ due: number; total: number }> {
     const rows = await sql`
       SELECT count(*)::int AS total,
              count(*) FILTER (WHERE due_at <= now())::int AS due
       FROM flashcard_reviews
-      WHERE user_id = ${userId}::uuid AND syllabus_id = ${syllabusId}::uuid
+      WHERE user_id = ${userId}::uuid
+        AND scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
     `
     const r = (rows[0] as { total?: number; due?: number } | undefined) ?? {}
     return { due: r.due ?? 0, total: r.total ?? 0 }
   },
 
   /** Card keys due for review now, most-overdue first (planner "Modo repaso"). */
-  async listDue(userId: string, syllabusId: string, limit = 30): Promise<string[]> {
+  async listDue(userId: string, scope: StudyScope, limit = 30): Promise<string[]> {
     const rows = await sql`
       SELECT card_key FROM flashcard_reviews
-      WHERE user_id = ${userId}::uuid AND syllabus_id = ${syllabusId}::uuid AND due_at <= now()
+      WHERE user_id = ${userId}::uuid
+        AND scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+        AND due_at <= now()
       ORDER BY due_at ASC
       LIMIT ${limit}
     `

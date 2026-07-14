@@ -61,18 +61,21 @@ export const CourseRepository = {
   },
 
   /**
-   * Partial update (rename and/or term_start). `termStart: undefined` leaves
-   * the column untouched; `null` clears it. Ownership-scoped.
+   * Partial update (rename, color and/or term_start). An `undefined` field
+   * leaves its column untouched; `null` clears it. Ownership-scoped.
    */
   async update(
     courseId: string,
     userId: string,
-    patch: { name?: string; termStart?: string | null },
+    patch: { name?: string; color?: string | null; termStart?: string | null },
   ): Promise<DbCourse | undefined> {
     const touchTerm = patch.termStart !== undefined
+    const touchColor = patch.color !== undefined
     const rows = await sql`
       UPDATE user_courses
       SET name = COALESCE(${patch.name ?? null}, name),
+          color = CASE WHEN ${touchColor} THEN ${patch.color ?? null}
+                       ELSE color END,
           term_start = CASE WHEN ${touchTerm} THEN ${patch.termStart ?? null}::date
                             ELSE term_start END,
           updated_at = now()

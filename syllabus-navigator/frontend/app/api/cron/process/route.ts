@@ -28,8 +28,11 @@ async function handle(request: Request) {
 
   try {
     const result = await IngestionService.drainQueue()
-    // Also fill any pending study-bank jobs (staged-quiz question banks) so they
-    // top up even when nobody is actively polling the quiz.
+    // Also fill any pending study-bank jobs (staged-quiz question banks). NOTE:
+    // on the Hobby plan this cron only runs ONCE A DAY, so it's a safety net, not
+    // the mechanism — the client's fire-and-forget POST /api/study/warm is what
+    // actually keeps the banks full. Unfiltered drain on purpose: here we're
+    // working the whole queue, not serving one student.
     const study = await StudyBankService.drain(3).catch((err) => {
       logError("cron.process.study_drain_error", { error: String(err) })
       return { processed: 0, failed: 0 }

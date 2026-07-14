@@ -389,10 +389,10 @@ export async function setDocumentCourse(
   })
 }
 
-/** Update a course: rename and/or set its term start ("Semana N" anchor). */
+/** Update a course: rename, recolor and/or set its term start ("Semana N" anchor). */
 export async function updateCourse(
   courseId: string,
-  patch: { name?: string; term_start?: string | null },
+  patch: { name?: string; color?: string | null; term_start?: string | null },
 ) {
   return request<{ course: CourseAPI }>(`/courses/${encodeURIComponent(courseId)}`, {
     method: "PATCH",
@@ -571,7 +571,14 @@ export async function findOrCreateChatForDoc(syllabusId: string) {
 export interface ScheduleEventAPI {
   id: string
   syllabus_id: string
+  /** Real course id (null when the doc isn't filed into a course yet). */
+  course_id: string | null
+  /** Course name when filed, else the source filename. */
   course_name: string
+  /** Source document the date came from (original filename). */
+  doc_name: string
+  /** The course's persisted color (hex); null → the UI falls back to a hash. */
+  course_color: string | null
   event_type: string
   title: string
   description: string | null
@@ -749,6 +756,8 @@ export interface QuizStageAPI {
   stage: number
   stages: number
   difficulty: StudyDifficulty
+  /** Ladder index stage 0 starts from (0=fácil, 1=medio, 2=difícil) → lets the client know if the next stage is really harder. */
+  base?: number
   /** Correct answers required to clear the stage (user pref; server default 15). */
   size?: number
   questions: QuizQuestionAPI[]
@@ -793,6 +802,45 @@ const scopeParams = (s: QuizScope) =>
   s.kind === "doc"
     ? { kind: "doc" as const, id: s.docId }
     : { kind: "course" as const, id: s.courseId }
+
+/**
+ * Cooldown per scope. A warm call costs a real LLM generation, and the callers are
+ * effects that re-run on remount, scope re-select, tab focus, back-navigation… —
+ * without this, wandering around the estudio page would quietly rack up a bill.
+ * Server-side the call is already free once the bank is warm, but "free" still
+ * means an HTTP round trip and two counts per fire.
+ */
+// 90s: long enough that idling on the menu can't spam it, short enough that each
+// stage of a quiz (~2-3 min) still gets one warm. The real spend ceiling is the
+// server's WARM_TARGET — once a rung holds enough questions the call is free.
+const WARM_COOLDOWN_MS = 90 * 1000
+const lastWarm = new Map<string, number>()
+
+/**
+ * Fill the question bank in the background. SLOW (it runs LLM generation) — call
+ * it while the student is idle and NEVER await it, otherwise you just moved the
+ * wait. Fire it when a scope is picked and after each stage loads: by the time the
+ * student needs more questions, the bank already has them.
+ *
+ * Rate-limited per scope (see WARM_COOLDOWN_MS) and a no-op on the server, so
+ * callers can fire it freely from effects.
+ */
+export function warmStudyBank(scope: QuizScope): void {
+  if (typeof window === "undefined") return
+  const p = scopeParams(scope)
+  const key = `${p.kind}:${p.id}`
+  const now = Date.now()
+  const last = lastWarm.get(key) ?? 0
+  if (now - last < WARM_COOLDOWN_MS) return
+  lastWarm.set(key, now)
+
+  void request<{ drained: number }>(`/study/warm`, {
+    method: "POST",
+    body: JSON.stringify(p),
+  }).catch(() => {
+    // Best-effort: the serve path still generates on demand if this never lands.
+  })
+}
 
 /** Record a wrong quiz answer → it leaves the quiz and enters Repaso (fire-and-forget). */
 export async function recordQuizFail(scope: QuizScope, question: QuizQuestionAPI) {
@@ -863,11 +911,15 @@ export function flashcardKey(front: string): string {
   return `c${(h >>> 0).toString(36)}`
 }
 
-/** Record a flashcard review (fire-and-forget on the client). */
-export async function recordFlashcardReview(syllabusId: string, cardFront: string, known: boolean) {
+/** Record a flashcard review (fire-and-forget on the client). Scope-based: whole-course cards count too. */
+export async function recordFlashcardReview(scope: QuizScope, cardFront: string, known: boolean) {
   return request<{ success: true }>(`/study/review`, {
     method: "POST",
-    body: JSON.stringify({ syllabus_id: syllabusId, card_key: flashcardKey(cardFront), known }),
+    body: JSON.stringify({
+      ...scopeParams(scope),
+      card_key: flashcardKey(cardFront),
+      known,
+    }),
   })
 }
 
@@ -883,14 +935,14 @@ export interface MasteryTopicAPI {
   correct: number
 }
 
-/** Record a batch of quiz outcomes against a course's topics (fire-and-forget). */
+/** Record a batch of quiz outcomes against a scope's topics (fire-and-forget). */
 export async function recordMastery(
-  syllabusId: string,
+  scope: QuizScope,
   outcomes: { label: string; correct: boolean }[],
 ) {
   return request<{ success: true }>(`/mastery`, {
     method: "POST",
-    body: JSON.stringify({ syllabus_id: syllabusId, outcomes }),
+    body: JSON.stringify({ ...scopeParams(scope), outcomes }),
   })
 }
 

@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ syllabu
   try {
     const { userId } = await requireAuth()
     const { syllabusId } = await params
-    const topics = await MasteryService.forSyllabus(userId, syllabusId)
+    const topics = await MasteryService.forScope(userId, { kind: "doc", id: syllabusId })
     return NextResponse.json({ syllabus_id: syllabusId, topics })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {

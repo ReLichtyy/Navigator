@@ -17,7 +17,11 @@ const HORIZON_DAYS = 21
 
 export interface UpcomingAssessment {
   id: string
+  syllabus_id: string
+  course_id: string | null
   course_name: string
+  /** The course's persisted color — the UI paints the assessment with it. */
+  course_color: string | null
   event_type: string
   title: string
   event_date: string | null
@@ -111,7 +115,10 @@ export const RecommendationService = {
       .slice(0, 8)
       .map((e) => ({
         id: e.id,
+        syllabus_id: e.syllabus_id,
+        course_id: e.course_id,
         course_name: e.course_name,
+        course_color: e.course_color,
         event_type: e.event_type,
         title: e.title,
         event_date: e.event_date,

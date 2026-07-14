@@ -57,15 +57,22 @@ describe("JobRepository.enqueue — dedupe + kickIfPending", () => {
   })
 })
 
-describe("JobRepository.claimNext — optional syllabus filter", () => {
+describe("JobRepository.claimNext — optional filters", () => {
   it("passes the syllabusId filter into the claim query", async () => {
     responses = [[]]
-    await JobRepository.claimNext("ingest", 10, "s1")
+    await JobRepository.claimNext("ingest", 10, { syllabusId: "s1" })
     expect(queries[0].values).toContain("s1")
     expect(queries[0].text).toContain("payload->>'syllabusId'")
   })
 
-  it("binds a null filter when no syllabusId is given (global order)", async () => {
+  it("passes the dedupeKey filter into the claim query", async () => {
+    responses = [[]]
+    await JobRepository.claimNext("study-bank", 10, { dedupeKey: "doc:s1:quiz:medio" })
+    expect(queries[0].values).toContain("doc:s1:quiz:medio")
+    expect(queries[0].text).toContain("payload->>'dedupeKey'")
+  })
+
+  it("binds null filters when none are given (global order)", async () => {
     responses = [[]]
     await JobRepository.claimNext("ingest")
     expect(queries[0].values).toContain(null)

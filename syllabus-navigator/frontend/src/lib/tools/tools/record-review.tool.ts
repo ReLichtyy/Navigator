@@ -35,7 +35,13 @@ export const recordReviewTool: Tool<RecordReviewArgs, { recorded: true }> = {
   async execute(args: RecordReviewArgs, ctx: ToolContext): Promise<ToolResult<{ recorded: true }>> {
     const syllabusId = args.syllabusId ?? ctx.syllabusId
     if (!syllabusId) return { ok: false, error: "no syllabus in scope" }
-    await StudyService.recordReview(ctx.userId, syllabusId, args.cardKey, args.known)
+    // The chat always operates on a single syllabus, so the scope is always doc.
+    await StudyService.recordReview(
+      ctx.userId,
+      { kind: "doc", id: syllabusId },
+      args.cardKey,
+      args.known,
+    )
     return { ok: true, data: { recorded: true } }
   },
 }
