@@ -10,7 +10,14 @@
 
 import { ScheduleRepository, type ScheduleEvent } from "../repositories/schedule.repo"
 import { GraphRepository } from "../repositories/graph.repo"
-import { resolveEventWeekDates, isoAddDays } from "../rag/week-date"
+import { todayISO } from "../utils/today"
+import {
+  resolveEventWeekDates,
+  isoAddDays,
+  mondayOf,
+  type Dated,
+  type DatePrecision,
+} from "../rag/week-date"
 
 const ASSESSMENT_TYPES = new Set(["quiz", "exam", "assignment", "project"])
 const HORIZON_DAYS = 21
@@ -26,6 +33,8 @@ export interface UpcomingAssessment {
   title: string
   event_date: string | null
   week_label: string | null
+  /** `week` → event_date is the Monday of "Semana N", not the real day. */
+  date_precision: DatePrecision
   weight_percent: number | null
   days_until: number | null
   review_first: string[]
@@ -35,23 +44,8 @@ export interface WeeklyPlan {
   today: string
   week_start: string
   week_end: string
-  this_week_topics: ScheduleEvent[]
+  this_week_topics: Dated<ScheduleEvent>[]
   upcoming_assessments: UpcomingAssessment[]
-}
-
-function todayISO(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
-
-/** Monday-anchored week range containing `base`. */
-function weekRange(base: Date): { start: string; end: string } {
-  const day = base.getDay() // 0=Sun..6=Sat
-  const diffToMon = (day + 6) % 7
-  const start = new Date(base)
-  start.setDate(base.getDate() - diffToMon)
-  const end = new Date(start)
-  end.setDate(start.getDate() + 6)
-  return { start: todayISO(start), end: todayISO(end) }
 }
 
 function daysBetween(fromISO: string, toISO: string): number {
@@ -60,10 +54,13 @@ function daysBetween(fromISO: string, toISO: string): number {
 }
 
 export const RecommendationService = {
-  async getWeeklyPlan(userId: string): Promise<WeeklyPlan> {
-    const now = new Date()
-    const today = todayISO(now)
-    const { start: week_start, end: week_end } = weekRange(now)
+  /** `tz` = the caller's IANA zone; "today" is the student's day (utils/today). */
+  async getWeeklyPlan(userId: string, tz?: string | null): Promise<WeeklyPlan> {
+    const today = todayISO(tz)
+    // Monday-anchored week around `today`, in plain ISO math — no second clock
+    // to disagree with the one that produced `today`.
+    const week_start = mondayOf(today) ?? today
+    const week_end = isoAddDays(week_start, 6)
 
     const [rawEvents, topics] = await Promise.all([
       ScheduleRepository.listAgendaByUser(userId, today, 100),
@@ -123,9 +120,11 @@ export const RecommendationService = {
         title: e.title,
         event_date: e.event_date,
         week_label: e.week_label,
+        date_precision: e.date_precision,
         weight_percent: e.weight_percent,
         // Clamped ≥ 0: a week-resolved date (Monday) can sit earlier in the
-        // current week without the assessment being "past".
+        // current week without the assessment being "past". Only `exact` dates
+        // may be rendered as a day count — see date_precision.
         days_until: e.event_date ? Math.max(0, daysBetween(today, e.event_date)) : null,
         review_first: reviewFor(e.syllabus_id, e.title),
       }))

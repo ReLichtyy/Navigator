@@ -75,7 +75,7 @@ export function weekStartOf(iso: string): string | null {
   return toISO(d)
 }
 
-const MONTHS_SHORT = [
+export const MONTHS_SHORT = [
   "ene",
   "feb",
   "mar",

@@ -15,6 +15,7 @@ function ev(id: string, date: string | null, course = "ISW-524"): ScheduleEventA
     description: null,
     event_date: date,
     week_label: null,
+    date_precision: date ? "exact" : "none",
     weight_percent: null,
   }
 }

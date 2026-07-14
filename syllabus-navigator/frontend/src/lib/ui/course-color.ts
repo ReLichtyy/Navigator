@@ -32,6 +32,14 @@ export function isCourseColor(value: string | null | undefined): value is string
   return typeof value === "string" && HEX_RE.test(value)
 }
 
+/**
+ * The key a course is identified by in the UI. Documents not yet filed into a
+ * course stand in for their own course, keyed by their document id.
+ */
+export function courseKey(e: { course_id: string | null; syllabus_id: string }): string {
+  return e.course_id ?? `doc:${e.syllabus_id}`
+}
+
 /** Stable palette index for a key (course id, or `doc:<id>` for uncategorised). */
 export function colorIndexFor(key: string): number {
   let h = 0

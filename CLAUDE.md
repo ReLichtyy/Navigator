@@ -196,6 +196,7 @@ npm run knip           # report unused files/exports/deps (review, don't blind-d
 | `RAG_ENABLED` / `TOOLS_ENABLED` | no | Master switches: RAG retrieval (default on) / chat tool-calling (default off) |
 | `RAG_MAX_DISTANCE` | no | Cosine cutoff for retrieval relevance gate (default `0.9`) |
 | `STUDY_LANGUAGE` | no | Output language for the study area (Study Engine + `?web=1` search), default `es`. App-wide for now (`flags.studyLanguage`); planned to become a per-user preference via `StudyGenOptions.language` |
+| `APP_TIMEZONE` | no | Fallback IANA zone for "today"/"this week" when the caller sends no `?tz` (chat tools, cron). Default `America/Lima`. Browser requests send their own zone — the server must never derive today from `new Date()` (Vercel = UTC), see `lib/server/utils/today.ts` |
 | `ADMIN_EMAILS` | no | Comma-separated emails auto-promoted to admin |
 | `RATE_LIMIT_ENABLED`, `LOG_LEVEL` | no | Ops toggles |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | Omit → in-memory cache + rate-limit (per-instance, resets on cold start) |

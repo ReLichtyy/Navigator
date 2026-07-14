@@ -1,6 +1,8 @@
 /**
  * GET /api/schedule — the caller's agenda across all their courses.
  * Optional ?syllabusId=<id> returns the full schedule for one owned syllabus.
+ * Optional ?tz=<IANA zone> — the browser's zone, so "today" is the student's
+ * day and not the server's UTC day.
  */
 
 import { NextResponse } from "next/server"
@@ -13,13 +15,14 @@ export const dynamic = "force-dynamic"
 export async function GET(request: Request) {
   try {
     const { userId } = await requireAuth()
-    const syllabusId = new URL(request.url).searchParams.get("syllabusId")
+    const params = new URL(request.url).searchParams
+    const syllabusId = params.get("syllabusId")
 
     if (syllabusId) {
       const data = await ScheduleService.getForSyllabus(userId, syllabusId)
       return NextResponse.json(data)
     }
-    const data = await ScheduleService.getAgenda(userId)
+    const data = await ScheduleService.getAgenda(userId, params.get("tz"))
     return NextResponse.json(data)
   } catch (err) {
     if (err instanceof ApiErrorResponse) {

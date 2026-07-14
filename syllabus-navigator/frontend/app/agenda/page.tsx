@@ -15,21 +15,14 @@ import Link from "next/link"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
 import { DayNotesPanel } from "@/components/agenda/day-notes-panel"
-import { AgendaFilters } from "@/components/agenda/agenda-filters"
-import {
-  applyFilter,
-  pruneFilter,
-  courseKey,
-  EMPTY_FILTER,
-  type AgendaFilter,
-} from "@/lib/ui/agenda-filter"
 import {
   buildWeekGroups,
   defaultGroupKey,
   coursesMissingTermStart,
   isAssessment,
+  weekRangeLabel,
 } from "@/lib/ui/agenda-weeks"
-import { resolveCourseColor } from "@/lib/ui/course-color"
+import { courseKey, resolveCourseColor } from "@/lib/ui/course-color"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -39,7 +32,7 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion"
-import { meta, whenLabel, daysBadge } from "@/lib/ui/agenda-format"
+import { meta, whenLabel, daysBadge, dayMonthLabel } from "@/lib/ui/agenda-format"
 
 export default function AgendaPage() {
   const { status, ready } = useUser()
@@ -51,7 +44,6 @@ export default function AgendaPage() {
   const [error, setError] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [noteDates, setNoteDates] = useState<Set<string>>(new Set())
-  const [filter, setFilter] = useState<AgendaFilter>(EMPTY_FILTER)
 
   // Only registered users may keep notes (date_notes FKs users.id).
   const canEditNotes = status !== "anonymous" && status !== "guest"
@@ -68,8 +60,6 @@ export default function AgendaPage() {
         if (!alive) return
         setPlan(p)
         setEvents(a.events)
-        // Drop selections for courses/docs that no longer exist.
-        setFilter((f) => pruneFilter(f, a.events))
       })
       .catch(() => alive && setError("No se pudo cargar la agenda."))
       .finally(() => alive && setLoading(false))
@@ -111,30 +101,24 @@ export default function AgendaPage() {
     )
   }
 
+  // `today` is the student's day (the browser's zone travels with the request);
+  // every "current week" decision below hangs off it.
   const todayIso = plan?.today ?? ""
+  const dayBuckets = bucketEventsByDate(events)
 
-  // Everything below the filter bar renders `visible` — the calendar, the week
-  // accordion and the day panel all show the same filtered slice.
-  const visible = applyFilter(events, filter)
-  const dayBuckets = bucketEventsByDate(visible)
-  const visibleCourses = new Set(visible.map(courseKey))
-
-  // Próximos 5 días: assessments with a REAL date inside the next 5 days. An
-  // event that only carries "Semana N" has no date until its course gets a
-  // term_start — hence the hint below when this comes back empty.
+  // Próximos 5 días: assessments landing inside the next 5 days. A week-resolved
+  // one sits on its week's Monday, so it surfaces for its whole week (its row
+  // says "Semana N", not a fake day count). Events with no date at all can't
+  // appear — hence the term_start hint below.
   const next5 = (plan?.upcoming_assessments ?? []).filter(
-    (a) =>
-      a.days_until != null &&
-      a.days_until >= 0 &&
-      a.days_until <= 5 &&
-      visibleCourses.has(a.course_id ?? `doc:${a.syllabus_id}`),
+    (a) => a.days_until != null && a.days_until >= 0 && a.days_until <= 5,
   )
   // Courses whose "Semana N" items can't be placed on the calendar yet.
-  const needTermStart = coursesMissingTermStart(visible)
+  const needTermStart = coursesMissingTermStart(events)
 
   // Weeks are Monday–Sunday and defined by the event's real date; undated
   // events group by their source document instead.
-  const groups = buildWeekGroups(visible, todayIso)
+  const groups = buildWeekGroups(events, todayIso)
   const defaultGroup = defaultGroupKey(groups)
 
   return (
@@ -144,7 +128,9 @@ export default function AgendaPage() {
         <CalendarDays className="hidden h-5 w-5 text-accent sm:inline" />
         <h1 className="text-lg font-semibold">Agenda</h1>
         {plan && (
-          <span className="ml-2 truncate text-xs text-muted-foreground">Hoy: {plan.today}</span>
+          <span className="ml-2 truncate text-xs text-muted-foreground">
+            Hoy: {dayMonthLabel(plan.today)} · Semana {weekRangeLabel(plan.week_start)}
+          </span>
         )}
       </header>
 
@@ -170,20 +156,12 @@ export default function AgendaPage() {
             </div>
           ) : (
             <>
-              {/* ─── Filters over the dates extracted from the PDFs/cronogramas ─── */}
-              <AgendaFilters
-                events={events}
-                value={filter}
-                onChange={setFilter}
-                shown={visible.length}
-              />
-
               {/* ─── Month calendar HERO (calendar-first view) ─── */}
               <MonthCalendar
                 large
                 showDetectedList={false}
-                events={visible}
-                today={plan?.today ?? ""}
+                events={events}
+                today={todayIso}
                 onSelectDay={(iso) => setSelectedDate((cur) => (cur === iso ? null : iso))}
                 selectedDate={selectedDate}
                 noteDates={noteDates}
@@ -200,12 +178,6 @@ export default function AgendaPage() {
                 }
               />
 
-              {visible.length === 0 && (
-                <p className="text-center text-xs text-muted-foreground">
-                  Ningún evento coincide con los filtros activos.
-                </p>
-              )}
-
               {/* ─── Próximos 5 días (only what's actually near) ─── */}
               {plan && (
                 <section className="rounded-xl border border-accent/30 bg-accent/5 p-5">
@@ -216,7 +188,8 @@ export default function AgendaPage() {
                     <ul className="space-y-2">
                       {next5.map((a) => {
                         const m = meta(a.event_type)
-                        const badge = daysBadge(a.days_until)
+                        // Suppressed for week-resolved dates — see daysBadge.
+                        const badge = daysBadge(a.days_until, a.date_precision)
                         // Assessments carry their course's color, so two exams of
                         // the same course read as the same course at a glance.
                         const color = resolveCourseColor(
@@ -369,7 +342,7 @@ export default function AgendaPage() {
                                   {e.weight_percent}%
                                 </span>
                               ) : null}
-                              <span className="w-28 shrink-0 text-right text-xs text-muted-foreground">
+                              <span className="w-36 shrink-0 truncate text-right text-xs text-muted-foreground">
                                 {whenLabel(e)}
                               </span>
                             </div>

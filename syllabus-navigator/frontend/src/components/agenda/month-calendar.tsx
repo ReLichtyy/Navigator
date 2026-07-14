@@ -3,9 +3,13 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, FileText, StickyNote } from "lucide-react"
 import type { ScheduleEventAPI } from "@/lib/api"
-import { meta } from "@/lib/ui/agenda-format"
-import { courseKey } from "@/lib/ui/agenda-filter"
-import { COURSE_COLOR_HEXES, colorIndexFor, resolveCourseColor } from "@/lib/ui/course-color"
+import { meta, whenLabel } from "@/lib/ui/agenda-format"
+import {
+  COURSE_COLOR_HEXES,
+  colorIndexFor,
+  courseKey,
+  resolveCourseColor,
+} from "@/lib/ui/course-color"
 
 /** Palette shared with the Cursos page — see lib/ui/course-color.ts. */
 export const DOT_HEX = COURSE_COLOR_HEXES
@@ -189,11 +193,18 @@ export function MonthCalendar({
                     </div>
                     {evs.slice(0, large ? 4 : 3).map((e) => {
                       const m = meta(e.event_type)
+                      // A week-resolved event only knows its week; it sits on the
+                      // Monday as a placeholder, so it reads as dashed/approximate.
+                      const approx = e.date_precision === "week"
                       return (
                         <div
                           key={e.id}
-                          title={`${m.label} · ${e.course_name} · ${e.title}`}
-                          className="flex w-full items-center gap-1 overflow-hidden rounded-md bg-card px-1 py-0.5"
+                          title={`${m.label} · ${e.course_name} · ${e.title}${
+                            approx ? ` · ${e.week_label ?? "semana"} (día aproximado)` : ""
+                          }`}
+                          className={`flex w-full items-center gap-1 overflow-hidden rounded-md px-1 py-0.5 ${
+                            approx ? "border border-dashed border-border/70 bg-card/50" : "bg-card"
+                          }`}
                         >
                           <span
                             className="h-1.5 w-1.5 flex-none rounded-full"
@@ -240,7 +251,7 @@ export function MonthCalendar({
                   className="flex items-center gap-3.5 rounded-xl border border-border/50 bg-card px-4 py-3"
                 >
                   <span className="font-mono text-[13px] font-semibold text-foreground">
-                    {e.event_date}
+                    {whenLabel(e)}
                   </span>
                   <span
                     className="h-8 w-0.5 flex-none rounded"

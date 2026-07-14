@@ -83,6 +83,19 @@ describe("resolveEventWeekDates", () => {
     ])
   })
 
+  it("tags how much each date can be trusted", () => {
+    const out = resolveEventWeekDates([
+      { ...base, id: "b", event_date: "2026-03-04", week_label: null, term_start: "2026-03-02" },
+      { ...base, id: "a", event_date: null, week_label: "Semana 2", term_start: "2026-03-02" },
+      { ...base, id: "c", event_date: null, week_label: "Semana 9", term_start: null },
+    ])
+    expect(out.map((e) => [e.id, e.date_precision])).toEqual([
+      ["b", "exact"], // a real date from the syllabus
+      ["a", "week"], // Monday of "Semana 2" — the week is right, the day isn't
+      ["c", "none"], // no term_start → undatable
+    ])
+  })
+
   it("keeps an existing event_date even if a label is also present", () => {
     const out = resolveEventWeekDates([
       {

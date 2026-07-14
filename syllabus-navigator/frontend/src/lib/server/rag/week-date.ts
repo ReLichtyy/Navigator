@@ -64,17 +64,33 @@ type WeekDatable = {
 }
 
 /**
- * Fill `event_date` on events that only carry a `week_label`, when their
- * course has a `term_start`. Dated events pass through untouched. Re-sorts
- * dated-first (stable, so the repo's created_at ordering is preserved within
- * equal dates).
+ * How much to trust an event's `event_date`:
+ *   - `exact` — the syllabus gave a real date.
+ *   - `week`  — derived from "Semana N" + term_start, so it is the MONDAY of
+ *               that week, not the day the event actually happens. The week is
+ *               right; the day is a placeholder. Consumers must not present it
+ *               as a precise day ("Hoy", "Mañana", "En 2 días").
+ *   - `none`  — no date at all (no label, or the course has no term_start).
  */
-export function resolveEventWeekDates<T extends WeekDatable>(events: T[]): T[] {
+export type DatePrecision = "exact" | "week" | "none"
+
+export type Dated<T> = T & { date_precision: DatePrecision }
+
+/**
+ * Fill `event_date` on events that only carry a `week_label`, when their
+ * course has a `term_start`, and tag every event with its `date_precision`.
+ * Dated events keep their date. Re-sorts dated-first (stable, so the repo's
+ * created_at ordering is preserved within equal dates).
+ */
+export function resolveEventWeekDates<T extends WeekDatable>(events: T[]): Dated<T>[] {
   return events
-    .map((e) => {
-      if (e.event_date || !e.week_label || !e.term_start) return e
-      const resolved = resolveWeekDate(e.term_start, e.week_label)
-      return resolved ? { ...e, event_date: resolved } : e
+    .map((e): Dated<T> => {
+      if (e.event_date) return { ...e, date_precision: "exact" }
+      if (e.week_label && e.term_start) {
+        const resolved = resolveWeekDate(e.term_start, e.week_label)
+        if (resolved) return { ...e, event_date: resolved, date_precision: "week" }
+      }
+      return { ...e, date_precision: "none" }
     })
     .sort((a, b) => (a.event_date ?? "9999-12-31").localeCompare(b.event_date ?? "9999-12-31"))
 }

@@ -568,6 +568,30 @@ export async function findOrCreateChatForDoc(syllabusId: string) {
   })
 }
 
+/**
+ * How much the server trusts an event's `event_date`:
+ *   - `exact` — a real date, from the syllabus.
+ *   - `week`  — derived from "Semana N" + the course's term_start, so it is the
+ *               MONDAY of that week, not the day the event happens. Right week,
+ *               placeholder day: never render it as "Hoy" / "En 2 días".
+ *   - `none`  — undated.
+ */
+export type DatePrecisionAPI = "exact" | "week" | "none"
+
+/**
+ * The browser's IANA zone (e.g. "America/Lima"). Sent with every date-bearing
+ * request: the server runs in UTC, so without it "today" and "this week" are
+ * computed in the wrong calendar (see server/utils/today.ts).
+ */
+function timeZoneParam(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    return tz ? `tz=${encodeURIComponent(tz)}` : ""
+  } catch {
+    return ""
+  }
+}
+
 export interface ScheduleEventAPI {
   id: string
   syllabus_id: string
@@ -584,12 +608,14 @@ export interface ScheduleEventAPI {
   description: string | null
   event_date: string | null
   week_label: string | null
+  date_precision: DatePrecisionAPI
   weight_percent: number | null
 }
 
-/** Upcoming agenda across all the user's courses. */
+/** Upcoming agenda across all the user's courses. `today` is in the caller's zone. */
 export async function fetchAgenda() {
-  return request<{ today: string; events: ScheduleEventAPI[] }>(`/schedule`, {
+  const tz = timeZoneParam()
+  return request<{ today: string; events: ScheduleEventAPI[] }>(`/schedule${tz ? `?${tz}` : ""}`, {
     method: "GET",
     json: false,
   })
@@ -614,7 +640,9 @@ export interface UpcomingAssessmentAPI {
   title: string
   event_date: string | null
   week_label: string | null
+  date_precision: DatePrecisionAPI
   weight_percent: number | null
+  /** Days from today. Only meaningful when `date_precision === "exact"`. */
   days_until: number | null
   review_first: string[]
 }
@@ -629,7 +657,11 @@ export interface WeeklyPlanAPI {
 
 /** Dynamic weekly study plan (assessments + this week's topics + review hints). */
 export async function fetchRecommendations() {
-  return request<WeeklyPlanAPI>(`/recommendations`, { method: "GET", json: false })
+  const tz = timeZoneParam()
+  return request<WeeklyPlanAPI>(`/recommendations${tz ? `?${tz}` : ""}`, {
+    method: "GET",
+    json: false,
+  })
 }
 
 // ============================================================================
