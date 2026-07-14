@@ -543,3 +543,25 @@ CREATE TABLE IF NOT EXISTS quiz_seen (
 );
 CREATE INDEX IF NOT EXISTS idx_quiz_seen_scope
   ON quiz_seen (user_id, scope_kind, scope_id);
+
+-- Exam attempts (modo Examen): stores the paper AS SERVED — options already
+-- shuffled, WITH the hidden fields (answer index, expectedAnswer, rubric,
+-- modelSolution) that the client never receives — so grading compares against
+-- exactly what the student saw. Submit-once: status flips to 'graded' and a
+-- re-grade returns the stored result idempotently.
+CREATE TABLE IF NOT EXISTS exam_attempts (
+  id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  scope_kind  TEXT        NOT NULL,             -- 'doc' | 'course'
+  scope_id    UUID        NOT NULL,             -- syllabus_uploads.id | user_courses.id
+  template    TEXT        NOT NULL,             -- 'teorico' | 'practico' | 'mixto'
+  status      TEXT        NOT NULL DEFAULT 'in_progress',  -- 'in_progress' | 'graded'
+  paper       JSONB       NOT NULL,             -- sections+items WITH hidden fields (server-only)
+  result      JSONB,                            -- per-question grading detail
+  score       NUMERIC(5,2),
+  max_score   NUMERIC(5,2) NOT NULL DEFAULT 20,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  graded_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_exam_attempts_user
+  ON exam_attempts (user_id, scope_kind, scope_id, started_at DESC);

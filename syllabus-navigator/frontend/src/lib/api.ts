@@ -830,6 +830,88 @@ export async function fetchQuizStage(
   return request<QuizStageAPI>(`${base}?${qs.toString()}`, { method: "GET", json: false })
 }
 
+// ── Examen: single-page sectioned exam (Examen mode) ─────────────────────────
+
+export type ExamTemplateIdAPI = "teorico" | "practico" | "mixto"
+
+/** The exam paper as the client sees it — no answers, references or rubrics. */
+export interface ExamPaperAPI {
+  attempt_id: string
+  template: ExamTemplateIdAPI
+  durationSec: number
+  totalPoints: number
+  sections: {
+    kind: "mcq" | "short" | "dev"
+    label: string
+    pointsPerItem: number
+    items: { key: string; question: string; options?: string[] }[]
+  }[]
+}
+
+export interface ExamResultItemAPI {
+  key: string
+  question: string
+  score: number
+  max: number
+  correct: boolean
+  yourAnswer: string
+  feedback?: string
+  correctAnswer?: string
+  expectedAnswer?: string
+  modelSolution?: string
+}
+
+export interface ExamResultAPI {
+  attempt_id: string
+  template: ExamTemplateIdAPI
+  total: number
+  maxTotal: number
+  sections: { kind: "mcq" | "short" | "dev"; label: string; items: ExamResultItemAPI[] }[]
+}
+
+export interface ExamAnswerAPI {
+  key: string
+  /** MCQ → selected option index; short/dev → free text. */
+  response: number | string
+}
+
+/**
+ * Start an exam attempt. SLOW on a cold scope (short/development items are
+ * generated on demand); MCQ comes from the shared quiz bank.
+ */
+export async function fetchExam(
+  scope: { kind: "doc"; docId: string } | { kind: "course"; courseId: string },
+  opts: { template?: ExamTemplateIdAPI } = {},
+) {
+  const qs = new URLSearchParams()
+  if (opts.template) qs.set("template", opts.template)
+  const base =
+    scope.kind === "doc"
+      ? `/study/${encodeURIComponent(scope.docId)}/exam`
+      : `/study/course/${encodeURIComponent(scope.courseId)}/exam`
+  const suffix = qs.size > 0 ? `?${qs.toString()}` : ""
+  return request<ExamPaperAPI>(`${base}${suffix}`, { method: "GET", json: false })
+}
+
+/**
+ * Submit the exam for grading (submit-once; re-posting a graded attempt returns
+ * the stored result). SLOW: open answers go through the LLM grader.
+ */
+export async function gradeExam(
+  scope: { kind: "doc"; docId: string } | { kind: "course"; courseId: string },
+  attemptId: string,
+  answers: ExamAnswerAPI[],
+) {
+  const p =
+    scope.kind === "doc"
+      ? { kind: "doc" as const, id: scope.docId }
+      : { kind: "course" as const, id: scope.courseId }
+  return request<ExamResultAPI>(`/study/exam/grade`, {
+    method: "POST",
+    body: JSON.stringify({ ...p, attemptId, answers }),
+  })
+}
+
 // ── Repaso: the queue of failed quiz questions ───────────────────────────────
 
 type QuizScope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }

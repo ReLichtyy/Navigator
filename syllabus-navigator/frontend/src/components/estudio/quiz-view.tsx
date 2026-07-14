@@ -32,7 +32,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
 /** Quiz and Simulacro run the same engine but are separate sessions. */
-export type QuizMode = "quiz" | "simulacro"
+// "simulacro" era un alias de este mismo componente; el modo Examen lo reemplazó.
+export type QuizMode = "quiz"
 
 /** Difficulty ladder — mirrors DIFFICULTY_LADDER in study.service. */
 const LADDER: StudyDifficulty[] = ["facil", "medio", "dificil"]

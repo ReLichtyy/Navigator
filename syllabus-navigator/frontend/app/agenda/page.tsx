@@ -367,12 +367,12 @@ export default function AgendaPage() {
                         ¿Listo para {next.title}?
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        Genera un simulacro con el material de {next.course_name}.
+                        Genera un examen de práctica con el material de {next.course_name}.
                       </div>
                     </div>
                     <Button asChild variant="accent" size="pill" className="shrink-0">
-                      <Link href={`/estudio?course=${syllabusId}&mode=simulacro`}>
-                        Iniciar simulacro
+                      <Link href={`/estudio?course=${syllabusId}&mode=examen`}>
+                        Iniciar examen
                       </Link>
                     </Button>
                   </Card>

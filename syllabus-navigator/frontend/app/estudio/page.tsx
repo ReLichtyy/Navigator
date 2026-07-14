@@ -51,6 +51,7 @@ import {
 } from "lucide-react"
 import { FlashcardsView, EmptyMode } from "@/components/estudio/flashcards-view"
 import { QuizView } from "@/components/estudio/quiz-view"
+import { ExamView } from "@/components/estudio/exam-view"
 import { QuizReviewView } from "@/components/estudio/review-view"
 import { ResumenView } from "@/components/estudio/mind-resumen-view"
 import { MasteryPanel } from "@/components/estudio/mastery-panel"
@@ -65,7 +66,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 
-type Mode = "menu" | "flash" | "repaso" | "quiz" | "simulacro" | "mind" | "resumen"
+type Mode = "menu" | "flash" | "repaso" | "quiz" | "examen" | "mind" | "resumen"
 
 /**
  * Study scope: the whole course (aggregated), one specific PDF, a subset of the
@@ -204,6 +205,14 @@ function EstudioContent() {
       askInChat(text, { courseId: selectedGroup?.id ?? null, syllabusId: activeDocId }),
     [askInChat, selectedGroup?.id, activeDocId],
   )
+  // Course signal for the Examen template auto-suggestion: the selected real
+  // course's name+tags, else the active PDF's filename ("Sin curso" bucket).
+  const selectedCourse = selectedGroup?.id
+    ? (courses.find((c) => c.id === selectedGroup.id) ?? null)
+    : null
+  const examCourseName =
+    selectedCourse?.name ?? (activeDoc ? cleanName(activeDoc.original_filename) : "")
+  const examSubjectTags = selectedCourse?.subject_tags ?? []
   const scopeLabel =
     scope?.kind === "combo"
       ? `${selectedGroups.length} cursos combinados`
@@ -525,7 +534,7 @@ function EstudioContent() {
         ? "applied"
         : "pending"
 
-  // Modes that consume the generated set. Quiz/Simulacro/Repaso stream from
+  // Modes that consume the generated set. Quiz/Examen/Repaso stream from
   // their own staged/queue endpoints and never touch it, so they open instantly.
   const SET_MODES: Mode[] = ["flash", "resumen"]
 
@@ -562,8 +571,10 @@ function EstudioContent() {
   useEffect(() => {
     if (deepLinked.current || !scope) return
     deepLinked.current = true
-    const m = params.get("mode") as Mode | null
-    if (m && ["flash", "repaso", "quiz", "simulacro", "resumen", "mind"].includes(m)) {
+    const raw = params.get("mode")
+    // "simulacro" links predate the Examen mode — keep old deep links working.
+    const m = (raw === "simulacro" ? "examen" : raw) as Mode | null
+    if (m && ["flash", "repaso", "quiz", "examen", "resumen", "mind"].includes(m)) {
       launchMode(m)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -732,6 +743,8 @@ function EstudioContent() {
                         syllabusId={activeDocId}
                         dueKeys={dueCardKeys}
                         scopeLabel={scopeLabel}
+                        courseName={examCourseName}
+                        subjectTags={examSubjectTags}
                         onAsk={ask}
                         regenerating={regenerating}
                         onRegenerate={() =>
@@ -867,6 +880,8 @@ function ModeRouter({
   syllabusId,
   dueKeys,
   scopeLabel,
+  courseName,
+  subjectTags,
   onAsk,
   regenerating,
   onRegenerate,
@@ -893,6 +908,9 @@ function ModeRouter({
   /** SRS card keys due today (repaso ordering). Empty for whole-course scope. */
   dueKeys: string[]
   scopeLabel: string
+  /** Course signal for the Examen template auto-suggestion. */
+  courseName: string
+  subjectTags: string[]
   onAsk: (text: string) => void
   regenerating: boolean
   onRegenerate: () => void
@@ -990,15 +1008,26 @@ function ModeRouter({
       return (
         <QuizReviewView courseLabel={scopeLabel} scope={quizScope} onBack={backToMenu} />
       )
-    case "quiz":
-    case "simulacro": {
+    case "quiz": {
       if (!quizScope) return narrowScopeNotice
       return (
         <QuizView
-          title={mode === "simulacro" ? "Simulacro · Prueba corta" : "Quiz dinámico"}
+          title="Quiz dinámico"
           courseLabel={scopeLabel}
           scope={quizScope}
-          mode={mode}
+          mode="quiz"
+          onBack={backToMenu}
+        />
+      )
+    }
+    case "examen": {
+      if (!quizScope) return narrowScopeNotice
+      return (
+        <ExamView
+          courseLabel={scopeLabel}
+          scope={quizScope}
+          courseName={courseName}
+          subjectTags={subjectTags}
           onBack={backToMenu}
         />
       )
@@ -1049,7 +1078,7 @@ const MODES: {
           : "tarjetas dinámicas",
   },
   { key: "repaso", title: "Repaso", Icon: RotateCcw, meta: () => "tus fallos" },
-  { key: "simulacro", title: "Simulacro", Icon: Timer, meta: () => "cronometrado" },
+  { key: "examen", title: "Examen", Icon: Timer, meta: () => "20 min · nota /20" },
   { key: "mind", title: "Mapa mental", Icon: Network, meta: () => "visual" },
   { key: "resumen", title: "Resumen", Icon: AlignLeft, meta: () => "síntesis" },
 ]
@@ -1219,7 +1248,7 @@ function Menu({
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/80">
               El enfoque y la búsqueda web aplican a Tarjetas, Resumen y Mapa. El Quiz y el
-              Simulacro usan el banco de preguntas por etapas del curso completo.
+              Examen usan el banco de preguntas del curso completo.
             </p>
           </div>
         )}

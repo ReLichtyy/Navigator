@@ -37,7 +37,7 @@ const STEPS: Step[] = [
     kicker: "Navigator lo entiende",
     title: "Genera tu material de estudio.",
     body: "Desde tu knowledge base creamos todo lo que necesitas para repasar — dinámico y siempre basado en tus propios documentos.",
-    bullets: ["Quiz y simulacros", "Tarjetas y mapas mentales", "Resúmenes automáticos"],
+    bullets: ["Quiz y exámenes", "Tarjetas y mapas mentales", "Resúmenes automáticos"],
   },
   {
     kicker: "El Asistente",

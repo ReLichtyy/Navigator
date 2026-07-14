@@ -25,10 +25,10 @@ import {
 } from "@/lib/api"
 import { Markdown } from "@/components/ui/markdown"
 
-/** Assistant answers mentioning an evaluation → offer a simulacro for the next one. */
+/** Assistant answers mentioning an evaluation → offer a practice exam for the next one. */
 const ASSESSMENT_RE = /\b(prueba|examen|qu[ií]z|simulacro|evaluaci[oó]n|parcial|test|corta)\b/i
 
-/** Contextual suggestion: when the latest answer talks about an assessment, link to its simulacro. */
+/** Contextual suggestion: when the latest answer talks about an assessment, link to its exam. */
 function SimulacroSuggestion({
   assessment,
   syllabusId,
@@ -44,14 +44,14 @@ function SimulacroSuggestion({
           {assessment.course_name ? ` de ${assessment.course_name}` : ""}?
         </div>
         <div className="text-[11px] text-muted-foreground">
-          Genera un simulacro con el material del curso.
+          Genera un examen de práctica con el material del curso.
         </div>
       </div>
       <Link
-        href={`/estudio?course=${encodeURIComponent(syllabusId)}&mode=simulacro`}
+        href={`/estudio?course=${encodeURIComponent(syllabusId)}&mode=examen`}
         className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-xs font-bold text-accent-foreground transition-opacity hover:opacity-90"
       >
-        <Timer className="h-3.5 w-3.5" /> Crear simulacro
+        <Timer className="h-3.5 w-3.5" /> Crear examen
       </Link>
     </div>
   )
@@ -131,7 +131,7 @@ export function ChatThread({
   const pinnedRef = useRef(true)
   const msgCountRef = useRef(messages.length)
 
-  // Next upcoming assessment + its course (for the contextual simulacro suggestion).
+  // Next upcoming assessment + its course (for the contextual exam suggestion).
   const [nextAssessment, setNextAssessment] = useState<{
     a: UpcomingAssessmentAPI
     syllabusId: string

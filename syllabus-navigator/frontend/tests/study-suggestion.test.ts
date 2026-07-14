@@ -4,13 +4,13 @@ import { pickStudySuggestion } from "@/lib/ui/study-suggestion"
 const ev = (event_type: string, event_date: string | null) => ({ event_type, event_date })
 
 describe("pickStudySuggestion", () => {
-  it("suggests simulacro for the nearest upcoming assessment within the horizon", () => {
+  it("suggests examen for the nearest upcoming assessment within the horizon", () => {
     const out = pickStudySuggestion(
       [ev("exam", "2026-06-30"), ev("quiz", "2026-06-26"), ev("class", "2026-06-23")],
       "2026-06-23",
       true,
     )
-    expect(out).toEqual({ mode: "simulacro", reason: "en 3 días" })
+    expect(out).toEqual({ mode: "examen", reason: "en 3 días" })
   })
 
   it("uses human reasons for today / tomorrow", () => {

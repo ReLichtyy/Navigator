@@ -110,6 +110,20 @@ export const FlashcardReviewSchema = StudyScopeSchema.extend({
   known: z.boolean(),
 })
 
+/** Grade a submitted exam attempt (Examen mode). MCQ answers are option
+ *  indexes; short/development answers are free text. */
+export const ExamGradeSchema = StudyScopeSchema.extend({
+  attemptId: z.string().uuid("Invalid attempt ID"),
+  answers: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(8),
+        response: z.union([z.number().int().min(0).max(9), z.string().max(8000)]),
+      }),
+    )
+    .max(40, "Too many answers"),
+})
+
 export const MasteryRecordSchema = StudyScopeSchema.extend({
   outcomes: z
     .array(z.object({ label: z.string().trim().min(1).max(200), correct: z.boolean() }))

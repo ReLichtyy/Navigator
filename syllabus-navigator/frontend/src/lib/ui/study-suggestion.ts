@@ -5,7 +5,7 @@
  *
  * Logic (first match wins):
  *   1. A graded assessment (quiz/exam) dated today..+HORIZON days → suggest
- *      "simulacro", with a human reason ("hoy" / "mañana" / "en N días").
+ *      "examen", with a human reason ("hoy" / "mañana" / "en N días").
  *   2. Otherwise, if the course has topics this week → suggest "quiz".
  *   3. Otherwise → no suggestion.
  */
@@ -15,7 +15,7 @@ interface DatedEvent {
   event_date: string | null
 }
 
-export type SuggestedMode = "simulacro" | "quiz"
+export type SuggestedMode = "examen" | "quiz"
 
 export interface StudySuggestion {
   mode: SuggestedMode
@@ -25,7 +25,7 @@ export interface StudySuggestion {
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
 const ASSESSMENT_TYPES = new Set(["quiz", "exam"])
-// How far ahead an assessment still drives the "simulacro" suggestion.
+// How far ahead an assessment still drives the "examen" suggestion.
 const HORIZON_DAYS = 14
 
 /** Whole-day difference toISO − fromISO (UTC, avoids tz drift). NaN on bad input. */
@@ -50,7 +50,7 @@ export function pickStudySuggestion(
     const d = upcoming[0]
     if (d !== undefined) {
       const reason = d === 0 ? "hoy" : d === 1 ? "mañana" : `en ${d} días`
-      return { mode: "simulacro", reason }
+      return { mode: "examen", reason }
     }
   }
 

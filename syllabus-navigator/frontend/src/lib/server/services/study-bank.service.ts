@@ -77,8 +77,9 @@ const dedupeKeyFor = (scope: StudyScope, difficulty: Difficulty) =>
  * Build the evidence text (+ weighted topics) a generation batch is grounded on.
  * Doc scope prefers topic-focused retrieval, falling back to the concatenated
  * document; course scope uses the concatenated course text.
+ * Exported for the exam service (recall/case generation grounds on the same evidence).
  */
-async function buildEvidence(
+export async function buildEvidence(
   scope: StudyScope,
   ownerId: string | undefined,
 ): Promise<{ text: string; weightedTopics: { label: string; weight: number }[] } | null> {

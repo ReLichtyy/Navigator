@@ -31,8 +31,10 @@ export type AgentRole =
   | "mindmap"
   | "inquisitor"
   | "case"
+  | "recall"
   | "flashcard"
   | "verifier"
+  | "grader"
 
 export interface RoleModel {
   provider: AgentProvider
@@ -66,9 +68,21 @@ const RAW: Record<
   flashcard: { provider: OA, model: env("MODEL_FLASHCARD", "gpt-4o-mini"), fallback: "gpt-5-mini" },
   inquisitor: { provider: OA, model: env("MODEL_INQUISITOR", "gpt-5-mini"), fallback: SAFE },
   case: { provider: OA, model: env("MODEL_CASE", "gpt-5-mini"), fallback: SAFE },
+  // Short-answer generator for the Examen mode — same accuracy tier as the
+  // inquisitor, but its own role so it stays independently overridable.
+  recall: { provider: OA, model: env("MODEL_RECALL", "gpt-5-mini"), fallback: SAFE },
   verifier: {
     provider: DS,
     model: env("MODEL_VERIFIER", "deepseek-chat"),
+    fallback: "gpt-5-mini",
+    fallbackProvider: OA,
+  },
+  // Exam grader (Examen mode): scores the student's short/development answers
+  // against rubric/expected answer. Cross-family judge like the verifier;
+  // separate role so grading can move to a reasoner without touching the critic.
+  grader: {
+    provider: DS,
+    model: env("MODEL_GRADER", "deepseek-chat"),
     fallback: "gpt-5-mini",
     fallbackProvider: OA,
   },
