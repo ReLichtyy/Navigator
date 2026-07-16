@@ -186,6 +186,7 @@ describe("getQuizStage — bank serving", () => {
     expect(StudyBankService.drain).toHaveBeenCalledWith(1, {
       scope: { kind: "doc", id: "s1" },
       difficulty: stage.difficulty,
+      ownerId: "u1",
     })
   })
 

@@ -12,12 +12,48 @@ import { sql } from "@/lib/db"
 import type { StudyScope } from "./study-items.repo"
 
 export const StudyScopeRepository = {
+  /**
+   * Remove generated/served material after source content changes, while
+   * preserving the learner's topic mastery ledger. The next request rebuilds
+   * the bank and cache from the current graph/content revision.
+   */
+  async purgeGenerated(scope: StudyScope): Promise<Record<string, number>> {
+    const kind = scope.kind
+    const id = scope.id
+
+    const [items, review, seen, srs, cached, exams] = await Promise.all([
+      sql`DELETE FROM study_items
+          WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING id`,
+      sql`DELETE FROM quiz_review
+          WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING id`,
+      sql`DELETE FROM quiz_seen
+          WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING item_id`,
+      sql`DELETE FROM flashcard_reviews
+          WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING id`,
+      kind === "doc"
+        ? sql`DELETE FROM study_sets WHERE syllabus_id = ${id}::uuid RETURNING syllabus_id`
+        : sql`DELETE FROM course_study_sets WHERE course_id = ${id}::uuid RETURNING course_id`,
+      sql`DELETE FROM exam_attempts
+          WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid
+            AND status = 'in_progress' RETURNING id`,
+    ])
+
+    return {
+      study_items: items.length,
+      quiz_review: review.length,
+      quiz_seen: seen.length,
+      flashcard_reviews: srs.length,
+      cached_sets: cached.length,
+      in_progress_exams: exams.length,
+    }
+  },
+
   /** Delete every study row belonging to a scope. Returns rows removed per table. */
   async purge(scope: StudyScope): Promise<Record<string, number>> {
     const kind = scope.kind
     const id = scope.id
 
-    const [items, review, seen, mastery, srs] = await Promise.all([
+    const [items, review, seen, mastery, srs, exams] = await Promise.all([
       sql`DELETE FROM study_items
           WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING id`,
       sql`DELETE FROM quiz_review
@@ -28,6 +64,8 @@ export const StudyScopeRepository = {
           WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING id`,
       sql`DELETE FROM flashcard_reviews
           WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING id`,
+      sql`DELETE FROM exam_attempts
+          WHERE scope_kind = ${kind} AND scope_id = ${id}::uuid RETURNING id`,
     ])
 
     return {
@@ -36,6 +74,7 @@ export const StudyScopeRepository = {
       quiz_seen: seen.length,
       topic_mastery: mastery.length,
       flashcard_reviews: srs.length,
+      exam_attempts: exams.length,
     }
   },
 }

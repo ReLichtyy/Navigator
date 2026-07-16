@@ -13,8 +13,16 @@ vi.mock("@/lib/server/repositories/study-items.repo", () => ({
 vi.mock("@/lib/server/repositories/graph.repo", () => ({
   GraphRepository: { getGraph: vi.fn() },
 }))
+vi.mock("@/lib/server/repositories/course-graph.repo", () => ({
+  CourseGraphRepository: { get: vi.fn() },
+}))
 vi.mock("@/lib/server/repositories/chunk.repo", () => ({
-  ChunkRepository: { getConcatenatedText: vi.fn(), getConcatenatedTextByCourse: vi.fn() },
+  ChunkRepository: {
+    getConcatenatedText: vi.fn(),
+    getConcatenatedTextByCourse: vi.fn(),
+    contentFingerprint: vi.fn(),
+    contentFingerprintByCourse: vi.fn(),
+  },
 }))
 vi.mock("@/lib/server/repositories/job.repo", () => ({
   JobRepository: { enqueue: vi.fn(), claimNext: vi.fn(), complete: vi.fn(), fail: vi.fn() },
@@ -27,12 +35,18 @@ vi.mock("@/lib/llm/embeddings", () => ({ embedTexts: vi.fn() }))
 
 import { StudyItemsRepository } from "@/lib/server/repositories/study-items.repo"
 import { GraphRepository } from "@/lib/server/repositories/graph.repo"
+import { CourseGraphRepository } from "@/lib/server/repositories/course-graph.repo"
 import { JobRepository } from "@/lib/server/repositories/job.repo"
+import { ChunkRepository } from "@/lib/server/repositories/chunk.repo"
 import { buildContextByTopics } from "@/lib/server/rag/retrieval/hybrid"
 import { inquisitorAgent } from "@/lib/server/rag/agents/inquisitor"
 import { gateQuiz } from "@/lib/server/rag/eval/gates"
 import { embedTexts } from "@/lib/llm/embeddings"
-import { StudyBankService, JOB_TYPE_STUDY } from "@/lib/server/services/study-bank.service"
+import {
+  StudyBankService,
+  JOB_TYPE_STUDY,
+  buildEvidence,
+} from "@/lib/server/services/study-bank.service"
 import type { QuizQuestion } from "@/lib/server/rag/study-gen"
 
 const question = (n: number): QuizQuestion => ({
@@ -56,6 +70,7 @@ const job = () => ({
     difficulty: "medio",
     target: 70,
     dedupeKey: "doc:s1:quiz:medio",
+    contentFingerprint: "rev-1",
   },
 })
 
@@ -74,9 +89,23 @@ beforeEach(() => {
   )
   vi.mocked(JobRepository.complete).mockResolvedValue(undefined)
   vi.mocked(JobRepository.enqueue).mockResolvedValue("j2")
+  vi.mocked(ChunkRepository.contentFingerprint).mockResolvedValue("rev-1")
+  vi.mocked(ChunkRepository.contentFingerprintByCourse).mockResolvedValue("rev-1")
 })
 
 describe("StudyBankService.drain — background quiz generation", () => {
+  it("uses the current course mind-map topics and weights as the study plan", async () => {
+    vi.mocked(ChunkRepository.getConcatenatedTextByCourse).mockResolvedValue("x".repeat(200))
+    vi.mocked(CourseGraphRepository.get).mockResolvedValue({
+      status: "ready",
+      data: { nodes: [{ label: "Tema actualizado", weight_percent: 75 }] },
+    } as any)
+
+    const evidence = await buildEvidence({ kind: "course", id: "c1" }, "u1")
+
+    expect(evidence?.weightedTopics).toEqual([{ label: "Tema actualizado", weight: 75 }])
+  })
+
   it("splits an 18-item batch into 3 parallel gen→gate chains of 6 and persists once", async () => {
     vi.mocked(JobRepository.claimNext)
       .mockResolvedValueOnce(job() as any)
@@ -118,8 +147,10 @@ describe("StudyBankService.drain — background quiz generation", () => {
     expect(JobRepository.enqueue).toHaveBeenCalledTimes(1)
     const [type, payload, opts] = vi.mocked(JobRepository.enqueue).mock.calls[0]
     expect(type).toBe(JOB_TYPE_STUDY)
-    expect((payload as any).dedupeKey).toBe("doc:s1:quiz:medio")
-    expect((opts as any).dedupeKey).toBe("doc:s1:quiz:medio")
+    expect((payload as any).dedupeKey).toContain("doc:s1:quiz:medio")
+    expect((payload as any).dedupeKey).toContain("rev-1")
+    expect((payload as any).contentFingerprint).toBe("rev-1")
+    expect((opts as any).dedupeKey).toContain("rev-1")
   })
 
   it("ensure is a no-op at/above target", async () => {
@@ -128,5 +159,22 @@ describe("StudyBankService.drain — background quiz generation", () => {
     await StudyBankService.ensure({ kind: "doc", id: "s1" }, "medio")
 
     expect(JobRepository.enqueue).not.toHaveBeenCalled()
+  })
+
+  it("discards a generation that finishes after the source revision changes", async () => {
+    vi.mocked(JobRepository.claimNext).mockResolvedValueOnce(job() as any)
+    vi.mocked(StudyItemsRepository.countByTypeDifficulty).mockResolvedValue(0)
+    vi.mocked(ChunkRepository.contentFingerprint)
+      .mockResolvedValueOnce("rev-1")
+      .mockResolvedValueOnce("rev-2")
+
+    await StudyBankService.drain(1)
+
+    expect(inquisitorAgent).toHaveBeenCalled()
+    expect(StudyItemsRepository.insertDeduped).not.toHaveBeenCalled()
+    expect(JobRepository.complete).toHaveBeenCalledWith(
+      "j1",
+      expect.objectContaining({ reason: "stale-revision" }),
+    )
   })
 })

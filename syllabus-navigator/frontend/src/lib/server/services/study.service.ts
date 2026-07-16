@@ -33,7 +33,7 @@ import { getUserPrefs } from "../utils/user-prefs"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
 import { webSearchContext, appendWebContext } from "../rag/web-search"
 import { orchestrateStudySet } from "../rag/orchestrator/runner"
-import { StudyBankService } from "./study-bank.service"
+import { buildEvidence, StudyBankService } from "./study-bank.service"
 import { buildStudyPlan, orderLabelsByPlan } from "../rag/orchestrator/router"
 import { embedTexts } from "@/lib/llm/embeddings"
 import { logError } from "@/lib/observability/logger"
@@ -242,18 +242,18 @@ async function fillDrainRecycle(
   // background (cron, or the next poll that finds an empty pool). Blocking on a
   // generation here would add ~a minute to a request that didn't need it.
   if (pool.length > 0) {
-    const generating = await StudyBankService.hasPending(scope, difficulty)
+    const generating = await StudyBankService.hasPending(scope, difficulty, ownerId)
     return { items: map(pool), generating, exhausted: false }
   }
 
   // Empty pool: this request has nothing to show, so it does the work itself.
-  await StudyBankService.drain(1, { scope, difficulty }).catch((err) =>
+  await StudyBankService.drain(1, { scope, difficulty, ownerId }).catch((err) =>
     logError("study.stage.drain_error", {
       error: err instanceof Error ? err.message : String(err),
     }),
   )
   pool = await read(allExclude)
-  const generating = await StudyBankService.hasPending(scope, difficulty)
+  const generating = await StudyBankService.hasPending(scope, difficulty, ownerId)
   if (pool.length > 0) return { items: map(pool), generating, exhausted: false }
   if (generating) return { items: [], generating: true, exhausted: false }
 
@@ -468,6 +468,13 @@ export const StudyService = {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
     }
 
+    if ((await ChunkRepository.contentFingerprint(syllabusId)) !== fingerprint) {
+      throw new ApiErrorResponse(
+        "El documento cambiÃ³ mientras se generaba el material. IntÃ©ntalo de nuevo.",
+        409,
+      )
+    }
+
     // Reconnect the Router → served set: rank the assembled quiz by plan priority.
     const orderedKeys = plan.targets.map((t) => t.topicKey)
     const served = await bankAndAssemble(scope, set, difficulty, custom, orderedKeys, !!opts.web)
@@ -515,9 +522,14 @@ export const StudyService = {
     // Step 2: when a focus topic is given, retrieve it across the whole course
     // (hybrid). Otherwise use the full concatenated text (no course-level topic
     // graph yet — see rag-report §8.5).
-    const focusLabels = topic ? [topic] : []
+    const evidence = await buildEvidence(scope, userId)
+    const weightedTopics = evidence?.weightedTopics ?? []
+    const plan = await buildStudyPlan(userId, scope, weightedTopics, difficulty)
+    const planLabels = orderLabelsByPlan(plan)
+    const focusLabels = topic ? [topic, ...planLabels] : planLabels
     let text =
       (await buildContextByTopics({ kind: "course", id: courseId, userId }, focusLabels)) ??
+      evidence?.text ??
       (await ChunkRepository.getConcatenatedTextByCourse(userId, courseId))
     if (!text || text.trim().length < 80) {
       throw new ApiErrorResponse(
@@ -535,14 +547,28 @@ export const StudyService = {
     const excludeSeen = await seenTexts(scope)
     const set = await orchestrateStudySet(
       text,
-      { difficulty, topic, weightedTopics: [], excludeSeen, language, cardFormat },
+      { difficulty, topic, weightedTopics, excludeSeen, language, cardFormat },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
     if (!set) {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
     }
 
-    const served = await bankAndAssemble(scope, set, difficulty, custom, [], !!opts.web)
+    if ((await ChunkRepository.contentFingerprintByCourse(userId, courseId)) !== fingerprint) {
+      throw new ApiErrorResponse(
+        "El curso cambiÃ³ mientras se generaba el material. IntÃ©ntalo de nuevo.",
+        409,
+      )
+    }
+
+    const served = await bankAndAssemble(
+      scope,
+      set,
+      difficulty,
+      custom,
+      plan.targets.map((target) => target.topicKey),
+      !!opts.web,
+    )
 
     if (!custom)
       await StudyRepository.upsertByCourse(courseId, served, fingerprint, STUDY_SCHEMA_VERSION)
@@ -751,6 +777,7 @@ export const StudyService = {
       const { processed } = await StudyBankService.drain(budget - drained, {
         scope: s,
         difficulty: d,
+        ownerId: userId,
       }).catch(() => ({ processed: 0, failed: 0 }))
       drained += processed
     }

@@ -13,6 +13,7 @@
 import { chatCompletion } from "@/lib/llm"
 import { RetrievalService, NO_CONTEXT_MESSAGE } from "./retrieval.service"
 import { ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
+import { CourseGraphRepository } from "../repositories/course-graph.repo"
 
 /** Refine actions fired by the quick chips under the question bar. */
 export type GraphAskRefine = "concise" | "detail" | "translate" | "regenerate"
@@ -74,8 +75,12 @@ export const GraphAskService = {
 
     if (!question) throw new ApiErrorResponse("Escribe una pregunta sobre el mapa.", 400)
 
+    const courseGraph = courseId ? await CourseGraphRepository.get(courseId) : undefined
+    const selectedDocIds = courseGraph?.source_doc_ids.length
+      ? courseGraph.source_doc_ids
+      : undefined
     const retrieval = courseId
-      ? await RetrievalService.retrieveForCourse(userId, courseId, question)
+      ? await RetrievalService.retrieveForCourse(userId, courseId, question, selectedDocIds)
       : syllabusId
         ? await RetrievalService.retrieve(syllabusId, question)
         : null

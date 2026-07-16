@@ -5,6 +5,7 @@ import { delBlob } from "@/lib/server/storage/blob"
 import { logInfo, logError } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
 import { z } from "zod"
+import { StudyInvalidationService } from "@/lib/server/services/study-invalidation.service"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -58,6 +59,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     // Delete the upload, then its stored file (best-effort: a failed blob
     // delete only leaves an orphan file, never a broken row).
+    await StudyInvalidationService.invalidateDocumentGraph(userId, id)
     await DocumentRepository.deleteDocument(id, userId)
     if (existing.file_url) await delBlob(existing.file_url)
     await invalidatePrefix(`uploads:list:${userId}`)

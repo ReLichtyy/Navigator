@@ -163,10 +163,17 @@ export const RetrievalService = {
     userId: string,
     courseId: string,
     question: string,
+    sourceDocIds?: string[],
   ): Promise<RetrievalResult> {
     if (!flags.ragEnabled) return EMPTY_RESULT
     const queryEmbedding = await embedText(question)
-    const all = await ChunkRepository.searchByCourse(userId, courseId, queryEmbedding, CANDIDATE_K)
+    const all = await ChunkRepository.searchByCourse(
+      userId,
+      courseId,
+      queryEmbedding,
+      CANDIDATE_K,
+      sourceDocIds,
+    )
     return buildResult(all, true, question)
   },
 

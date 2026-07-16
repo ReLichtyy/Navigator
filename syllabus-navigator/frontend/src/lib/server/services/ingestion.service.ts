@@ -20,6 +20,7 @@ import { extractScheduleFromText } from "../rag/schedule-gen"
 import { CourseService } from "./course.service"
 import { StudyBankService } from "./study-bank.service"
 import { logError, logInfo } from "@/lib/observability/logger"
+import { StudyInvalidationService } from "./study-invalidation.service"
 
 const JOB_TYPE = "ingest"
 
@@ -86,6 +87,19 @@ export const IngestionService = {
       await DocumentRepository.setGraphStatus(syllabusId, "ready")
       topics = extracted.topics.length
       logInfo("ingestion.graph_ready", { syllabusId, topics, layout: extracted.layout })
+      // Cache invalidation is cross-feature housekeeping. A temporary failure
+      // must not relabel a successfully persisted graph as `failed`.
+      try {
+        const owner = await DocumentRepository.findById(syllabusId)
+        if (owner)
+          await StudyInvalidationService.invalidateDocumentGraph(owner.user_id, syllabusId)
+      } catch (invalidateError) {
+        logError("ingestion.study_invalidation_failed", {
+          syllabusId,
+          error:
+            invalidateError instanceof Error ? invalidateError.message : String(invalidateError),
+        })
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       await DocumentRepository.setGraphStatus(syllabusId, "failed", msg.slice(0, 2000))

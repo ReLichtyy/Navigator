@@ -145,6 +145,7 @@ export default function KnowledgeBasePage() {
   } | null>(null)
   const [previewMode, setPreviewMode] = useState<"pdf" | "graph">("pdf")
   const [previewGraph, setPreviewGraph] = useState<GraphResponseAPI | null>(null)
+  const previewLoadSeq = useRef(0)
   const [previewLoading, setPreviewLoading] = useState(false)
   // Rename state: { [docId]: draftName }
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -476,16 +477,45 @@ export default function KnowledgeBasePage() {
   }
 
   const loadGraphPreview = async (id: string) => {
+    const seq = ++previewLoadSeq.current
     setPreviewLoading(true)
     setPreviewGraph(null)
     try {
-      setPreviewGraph(await fetchGraph(id))
+      const graph = await fetchGraph(id)
+      if (seq === previewLoadSeq.current) setPreviewGraph(graph)
     } catch {
-      toast.error("No se pudo cargar el mapa.")
+      if (seq === previewLoadSeq.current) toast.error("No se pudo cargar el mapa.")
     } finally {
-      setPreviewLoading(false)
+      if (seq === previewLoadSeq.current) setPreviewLoading(false)
     }
   }
+
+  // A reprocess returns `pending`. Keep the open preview synchronized until the
+  // worker publishes the new graph, independent from the upload-list polling.
+  useEffect(() => {
+    if (
+      previewMode !== "graph" ||
+      !previewDoc ||
+      !previewGraph ||
+      (previewGraph.graph_status !== "pending" && previewGraph.graph_status !== "processing")
+    )
+      return
+    let alive = true
+    const id = previewDoc.id
+    const poll = async () => {
+      try {
+        const graph = await fetchGraph(id)
+        if (alive && previewDoc.id === id) setPreviewGraph(graph)
+      } catch {
+        // A transient poll failure should not close the preview or erase its map.
+      }
+    }
+    const timer = setInterval(() => void poll(), 3000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [previewMode, previewDoc, previewGraph])
 
   // Switch the preview modal to the graph view, loading it on first open.
   const showGraphPreview = () => {

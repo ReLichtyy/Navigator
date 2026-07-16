@@ -1,13 +1,14 @@
 import { CourseGraphRepository, type CourseGraphData } from "../repositories/course-graph.repo"
 import { CourseRepository } from "../repositories/course.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
-import { assignColors, type LayoutKind } from "../repositories/graph.repo"
+import { assignColors, GraphRepository, type LayoutKind } from "../repositories/graph.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { extractGraphFromText, validateNoCycles, validateTree } from "../rag/graph-gen"
 import { sql } from "@/lib/db"
 import { logError, logInfo } from "@/lib/observability/logger"
 import type { GraphUpdateInput } from "../validators/api.schemas"
 import type { CourseGraphResponseAPI } from "@/types/api"
+import { StudyInvalidationService } from "./study-invalidation.service"
 
 const EMPTY: CourseGraphData = { layout: "radial", nodes: [], edges: [], crossLinks: [] }
 
@@ -74,8 +75,25 @@ export const CourseGraphService = {
       )
     }
 
-    const text = await ChunkRepository.getConcatenatedTextByDocs(userId, courseId, docIds)
-    if (!text || text.trim().length < 80) {
+    const sourceText = await ChunkRepository.getConcatenatedTextByDocs(userId, courseId, docIds)
+    const documentGraphs = await Promise.all(
+      docIds.map((docId) => GraphRepository.getGraph(docId)),
+    )
+    const curatedOutline = documentGraphs
+      .flatMap((graph) => graph.topics)
+      .map((topic) =>
+        [
+          "- ",
+          topic.label,
+          topic.detail ? `: ${topic.detail}` : "",
+          topic.weight_percent ? ` (${topic.weight_percent}%)` : "",
+        ].join(""),
+      )
+      .join("\n")
+    const text = curatedOutline
+      ? `## Estructura curada en Knowledge\n${curatedOutline}\n\n## Material fuente\n${sourceText}`
+      : sourceText
+    if (!sourceText || sourceText.trim().length < 80) {
       throw new ApiErrorResponse(
         "Los documentos seleccionados aún no tienen material indexado suficiente.",
         409,
@@ -104,6 +122,7 @@ export const CourseGraphService = {
         crossLinks: g.crossLinks,
       }
       await CourseGraphRepository.saveData(courseId, data)
+      await StudyInvalidationService.invalidateCourseGraph(courseId)
       logInfo("course_graph.regenerated", {
         courseId,
         docs: docIds.length,
@@ -187,6 +206,7 @@ export const CourseGraphService = {
       crossLinks,
     }
     await CourseGraphRepository.replaceData(courseId, data)
+    await StudyInvalidationService.invalidateCourseGraph(courseId)
     return this.getCourseGraph(userId, courseId)
   },
 }

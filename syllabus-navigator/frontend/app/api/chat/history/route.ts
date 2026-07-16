@@ -4,6 +4,7 @@ import { ChatRepository } from "@/lib/server/repositories/chat.repo"
 import { cached, invalidatePrefix } from "@/lib/cache"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { CreateChatSchema } from "@/lib/server/validators/api.schemas"
+import { CourseRepository } from "@/lib/server/repositories/course.repo"
 
 export const dynamic = "force-dynamic"
 
@@ -39,6 +40,11 @@ export async function POST(request: Request) {
     }
 
     const syllabusId = parsedBody.data.syllabus_id || null
+    const courseId = parsedBody.data.course_id || null
+
+    if (courseId && !(await CourseRepository.findByIdAndUser(courseId, userId))) {
+      return NextResponse.json({ error: "Course not found" }, { status: 404 })
+    }
 
     await requireRateLimit(userId, role)
 
@@ -56,7 +62,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const chat = await ChatRepository.createChat(userId, syllabusId)
+    const chat = await ChatRepository.createChat(userId, syllabusId, courseId)
     await invalidatePrefix(`chats:list:${userId}`)
 
     logInfo("api.chat.history.created", { userId, chatId: chat.id })

@@ -23,7 +23,7 @@ export interface CourseGraphData {
   crossLinks: { source: string; target: string; label: string }[]
 }
 
-export type CourseGraphStatus = "pending" | "processing" | "ready" | "failed"
+export type CourseGraphStatus = "pending" | "processing" | "ready" | "stale" | "failed"
 
 export interface DbCourseGraph {
   course_id: string
@@ -65,6 +65,16 @@ export const CourseGraphRepository = {
     await sql`
       UPDATE course_graphs
       SET status = 'failed', error = ${error.slice(0, 500)}, updated_at = now()
+      WHERE course_id = ${courseId}::uuid
+    `
+  },
+
+  /** Keep the last visible map, but flag that its source documents changed. */
+  async markStale(courseId: string): Promise<void> {
+    await sql`
+      UPDATE course_graphs
+      SET status = CASE WHEN data IS NULL THEN 'pending' ELSE 'stale' END,
+          error = NULL, updated_at = now()
       WHERE course_id = ${courseId}::uuid
     `
   },

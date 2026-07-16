@@ -166,6 +166,7 @@ export const ChatService = {
    */
   async prepareMessages(
     syllabusId: string | null,
+    courseId: string | null,
     userId: string,
     recentHistory: { role: string; content: string }[],
     question: string,
@@ -180,7 +181,16 @@ export const ChatService = {
     // Best-effort: webSearchContext resolves to null on any failure.
     const webPromise = opts.web ? webSearchContext(question) : Promise.resolve(null)
 
-    if (syllabusId) {
+    if (courseId) {
+      const retrieval = await RetrievalService.retrieveForCourse(userId, courseId, question)
+      systemContent = GROUNDED_SYSTEM_PROMPT
+      if (retrieval.hasContext) {
+        userContent = RetrievalService.buildGroundedUserContent(retrieval.contextBlock, question)
+        citations = retrieval.citations
+      } else {
+        userContent = `No encontrÃ© material relevante dentro de este curso.\n\nPregunta: ${question}`
+      }
+    } else if (syllabusId) {
       // Chat bound to one course → retrieve within that syllabus.
       const retrieval = await RetrievalService.retrieve(syllabusId, question)
       systemContent = GROUNDED_SYSTEM_PROMPT
@@ -264,6 +274,7 @@ export const ChatService = {
     // 5. Build prompt (with RAG retrieval if the chat is bound to a syllabus)
     const { messages, citations } = await this.prepareMessages(
       chat.syllabus_id,
+      chat.course_id,
       userId,
       recentHistory,
       question,
@@ -383,6 +394,7 @@ export const ChatService = {
     // 5. Build prompt (with RAG retrieval if the chat is bound to a syllabus)
     const { messages, citations } = await this.prepareMessages(
       chat.syllabus_id,
+      chat.course_id,
       userId,
       recentHistory,
       question,

@@ -31,11 +31,15 @@ vi.mock("@/lib/server/repositories/chat.repo", () => ({
     deleteChat: vi.fn(),
   },
 }))
+vi.mock("@/lib/server/repositories/course.repo", () => ({
+  CourseRepository: { findByIdAndUser: vi.fn() },
+}))
 
 import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { sql } from "@/lib/db"
 import { ChatRepository } from "@/lib/server/repositories/chat.repo"
+import { CourseRepository } from "@/lib/server/repositories/course.repo"
 import { DELETE } from "../app/api/chat/[chatId]/route"
 import { POST as createChat } from "../app/api/chat/history/route"
 
@@ -106,7 +110,32 @@ describe("POST /api/chat/history — guest limit", () => {
     vi.mocked(ChatRepository.createChat).mockResolvedValue({ id: "c9" } as any)
     const res = await createChat(jsonReq({}))
     expect(res.status).toBe(200)
-    expect(ChatRepository.createChat).toHaveBeenCalledWith("g1", null)
+    expect(ChatRepository.createChat).toHaveBeenCalledWith("g1", null, null)
+  })
+
+  it("creates a persistent course-scoped chat only for an owned course", async () => {
+    const courseId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    session("u1", "free")
+    okRate()
+    vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue({ id: courseId } as any)
+    vi.mocked(ChatRepository.createChat).mockResolvedValue({ id: "chat-course" } as any)
+
+    const res = await createChat(jsonReq({ course_id: courseId }))
+
+    expect(res.status).toBe(200)
+    expect(ChatRepository.createChat).toHaveBeenCalledWith("u1", null, courseId)
+  })
+
+  it("404 when attempting to bind a chat to another user's course", async () => {
+    const courseId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    session("u1", "free")
+    okRate()
+    vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue(undefined)
+
+    const res = await createChat(jsonReq({ course_id: courseId }))
+
+    expect(res.status).toBe(404)
+    expect(ChatRepository.createChat).not.toHaveBeenCalled()
   })
 
   it("does not apply the 3-chat cap to non-guest users", async () => {

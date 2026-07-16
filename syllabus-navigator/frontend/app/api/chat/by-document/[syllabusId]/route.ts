@@ -39,7 +39,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     }
 
     // Create a new chat bound to this document.
-    const chat = await ChatRepository.createChat(userId, syllabusId)
+    const chat = await ChatRepository.createChat(userId, syllabusId, null)
     await invalidatePrefix(`chats:list:${userId}`)
 
     logInfo("api.chat.by-document.created", { userId, syllabusId, chatId: (chat as any).id })

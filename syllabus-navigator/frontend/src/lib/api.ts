@@ -123,10 +123,13 @@ export async function listChats() {
   return request<{ chats: ChatOutAPI[] }>("/chat/history", { method: "GET", json: false })
 }
 
-export async function newChat(syllabusId?: string) {
+export async function newChat(syllabusId?: string, courseId?: string) {
   return request<ChatOutAPI>("/chat/history", {
     method: "POST",
-    body: syllabusId ? JSON.stringify({ syllabus_id: syllabusId }) : "{}",
+    body: JSON.stringify({
+      ...(syllabusId ? { syllabus_id: syllabusId } : {}),
+      ...(courseId ? { course_id: courseId } : {}),
+    }),
   })
 }
 
@@ -745,6 +748,8 @@ export interface StudySetOptions {
   topic?: string
   /** Augment generation with a live web search (always fresh, never cached). */
   web?: boolean
+  /** Cancel an obsolete request when the visible study scope changes. */
+  signal?: AbortSignal
 }
 
 /**
@@ -762,6 +767,7 @@ export async function fetchStudySet(syllabusId: string, opts: StudySetOptions = 
   return request<StudySetAPI>(`/study/${encodeURIComponent(syllabusId)}${suffix}`, {
     method: "GET",
     json: false,
+    signal: opts.signal,
   })
 }
 
@@ -779,6 +785,7 @@ export async function fetchCourseStudySet(courseId: string, opts: StudySetOption
   return request<StudySetAPI>(`/study/course/${encodeURIComponent(courseId)}${suffix}`, {
     method: "GET",
     json: false,
+    signal: opts.signal,
   })
 }
 

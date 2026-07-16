@@ -32,6 +32,7 @@ function mapApiChat(c: any): Chat {
     title: c.title,
     activeModel: c.active_model,
     syllabusId: c.syllabus_id,
+    courseId: c.course_id,
     syllabusName: c.syllabus_name ?? null,
     createdAt: c.created_at,
     timestamp: relativeTime(c.created_at),
@@ -77,7 +78,7 @@ export function useChatList() {
   }, [fetchChatList])
 
   const createChat = useCallback(
-    async (activeModel?: string, syllabusId?: string | null) => {
+    async (activeModel?: string, syllabusId?: string | null, courseId?: string | null) => {
       if (!userReady) return null
       if (userStatus === "anonymous") {
         openAuthModal("login")
@@ -85,7 +86,7 @@ export function useChatList() {
       }
 
       try {
-        const resp = await apiNewChat(syllabusId || undefined)
+        const resp = await apiNewChat(syllabusId || undefined, courseId || undefined)
         const newChatObj = mapApiChat(resp)
         setChats((prev) => [newChatObj, ...prev])
         return newChatObj

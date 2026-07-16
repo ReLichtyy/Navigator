@@ -183,23 +183,61 @@ export const ChunkRepository = {
    */
   async contentFingerprint(syllabusId: string): Promise<string> {
     const rows = await sql`
-      SELECT count(*)::int AS n, COALESCE(max(created_at)::text, '') AS ts
-      FROM chunks WHERE syllabus_id = ${syllabusId}::uuid
+      SELECT count(c.id)::int AS n,
+             COALESCE(max(c.created_at)::text, '') AS chunk_ts,
+             COALESCE(su.graph_generated_at::text, '') AS graph_ts,
+             COALESCE(su.graph_status, '') AS graph_status
+      FROM syllabus_uploads su
+      LEFT JOIN chunks c ON c.syllabus_id = su.id
+      WHERE su.id = ${syllabusId}::uuid
+      GROUP BY su.id, su.graph_generated_at, su.graph_status
     `
-    const r = (rows[0] as { n: number; ts: string } | undefined) ?? { n: 0, ts: "" }
-    return `${r.n}:${r.ts}`
+    const r = (rows[0] as
+      | { n: number; chunk_ts: string; graph_ts: string; graph_status: string }
+      | undefined) ?? { n: 0, chunk_ts: "", graph_ts: "", graph_status: "" }
+    return `${r.n}:${r.chunk_ts}:${r.graph_ts}:${r.graph_status}`
   },
 
   /** Same as contentFingerprint, aggregated over every document in a course. */
   async contentFingerprintByCourse(userId: string, courseId: string): Promise<string> {
     const rows = await sql`
-      SELECT count(*)::int AS n, COALESCE(max(c.created_at)::text, '') AS ts
-      FROM chunks c
-      JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      SELECT count(c.id)::int AS n,
+             COALESCE(max(c.created_at)::text, '') AS chunk_ts,
+             COALESCE(max(su.graph_generated_at)::text, '') AS doc_graph_ts,
+             COALESCE(string_agg(DISTINCT su.id::text, ',' ORDER BY su.id::text), '') AS docs,
+             COALESCE(cg.updated_at::text, '') AS course_graph_ts,
+             COALESCE(cg.status, '') AS course_graph_status
+      FROM syllabus_uploads su
+      LEFT JOIN chunks c ON c.syllabus_id = su.id
+      LEFT JOIN course_graphs cg ON cg.course_id = su.course_id
       WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId}
+      GROUP BY cg.updated_at, cg.status
     `
-    const r = (rows[0] as { n: number; ts: string } | undefined) ?? { n: 0, ts: "" }
-    return `${r.n}:${r.ts}`
+    const r = (rows[0] as
+      | {
+          n: number
+          chunk_ts: string
+          doc_graph_ts: string
+          docs: string
+          course_graph_ts: string
+          course_graph_status: string
+        }
+      | undefined) ?? {
+      n: 0,
+      chunk_ts: "",
+      doc_graph_ts: "",
+      docs: "",
+      course_graph_ts: "",
+      course_graph_status: "",
+    }
+    return [
+      r.n,
+      r.chunk_ts,
+      r.doc_graph_ts,
+      r.docs,
+      r.course_graph_ts,
+      r.course_graph_status,
+    ].join(":")
   },
 
   /** Retrieval: nearest chunks to a query embedding, scoped to one syllabus. */
@@ -253,6 +291,7 @@ export const ChunkRepository = {
     courseId: string,
     queryEmbedding: number[],
     limit = 8,
+    docIds?: string[],
   ): Promise<RetrievedChunk[]> {
     const qvec = toVectorLiteral(queryEmbedding)
     const rows = await sql`
@@ -263,6 +302,7 @@ export const ChunkRepository = {
       FROM chunks c
       JOIN syllabus_uploads su ON su.id = c.syllabus_id
       WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId} AND c.embedding IS NOT NULL
+        AND (${docIds ?? null}::uuid[] IS NULL OR su.id = ANY(${docIds ?? null}::uuid[]))
       ORDER BY distance ASC
       LIMIT ${limit}
     `

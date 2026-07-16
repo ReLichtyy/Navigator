@@ -42,6 +42,14 @@ vi.mock("@/lib/server/repositories/course-graph.repo", () => ({
 vi.mock("@/lib/server/repositories/chunk.repo", () => ({
   ChunkRepository: { getConcatenatedTextByDocs: vi.fn() },
 }))
+vi.mock("@/lib/server/repositories/graph.repo", () => ({
+  GraphRepository: { getGraph: vi.fn() },
+  assignColors: (topics: { externalId: string }[]) =>
+    new Map(topics.map((topic) => [topic.externalId, "#5BE39A"])),
+}))
+vi.mock("@/lib/server/services/study-invalidation.service", () => ({
+  StudyInvalidationService: { invalidateCourseGraph: vi.fn() },
+}))
 vi.mock("@/lib/server/rag/graph-gen", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/server/rag/graph-gen")>()
   return { ...real, extractGraphFromText: vi.fn() }
@@ -51,6 +59,8 @@ import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { CourseRepository } from "@/lib/server/repositories/course.repo"
 import { CourseGraphRepository } from "@/lib/server/repositories/course-graph.repo"
 import { ChunkRepository } from "@/lib/server/repositories/chunk.repo"
+import { GraphRepository } from "@/lib/server/repositories/graph.repo"
+import { StudyInvalidationService } from "@/lib/server/services/study-invalidation.service"
 import { extractGraphFromText } from "@/lib/server/rag/graph-gen"
 import { sql } from "@/lib/db"
 import { GET, PATCH } from "../app/api/graph/course/[courseId]/route"
@@ -161,6 +171,11 @@ describe("POST /api/graph/course/[courseId]/regenerate", () => {
     vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue(COURSE as any)
     vi.mocked(sql).mockResolvedValue([{ id: DOC_A }, { id: DOC_B }] as any)
     vi.mocked(ChunkRepository.getConcatenatedTextByDocs).mockResolvedValue("x".repeat(200))
+    vi.mocked(GraphRepository.getGraph).mockResolvedValue({
+      topics: [{ external_id: "edited", label: "Tema editado", level: 1 }],
+      edges: [],
+      crossLinks: [],
+    } as any)
     vi.mocked(extractGraphFromText).mockResolvedValue({
       layout: "radial",
       topics: [
@@ -199,10 +214,12 @@ describe("POST /api/graph/course/[courseId]/regenerate", () => {
       focusTopics: ["Matrices"],
       instructions: "sencillo",
     })
+    expect(vi.mocked(extractGraphFromText).mock.calls[0][0]).toContain("Tema editado")
     const saved = vi.mocked(CourseGraphRepository.saveData).mock.calls[0][1]
     expect(saved.nodes).toHaveLength(2)
     expect(saved.nodes[0].color).toBeTruthy() // palette assigned server-side
     expect(saved.edges).toEqual([{ source: "n1", target: "n2" }])
+    expect(StudyInvalidationService.invalidateCourseGraph).toHaveBeenCalledWith("c1")
   })
 
   it("marks the row failed and returns 502 when generation throws", async () => {
@@ -248,6 +265,7 @@ describe("PATCH /api/graph/course/[courseId]", () => {
     expect(res.status).toBe(200)
     const saved = vi.mocked(CourseGraphRepository.replaceData).mock.calls[0][1]
     expect(saved.nodes.find((n: any) => n.id === "n2")?.detail).toBe("Sarrus")
+    expect(StudyInvalidationService.invalidateCourseGraph).toHaveBeenCalledWith("c1")
   })
 
   it("400 on an invalid tree (level jump)", async () => {

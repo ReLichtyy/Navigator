@@ -5,6 +5,7 @@ export interface DbChat {
   id: string
   active_model: string
   syllabus_id: string | null
+  course_id: string | null
 }
 
 /** Full chat row as the detail/update endpoints return it. */
@@ -13,6 +14,7 @@ export interface DbChatRow {
   title: string
   active_model: string
   syllabus_id: string | null
+  course_id: string | null
   created_at: string
 }
 
@@ -24,7 +26,7 @@ export interface DbMessage {
 export const ChatRepository = {
   async findByIdAndUser(chatId: string, userId: string): Promise<DbChat | undefined> {
     const rows = await sql`
-      SELECT id, active_model, syllabus_id
+      SELECT id, active_model, syllabus_id, course_id
       FROM chats
       WHERE id = ${chatId}::uuid AND user_id = ${userId}
     `
@@ -37,7 +39,7 @@ export const ChatRepository = {
     userId: string,
   ): Promise<{ chat: DbChatRow; messages: unknown[] } | undefined> {
     const chatRows = await sql`
-      SELECT id, title, active_model, syllabus_id, created_at
+      SELECT id, title, active_model, syllabus_id, course_id, created_at
       FROM chats
       WHERE id = ${chatId}::uuid AND user_id = ${userId}
     `
@@ -71,7 +73,7 @@ export const ChatRepository = {
         active_model = CASE WHEN ${setModel}    THEN ${patch.active_model ?? null}     ELSE active_model END,
         syllabus_id  = CASE WHEN ${setSyllabus} THEN ${patch.syllabus_id ?? null}::uuid ELSE syllabus_id END
       WHERE id = ${chatId}::uuid AND user_id = ${userId}
-      RETURNING id, title, active_model, syllabus_id, created_at
+      RETURNING id, title, active_model, syllabus_id, course_id, created_at
     `
     return rows[0] as DbChatRow | undefined
   },
@@ -156,29 +158,31 @@ export const ChatRepository = {
   async listChats(userId: string) {
     return sql`
       SELECT
-        c.id, c.title, c.active_model, c.syllabus_id,
-        su.original_filename AS syllabus_name,
+        c.id, c.title, c.active_model, c.syllabus_id, c.course_id,
+        COALESCE(su.original_filename, uc.name) AS syllabus_name,
         c.created_at,
         COUNT(m.id)::int AS message_count
       FROM chats c
       LEFT JOIN messages m ON m.chat_id = c.id
       LEFT JOIN syllabus_uploads su ON su.id = c.syllabus_id
+      LEFT JOIN user_courses uc ON uc.id = c.course_id
       WHERE c.user_id = ${userId}
-      GROUP BY c.id, su.original_filename
+      GROUP BY c.id, su.original_filename, uc.name
       ORDER BY c.created_at DESC
     `
   },
 
-  async createChat(userId: string, syllabusId: string | null) {
+  async createChat(userId: string, syllabusId: string | null, courseId: string | null) {
     const rows = await sql`
-      INSERT INTO chats (user_id, title, active_model, syllabus_id)
+      INSERT INTO chats (user_id, title, active_model, syllabus_id, course_id)
       VALUES (
         ${userId},
         'New chat',
         'gpt-4o-mini',
-        ${syllabusId}
+        ${syllabusId},
+        ${courseId}
       )
-      RETURNING id, title, active_model, syllabus_id, created_at
+      RETURNING id, title, active_model, syllabus_id, course_id, created_at
     `
     return rows[0]
   },
@@ -186,7 +190,7 @@ export const ChatRepository = {
   /** Find the most-recent chat bound to a specific syllabus for this user. */
   async findByUserAndSyllabus(userId: string, syllabusId: string): Promise<DbChatRow | undefined> {
     const rows = await sql`
-      SELECT id, title, active_model, syllabus_id, created_at
+      SELECT id, title, active_model, syllabus_id, course_id, created_at
       FROM chats
       WHERE user_id = ${userId} AND syllabus_id = ${syllabusId}::uuid
       ORDER BY created_at DESC

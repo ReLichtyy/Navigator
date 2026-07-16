@@ -28,6 +28,10 @@ import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"
 import { useAskInChat } from "@/hooks/use-ask-in-chat"
+import {
+  GenerationProgress,
+  useGenerationProgress,
+} from "@/components/estudio/generation-progress"
 import GraphCanvas from "@/components/GraphCanvas"
 
 function isReady(d: SyllabusUploadAPI): boolean {
@@ -88,7 +92,8 @@ function MapaContent() {
   )
   const courseId = selectedGroup?.id ?? null
   // "Sin curso" folders have no course entity — fall back to the first doc's map.
-  const fallbackDocId = courseId ? null : (readyDocs[0]?.id ?? null)
+  const pendingFallbackId = pending?.docIds.find((id) => readyDocs.some((d) => d.id === id))
+  const fallbackDocId = courseId ? null : (pendingFallbackId ?? readyDocs[0]?.id ?? null)
 
   const ask = useCallback(
     (text: string) =>
@@ -193,6 +198,7 @@ function MapaContent() {
   useEffect(() => {
     setPreviewChecked(null)
     setPreviewDismissed(false)
+    setFromPreview(false)
   }, [selectedKey])
 
   // Per-doc fallback reprocess: re-enqueue generation, then poll until it settles.
@@ -202,6 +208,33 @@ function MapaContent() {
     pollRef.current = null
   }
   useEffect(() => stopPoll, [])
+  useEffect(() => {
+    // Ignore a regeneration/poll that belonged to the previously selected folder.
+    regenSeq.current++
+    stopPoll()
+  }, [selectedKey])
+
+  // ── % progress after the preview's "Generar" (same ramp as /estudio) ──
+  // Active while the confirmed generation runs: course mode = the synchronous
+  // regenerate POST; "sin curso" = the per-doc reprocess poll. Only runs for
+  // generations triggered FROM the preview — the drawer's regen keeps the
+  // canvas overlay so the editing context never disappears.
+  const [fromPreview, setFromPreview] = useState(false)
+  const docProcessingNow =
+    !courseId &&
+    (docGraph?.graph_status === "pending" || docGraph?.graph_status === "processing")
+  const mapProgress = useGenerationProgress(fromPreview && (regenerating || docProcessingNow))
+  // Clear the flag once the progress screen actually showed and finished, so a
+  // later drawer regeneration doesn't hijack the full-screen progress view.
+  const progressShown = useRef(false)
+  useEffect(() => {
+    if (mapProgress.visible) {
+      progressShown.current = true
+    } else if (progressShown.current) {
+      progressShown.current = false
+      setFromPreview(false)
+    }
+  }, [mapProgress.visible])
 
   const handleReprocessDoc = useCallback(async () => {
     if (!fallbackDocId) return
@@ -249,6 +282,16 @@ function MapaContent() {
   const pendingMatches = !!pending && !!selectedGroup && pending.courseId === selectedGroup.id
   // Show the confirm step when a selection arrived from /estudio, or on a first
   // visit to a course whose map was never generated (replaces the old auto-gen).
+  // A stored "processing"/"pending" course status with no client regeneration in
+  // flight is STALE: generation is a synchronous POST, so it only lives while
+  // this page is awaiting it — an abandoned run leaves the row stuck and used to
+  // greet every visit with an eternal "Procesando mapa…". Offer the preview.
+  const staleCourseStatus =
+    isCourseMode &&
+    (courseGraph?.graph_status === "none" ||
+      courseGraph?.graph_status === "processing" ||
+      courseGraph?.graph_status === "pending" ||
+      courseGraph?.graph_status === "stale")
   const showPreview =
     !!selectedGroup &&
     !graphLoading &&
@@ -256,16 +299,22 @@ function MapaContent() {
     !error &&
     !previewDismissed &&
     readyDocs.length > 0 &&
-    (pendingMatches || (isCourseMode && courseGraph?.graph_status === "none"))
+    (pendingMatches || staleCourseStatus)
   const hasExistingMap = isCourseMode
-    ? courseGraph?.graph_status === "ready"
+    ? courseGraph?.graph_status === "ready" || courseGraph?.graph_status === "stale"
     : docGraph?.graph_status === "ready"
-  // Ticked docs: the /estudio selection when present, else every ready doc.
+  // Ticked docs: the /estudio selection when present, else the docs the last
+  // map was built from, else every ready doc.
+  const lastSourceIds = (courseGraph?.source_doc_ids ?? []).filter((id) =>
+    readyDocs.some((d) => d.id === id),
+  )
   const checkedIds =
     previewChecked ??
     (pendingMatches
       ? pending!.docIds.filter((id) => readyDocs.some((d) => d.id === id))
-      : readyDocs.map((d) => d.id))
+      : lastSourceIds.length > 0
+        ? lastSourceIds
+        : readyDocs.map((d) => d.id))
   const togglePreviewDoc = (id: string) =>
     setPreviewChecked(
       checkedIds.includes(id) ? checkedIds.filter((x) => x !== id) : [...checkedIds, id],
@@ -279,6 +328,7 @@ function MapaContent() {
     setPending(null)
     setPreviewDismissed(true)
     if (courseId) {
+      setFromPreview(true)
       void regenerate(courseId, {
         fileIds: checkedIds,
         instructions: topic ?? undefined,
@@ -290,6 +340,7 @@ function MapaContent() {
       docGraph.graph_status !== "pending" &&
       docGraph.graph_status !== "processing"
     ) {
+      setFromPreview(true)
       void handleReprocessDoc()
     }
   }
@@ -359,6 +410,10 @@ function MapaContent() {
                 }
               }}
             />
+          </CenterFill>
+        ) : fromPreview && (regenerating || docProcessingNow || mapProgress.visible) ? (
+          <CenterFill>
+            <GenerationProgress pct={mapProgress.pct} label="Generando mapa mental…" />
           </CenterFill>
         ) : showPreview && selectedGroup ? (
           <CenterFill>

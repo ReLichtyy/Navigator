@@ -17,6 +17,7 @@ import { inferCourse } from "../rag/course-infer"
 import { delBlob } from "../storage/blob"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { logInfo } from "@/lib/observability/logger"
+import { StudyInvalidationService } from "./study-invalidation.service"
 
 export const CourseService = {
   /**
@@ -120,6 +121,8 @@ export const CourseService = {
       newCourse?: { name: string; subjectTags?: string[]; color?: string }
     },
   ) {
+    if (!(await DocumentRepository.findByIdAndUser(docId, userId)))
+      throw new ApiErrorResponse("Document not found.", 404)
     let courseId: string
     const suggestion = await CourseSuggestionRepository.latestForDocument(docId)
 
@@ -146,8 +149,10 @@ export const CourseService = {
       }
     }
 
+    await StudyInvalidationService.invalidateDocumentGraph(userId, docId)
     const updated = await DocumentRepository.assignCourse(docId, userId, courseId, "confirmed")
     if (!updated) throw new ApiErrorResponse("Document not found.", 404)
+    await StudyInvalidationService.invalidateDocumentGraph(userId, docId)
     await CourseSuggestionRepository.resolve(docId, true)
 
     // Term start inferred from the syllabus itself: apply it only now (course
@@ -166,6 +171,7 @@ export const CourseService = {
 
   /** Reject the suggestion: leave the document without a course. */
   async reject(docId: string, userId: string) {
+    await StudyInvalidationService.invalidateDocumentGraph(userId, docId)
     const updated = await DocumentRepository.assignCourse(docId, userId, null, "rejected")
     if (!updated) throw new ApiErrorResponse("Document not found.", 404)
     await CourseSuggestionRepository.resolve(docId, false)
@@ -174,6 +180,7 @@ export const CourseService = {
 
   /** Defer the decision: keep the document uncategorised for now. */
   async skip(docId: string, userId: string) {
+    await StudyInvalidationService.invalidateDocumentGraph(userId, docId)
     const updated = await DocumentRepository.assignCourse(docId, userId, null, "skipped")
     if (!updated) throw new ApiErrorResponse("Document not found.", 404)
     return updated

@@ -6,6 +6,7 @@ import { ApiErrorResponse } from "../utils/auth-helpers"
 import { validateNoCycles, validateTree } from "../rag/graph-gen"
 import type { GraphUpdateInput } from "../validators/api.schemas"
 import type { GraphResponseAPI } from "@/types/api"
+import { StudyInvalidationService } from "./study-invalidation.service"
 
 export const GraphService = {
   /**
@@ -112,6 +113,7 @@ export const GraphService = {
       layout: ((doc.layout as LayoutKind | null) ?? "radial") as LayoutKind,
     })
     await DocumentRepository.setGraphStatus(syllabusId, "ready", null)
+    await StudyInvalidationService.invalidateDocumentGraph(userId, syllabusId)
     return this.getGraph(userId, syllabusId)
   },
 
@@ -128,6 +130,7 @@ export const GraphService = {
     }
 
     await DocumentRepository.setGraphStatus(syllabusId, "pending", null)
+    await StudyInvalidationService.invalidateDocumentGraph(userId, syllabusId)
     await JobRepository.enqueue("ingest", { syllabusId }, { kickIfPending: true })
 
     return this.getGraph(userId, syllabusId)

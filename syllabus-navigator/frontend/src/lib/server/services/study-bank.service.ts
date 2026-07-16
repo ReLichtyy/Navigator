@@ -34,6 +34,7 @@ import {
   type NewStudyItem,
 } from "../repositories/study-items.repo"
 import { GraphRepository } from "../repositories/graph.repo"
+import { CourseGraphRepository } from "../repositories/course-graph.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { JobRepository, type DbJob } from "../repositories/job.repo"
 import { topicKey } from "../repositories/mastery.repo"
@@ -83,6 +84,8 @@ interface BankJobPayload {
   language?: string
   /** Dedupe key so enqueue collapses duplicate jobs for the same scope+difficulty. */
   dedupeKey: string
+  /** Source/graph revision captured before generation starts. */
+  contentFingerprint: string
   /**
    * Mini-migration mode: the quiz bank is already at target but was filled before
    * the redesign (all multiple-choice) — generate ONLY the alternative kinds
@@ -91,8 +94,14 @@ interface BankJobPayload {
   altOnly?: boolean
 }
 
-const dedupeKeyFor = (scope: StudyScope, difficulty: Difficulty) =>
-  `${scope.kind}:${scope.id}:quiz:${difficulty}`
+const dedupeKeyFor = (scope: StudyScope, difficulty: Difficulty, fingerprint = "") =>
+  `${scope.kind}:${scope.id}:quiz:${difficulty}${fingerprint ? `:${fingerprint}` : ""}`
+
+async function currentFingerprint(scope: StudyScope, ownerId?: string): Promise<string> {
+  if (scope.kind === "doc") return ChunkRepository.contentFingerprint(scope.id)
+  if (!ownerId) return ""
+  return ChunkRepository.contentFingerprintByCourse(ownerId, scope.id)
+}
 
 /**
  * Build the evidence text (+ weighted topics) a generation batch is grounded on.
@@ -116,8 +125,17 @@ export async function buildEvidence(
     return text ? { text, weightedTopics } : null
   }
   if (!ownerId) return null
-  const text = await ChunkRepository.getConcatenatedTextByCourse(ownerId, scope.id)
-  return text ? { text, weightedTopics: [] } : null
+  const [text, courseGraph] = await Promise.all([
+    ChunkRepository.getConcatenatedTextByCourse(ownerId, scope.id),
+    CourseGraphRepository.get(scope.id),
+  ])
+  const weightedTopics =
+    courseGraph?.status === "ready"
+      ? (courseGraph.data?.nodes ?? [])
+          .filter((node) => node.label.trim() && node.weight_percent > 0)
+          .map((node) => ({ label: node.label, weight: Number(node.weight_percent) }))
+      : []
+  return text ? { text, weightedTopics } : null
 }
 
 /**
@@ -131,9 +149,10 @@ async function generateQuizBatch(
   ownerId: string | undefined,
   language: string | undefined,
   altOnly = false,
-): Promise<number> {
+  expectedFingerprint?: string,
+): Promise<{ added: number; stale: boolean }> {
   const ev = await buildEvidence(scope, ownerId)
-  if (!ev || ev.text.trim().length < 80) return 0
+  if (!ev || ev.text.trim().length < 80) return { added: 0, stale: false }
 
   const excludeSeen = await StudyItemsRepository.listDedupeTexts(scope, "quiz")
   const genOpts = { difficulty, weightedTopics: ev.weightedTopics, excludeSeen, language }
@@ -156,7 +175,7 @@ async function generateQuizBatch(
     fillblankAgent(ev.text, genOpts, FILL_PER_BATCH).catch(() => [] as QuizQuestion[]),
   ])
   const all = [...mcBatches.flat(), ...conex, ...vf, ...order, ...fill]
-  if (all.length === 0) return 0
+  if (all.length === 0) return { added: 0, stale: false }
 
   const embeddings = await embedTexts(all.map((q) => q.question))
   const items: NewStudyItem[] = all.map((q: QuizQuestion, i) => ({
@@ -168,7 +187,11 @@ async function generateQuizBatch(
     dedupeText: q.question,
     embedding: embeddings[i],
   }))
-  return StudyItemsRepository.insertDeduped(scope, items)
+  if (expectedFingerprint) {
+    const latest = await currentFingerprint(scope, ownerId)
+    if (latest !== expectedFingerprint) return { added: 0, stale: true }
+  }
+  return { added: await StudyItemsRepository.insertDeduped(scope, items), stale: false }
 }
 
 export const StudyBankService = {
@@ -186,6 +209,8 @@ export const StudyBankService = {
     target = BANK_TARGET_PER_DIFFICULTY,
   ): Promise<void> {
     const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
+    const contentFingerprint = await currentFingerprint(scope, ownerId)
+    const dedupeKey = dedupeKeyFor(scope, difficulty, contentFingerprint)
     const payload: BankJobPayload = {
       scopeKind: scope.kind,
       scopeId: scope.id,
@@ -193,7 +218,8 @@ export const StudyBankService = {
       target,
       ownerId,
       language,
-      dedupeKey: dedupeKeyFor(scope, difficulty),
+      dedupeKey,
+      contentFingerprint,
     }
     if (total >= target) {
       // Mini-migration: the bank is full but may predate the redesign (all
@@ -208,8 +234,13 @@ export const StudyBankService = {
   },
 
   /** Is a fill job still pending/processing for (scope, difficulty)? Drives the UI's "generando" flag. */
-  async hasPending(scope: StudyScope, difficulty: Difficulty): Promise<boolean> {
-    return JobRepository.hasPending(JOB_TYPE_STUDY, dedupeKeyFor(scope, difficulty))
+  async hasPending(
+    scope: StudyScope,
+    difficulty: Difficulty,
+    ownerId?: string,
+  ): Promise<boolean> {
+    const fingerprint = await currentFingerprint(scope, ownerId)
+    return JobRepository.hasPending(JOB_TYPE_STUDY, dedupeKeyFor(scope, difficulty, fingerprint))
   },
 
   /**
@@ -223,10 +254,18 @@ export const StudyBankService = {
    */
   async drain(
     max = 1,
-    target?: { scope: StudyScope; difficulty: Difficulty },
+    target?: { scope: StudyScope; difficulty: Difficulty; ownerId?: string },
   ): Promise<{ processed: number; failed: number }> {
     const tally = { processed: 0, failed: 0 }
-    const filter = target ? { dedupeKey: dedupeKeyFor(target.scope, target.difficulty) } : undefined
+    const filter = target
+      ? {
+          dedupeKey: dedupeKeyFor(
+            target.scope,
+            target.difficulty,
+            await currentFingerprint(target.scope, target.ownerId),
+          ),
+        }
+      : undefined
     for (let i = 0; i < max; i++) {
       const job = await JobRepository.claimNext(JOB_TYPE_STUDY, 10, filter)
       if (!job) break
@@ -252,6 +291,12 @@ async function processBankJob(
   const target = p.target ?? BANK_TARGET_PER_DIFFICULTY
 
   try {
+    const latestBefore = await currentFingerprint(scope, p.ownerId)
+    if (p.contentFingerprint && latestBefore !== p.contentFingerprint) {
+      await JobRepository.complete(job.id, { added: 0, reason: "stale-revision" })
+      tally.processed++
+      return
+    }
     // Alt-only jobs (mini-migration) measure progress against the alt-kind floor,
     // not the full bank target — the bank is already at target by definition.
     const total = p.altOnly
@@ -267,7 +312,20 @@ async function processBankJob(
       tally.processed++
       return
     }
-    const added = await generateQuizBatch(scope, p.difficulty, p.ownerId, p.language, p.altOnly)
+    const generated = await generateQuizBatch(
+      scope,
+      p.difficulty,
+      p.ownerId,
+      p.language,
+      p.altOnly,
+      p.contentFingerprint,
+    )
+    if (generated.stale) {
+      await JobRepository.complete(job.id, { added: 0, reason: "stale-revision" })
+      tally.processed++
+      return
+    }
+    const added = generated.added
     const newTotal = total + added
     await JobRepository.complete(job.id, { added, total: newTotal, altOnly: p.altOnly ?? false })
     tally.processed++

@@ -44,7 +44,10 @@ export const UploadFromBlobSchema = z.object({
 
 export const CreateChatSchema = z.object({
   syllabus_id: z.string().uuid("Invalid syllabus ID").optional(),
+  course_id: z.string().uuid("Invalid course ID").optional(),
   active_model: z.string().optional(),
+}).refine((value) => !(value.syllabus_id && value.course_id), {
+  message: "Choose either a syllabus or a course scope",
 })
 
 export const UpdateChatSchema = z.object({

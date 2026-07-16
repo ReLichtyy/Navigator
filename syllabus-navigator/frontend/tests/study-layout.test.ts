@@ -22,14 +22,19 @@ describe("Área de Estudio responsive layout", () => {
     expect(config).toContain("lg:overflow-y-auto")
   })
 
-  it("presents material as an accessible two-level picker", () => {
+  it("presents a single collapsible course picker above optional materials", () => {
     const config = src("src/components/estudio/study-config.tsx")
+    const page = src("app/estudio/page.tsx")
 
     expect(config).toContain("Material de estudio")
-    expect(config).toContain('aria-label="Cursos disponibles"')
-    expect(config).toContain('aria-label="Material del curso"')
+    expect(config).toContain("const [coursesOpen, setCoursesOpen]")
+    expect(config).toContain('aria-controls="study-course-options"')
+    expect(config).toContain('id="study-course-options"')
+    expect(config).toContain("Materiales opcionales")
     expect(config).toContain("min-h-11")
-    expect(config).toContain("Documentos")
+    expect(page).toContain("const [selectedCourseKey, setSelectedCourseKey]")
+    expect(page).toContain("setSelectedCourseKey(folderKey(g))")
+    expect(page).not.toContain("const [selectedKeys, setSelectedKeys]")
   })
 
   it("collapses modes to one column on phones and expands to three on wide screens", () => {

@@ -426,6 +426,14 @@ CREATE INDEX IF NOT EXISTS idx_user_courses_user ON user_courses(user_id);
 -- recalcula todo.
 ALTER TABLE user_courses ADD COLUMN IF NOT EXISTS term_start DATE;
 
+-- Chats opened from Study/Map keep their real course scope across follow-up turns.
+ALTER TABLE chats ADD COLUMN IF NOT EXISTS course_id UUID;
+DO $$ BEGIN
+  ALTER TABLE chats ADD CONSTRAINT chats_course_fk
+    FOREIGN KEY (course_id) REFERENCES user_courses(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS idx_chats_course ON chats(course_id);
+
 -- Now that user_courses exists, point syllabus_uploads.course_id at it (idempotent).
 DO $$ BEGIN
   ALTER TABLE syllabus_uploads ADD CONSTRAINT syllabus_uploads_course_fk
@@ -470,7 +478,7 @@ CREATE TABLE IF NOT EXISTS course_graphs (
   course_id      UUID        PRIMARY KEY REFERENCES user_courses(id) ON DELETE CASCADE,
   data           JSONB,                              -- NULL until first generation succeeds
   source_doc_ids UUID[]      NOT NULL DEFAULT '{}',
-  status         TEXT        NOT NULL DEFAULT 'pending',  -- pending|processing|ready|failed
+  status         TEXT        NOT NULL DEFAULT 'pending',  -- pending|processing|ready|stale|failed
   error          TEXT,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()

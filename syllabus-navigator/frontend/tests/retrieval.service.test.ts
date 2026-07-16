@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest"
 
 vi.mock("@/lib/llm/embeddings", () => ({ embedText: vi.fn() }))
 vi.mock("@/lib/server/repositories/chunk.repo", () => ({
-  ChunkRepository: { search: vi.fn() },
+  ChunkRepository: { search: vi.fn(), searchByCourse: vi.fn() },
 }))
 
 import { embedText } from "@/lib/llm/embeddings"
@@ -58,5 +58,20 @@ describe("RetrievalService.retrieve — relevance gate", () => {
     const r = await RetrievalService.retrieve("s1", "q")
     expect(r.hasContext).toBe(true)
     expect(r.citations).toHaveLength(5)
+  })
+
+  it("limits course-map retrieval to the documents selected for that map", async () => {
+    vi.mocked(ChunkRepository.searchByCourse).mockResolvedValue([])
+    const docIds = ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]
+
+    await RetrievalService.retrieveForCourse("u1", "c1", "q", docIds)
+
+    expect(ChunkRepository.searchByCourse).toHaveBeenCalledWith(
+      "u1",
+      "c1",
+      [0.1, 0.2, 0.3],
+      expect.any(Number),
+      docIds,
+    )
   })
 })

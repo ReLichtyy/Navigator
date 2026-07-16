@@ -27,6 +27,7 @@ export interface ChatOutAPI {
   title: string
   active_model: string
   syllabus_id: string | null
+  course_id: string | null
   /** Document name the chat is bound to (joined from syllabus_uploads). */
   syllabus_name?: string | null
   created_at: string
@@ -109,7 +110,7 @@ export interface GraphResponseAPI {
  */
 export interface CourseGraphResponseAPI {
   course_id: string
-  graph_status: "none" | "pending" | "processing" | "ready" | "failed"
+  graph_status: "none" | "pending" | "processing" | "ready" | "stale" | "failed"
   graph_error: string | null
   /** Docs that fed the current map — the drawer's persisted multi-select. */
   source_doc_ids: string[]

@@ -30,6 +30,7 @@ import { toast } from "sonner"
 import { Textarea } from "@/components/ui/textarea"
 import { pickWeekTopics } from "@/lib/ui/week-topics"
 import { writeMindMapSelection } from "@/lib/ui/mind-map-selection"
+import { defaultCourseScope } from "@/lib/ui/study-selection"
 import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
 import {
   GraduationCap,
@@ -55,10 +56,7 @@ import { ResumenView } from "@/components/estudio/mind-resumen-view"
 import { MasteryPanel } from "@/components/estudio/mastery-panel"
 import { StudyConfig, type Mode } from "@/components/estudio/study-config"
 import { useConfirm } from "@/components/ui/confirm-dialog"
-import {
-  GenerationProgress,
-  useGenerationProgress,
-} from "@/components/estudio/generation-progress"
+import { GenerationProgress, useGenerationProgress } from "@/components/estudio/generation-progress"
 import { SelectionAsk } from "@/components/SelectionAsk"
 import { useAskInChat } from "@/hooks/use-ask-in-chat"
 import { Button } from "@/components/ui/button"
@@ -89,7 +87,12 @@ const folderKey = (g: RealCourseGroup) => g.id ?? "__none__"
 // Last course/scope selection, restored on return visits — a student expects to
 // pick up where they left off, not to be reset to the first PDF of the list.
 const LAST_SELECTION_KEY = "estudio:last-selection"
-type StoredSelection = { keys: string[]; scope: Scope | null }
+type StoredSelection = {
+  key?: string
+  /** Backward compatibility with the former multi-course picker. */
+  keys?: string[]
+  scope: Scope | null
+}
 
 function readLastSelection(): StoredSelection | null {
   if (typeof window === "undefined") return null
@@ -124,9 +127,8 @@ function EstudioContent() {
   const [courses, setCourses] = useState<CourseAPI[]>([])
   const [coursesLoading, setCoursesLoading] = useState(true)
 
-  // Selected course folders (multi-select). One folder → its own scope picker;
-  // several folders → their study material is combined into one set.
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  // Exactly one course is active; optional PDFs can narrow its study scope.
+  const [selectedCourseKey, setSelectedCourseKey] = useState<string | null>(null)
   // Selected scope within the folder. null until the folder resolves a default.
   const [scope, setScope] = useState<Scope | null>(null)
   const [mode, setMode] = useState<Mode>("menu")
@@ -140,6 +142,8 @@ function EstudioContent() {
   // 0→100% while the study set generates; the material is revealed at 100.
   const genProgress = useGenerationProgress(setLoading)
   const [setError, setSetError] = useState<string | null>(null)
+  const setLoadSeq = useRef(0)
+  const setAbortRef = useRef<AbortController | null>(null)
   const [regenerating, setRegenerating] = useState(false)
 
   // Difficulty is adaptive (driven by mastery/SRS), not user-chosen — fixed base here.
@@ -179,14 +183,12 @@ function EstudioContent() {
     () => groupByRealCourse(uploads, realCourses).filter((g) => g.docs.some(isReady)),
     [uploads, realCourses],
   )
-  // Folders currently selected; one → single mode, several → combined mode.
-  const selectedGroups = useMemo(
-    () => groups.filter((g) => selectedKeys.includes(folderKey(g))),
-    [groups, selectedKeys],
+  // Resolve the single active course from its stable folder key.
+  const selectedGroup = useMemo(
+    () => groups.find((g) => folderKey(g) === selectedCourseKey) ?? null,
+    [groups, selectedCourseKey],
   )
-  const multi = selectedGroups.length > 1
-  const selectedGroup = multi ? null : (selectedGroups[0] ?? null)
-  const selKey = selectedGroups.map(folderKey).sort().join("|")
+  const selKey = selectedCourseKey ?? ""
   const readyDocs = useMemo(
     () => (selectedGroup ? selectedGroup.docs.filter(isReady) : []),
     [selectedGroup],
@@ -214,7 +216,7 @@ function EstudioContent() {
   const examSubjectTags = selectedCourse?.subject_tags ?? []
   const scopeLabel =
     scope?.kind === "combo"
-      ? `${selectedGroups.length} cursos combinados`
+      ? `${scope.groupKeys.length} cursos combinados`
       : scope?.kind === "docs"
         ? `${scope.docIds.length} PDFs combinados`
         : scope?.kind === "course"
@@ -247,82 +249,53 @@ function EstudioContent() {
   // Pick an initial folder once groups are available: ?course deep link first,
   // then the folders of the last visit (localStorage), then the first group.
   useEffect(() => {
-    if (selectedKeys.length > 0 || groups.length === 0) return
+    if (groups.length === 0) return
+    if (selectedCourseKey && groups.some((g) => folderKey(g) === selectedCourseKey)) return
     const wanted = params.get("course")
     // ?course may be a document id (from the "Estudiar" link) or a course id.
     const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted))
     const byCourse = groups.find((g) => g.id === wanted)
     const linked = byDoc ?? byCourse
     if (linked) {
-      setSelectedKeys([folderKey(linked)])
+      setSelectedCourseKey(folderKey(linked))
       return
     }
-    const storedKeys =
-      readLastSelection()?.keys.filter((k) => groups.some((g) => folderKey(g) === k)) ?? []
-    if (storedKeys.length > 0) {
-      setSelectedKeys(storedKeys)
+    const stored = readLastSelection()
+    const storedKey = stored?.key ?? stored?.keys?.[0]
+    if (storedKey && groups.some((g) => folderKey(g) === storedKey)) {
+      setSelectedCourseKey(storedKey)
       return
     }
-    setSelectedKeys([folderKey(groups[0])])
+    setSelectedCourseKey(folderKey(groups[0]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
 
-  // When the folder changes, default the scope. Prefer a specific PDF so the
-  // adaptive engine runs (per-PDF mastery panel, review/SRS recording, the Router
-  // topic plan) — whole-course scope has none of that. Honor ?course=<docId> when
-  // it points at a ready doc; else first ready PDF; else whole course as a fallback.
+  // A real course starts with its complete material. Only a document deep link
+  // intentionally narrows that selection; an uncategorized folder falls back to
+  // its first ready document.
   useEffect(() => {
-    // Several folders selected → combined whole-course set (no per-PDF scope).
-    if (multi) {
-      setScope({ kind: "combo", groupKeys: selectedGroups.map(folderKey) })
-      setMode("menu")
-      setTopic(null)
-      return
-    }
     if (!selectedGroup) {
       setScope(null)
       return
     }
     const wanted = params.get("course")
     const wantedDoc = readyDocs.find((d) => d.id === wanted)
-    // Restore the last visit's scope when it belongs to this same folder
-    // selection and its targets are still ready.
-    const stored = readLastSelection()
-    const storedScope =
-      stored && stored.keys.slice().sort().join("|") === selKey ? stored.scope : null
-    const validStored =
-      storedScope?.kind === "doc" && readyDocs.some((d) => d.id === storedScope.docId)
-        ? storedScope
-        : storedScope?.kind === "docs" &&
-            storedScope.docIds.length > 0 &&
-            storedScope.docIds.every((id) => readyDocs.some((d) => d.id === id))
-          ? storedScope
-          : storedScope?.kind === "course" &&
-              canWholeCourse &&
-              selectedGroup.id === storedScope.courseId
-            ? storedScope
-            : null
-    if (wantedDoc) {
-      setScope({ kind: "doc", docId: wantedDoc.id })
-    } else if (validStored) {
-      setScope(validStored)
-    } else if (readyDocs[0]) {
-      setScope({ kind: "doc", docId: readyDocs[0].id })
-    } else if (canWholeCourse && selectedGroup.id) {
-      setScope({ kind: "course", courseId: selectedGroup.id })
-    } else {
-      setScope(null)
-    }
+    const initialScope = defaultCourseScope(
+      selectedGroup.id,
+      readyDocs.map((d) => d.id),
+      wantedDoc?.id ?? null,
+    )
+    setScope(initialScope)
     setMode("menu")
     setTopic(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selKey])
 
-  // Remember the selection so the next visit resumes here (not the first PDF).
+  // Remember the selected course; its material still defaults to the whole course.
   useEffect(() => {
-    if (selectedKeys.length === 0) return
-    writeLastSelection({ keys: selectedKeys, scope })
-  }, [selectedKeys, scope])
+    if (!selectedCourseKey) return
+    writeLastSelection({ key: selectedCourseKey, scope })
+  }, [selectedCourseKey, scope])
 
   // Load (or regenerate) the study set for the active scope, honoring difficulty/topic.
   const loadSet = useCallback(
@@ -340,6 +313,10 @@ function EstudioContent() {
         silent?: boolean
       } = {},
     ) => {
+      const seq = ++setLoadSeq.current
+      setAbortRef.current?.abort()
+      const controller = new AbortController()
+      setAbortRef.current = controller
       const d = opts.difficulty ?? "medio"
       const t = opts.topic ?? null
       const w = opts.web ?? false
@@ -356,6 +333,7 @@ function EstudioContent() {
         difficulty: d,
         topic: t ?? undefined,
         web: w,
+        signal: controller.signal,
       }
       // Fetch a single folder's whole-course set (or its first PDF for "Sin curso").
       const fetchFolder = (g: RealCourseGroup) =>
@@ -387,18 +365,18 @@ function EstudioContent() {
         } else {
           data = await fetchStudySet(s.docId, fetchOpts)
         }
+        if (seq !== setLoadSeq.current || controller.signal.aborted) return false
         setSet(data)
         setLoadedKey(scopeKey(s, d, t, w))
         return true
       } catch (e) {
+        if (controller.signal.aborted || seq !== setLoadSeq.current) return false
         if (!opts.silent) {
-          setSetError(
-            e instanceof Error ? e.message : "No se pudo generar el material de estudio.",
-          )
+          setSetError(e instanceof Error ? e.message : "No se pudo generar el material de estudio.")
         }
         return false
       } finally {
-        if (!opts.silent) {
+        if (seq === setLoadSeq.current && !opts.silent) {
           setSetLoading(false)
           setRegenerating(false)
         }
@@ -413,6 +391,10 @@ function EstudioContent() {
   // a fresh default set is already cached we hydrate it silently (cache hit —
   // no LLM cost). Cold scopes generate on demand in `launchMode`.
   useEffect(() => {
+    setAbortRef.current?.abort()
+    setLoadSeq.current++
+    setSetLoading(false)
+    setRegenerating(false)
     // Drop the previous scope's material so stale counts/sets never leak.
     setSet(null)
     setLoadedKey(null)
@@ -440,21 +422,22 @@ function EstudioContent() {
     warmStudyBank(qs)
     return () => {
       alive = false
+      setAbortRef.current?.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, loadSet])
 
-  // Cronograma events for the active scope: per-PDF when a doc is selected, else
-  // the first ready doc of the course (representative week context).
+  // Cronograma events for the active scope. Course scope aggregates every ready
+  // document; using only the first PDF silently dropped assessments/topics.
   useEffect(() => {
-    const id = activeDocId ?? readyDocs[0]?.id ?? null
-    if (!id) {
+    const ids = activeDocId ? [activeDocId] : readyDocs.map((doc) => doc.id)
+    if (ids.length === 0) {
       setCourseEvents([])
       return
     }
     let alive = true
-    fetchSchedule(id)
-      .then((d) => alive && setCourseEvents(d.events))
+    Promise.all(ids.map((id) => fetchSchedule(id)))
+      .then((results) => alive && setCourseEvents(results.flatMap((result) => result.events)))
       .catch(() => alive && setCourseEvents([]))
     return () => {
       alive = false
@@ -618,13 +601,8 @@ function EstudioContent() {
     setMode("menu")
   }
 
-  // Toggle a folder in/out of the multi-selection; never let it become empty.
-  const toggleFolder = (g: RealCourseGroup) => {
-    const k = folderKey(g)
-    setSelectedKeys((prev) =>
-      prev.includes(k) ? (prev.length > 1 ? prev.filter((x) => x !== k) : prev) : [...prev, k],
-    )
-  }
+  // Changing course replaces the previous selection; courses cannot be combined.
+  const selectCourse = (g: RealCourseGroup) => setSelectedCourseKey(folderKey(g))
 
   // Toggle a PDF in/out of the doc selection. 1 doc → full-featured `doc` scope;
   // ≥2 → client-combined `docs` scope. Never let the selection go empty.
@@ -641,16 +619,14 @@ function EstudioContent() {
 
   // Config-panel view models.
   const wholeCourseActive = scope?.kind === "course"
-  const comboScope = scope?.kind === "docs" || scope?.kind === "combo"
-  const studyingLabel = multi
-    ? `${selectedGroups.length} cursos combinados`
-    : wholeCourseActive
-      ? (selectedGroup?.name ?? "Todo el curso")
-      : selectedDocIds.length > 0
-        ? selectedDocIds
-            .map((id) => cleanName(uploads.find((u) => u.id === id)?.original_filename ?? "PDF"))
-            .join(" · ")
-        : ""
+  const comboScope = scope?.kind === "docs"
+  const studyingLabel = wholeCourseActive
+    ? (selectedGroup?.name ?? "Todo el curso")
+    : selectedDocIds.length > 0
+      ? selectedDocIds
+          .map((id) => cleanName(uploads.find((u) => u.id === id)?.original_filename ?? "PDF"))
+          .join(" · ")
+      : ""
 
   // ---------- gates ----------
   if (ready && (status === "anonymous" || status === "guest")) {
@@ -700,12 +676,10 @@ function EstudioContent() {
                 ) : mode === "menu" ? (
                   <StudyConfig
                     groups={groups}
-                    selectedKeys={selectedKeys}
+                    selectedKey={selectedCourseKey}
                     folderKey={folderKey}
-                    onToggleFolder={toggleFolder}
+                    onSelectCourse={selectCourse}
                     selectedGroup={selectedGroup}
-                    multi={multi}
-                    selectedGroups={selectedGroups}
                     readyDocs={readyDocs}
                     canWholeCourse={canWholeCourse}
                     wholeCourseActive={wholeCourseActive}
@@ -913,9 +887,7 @@ function ModeRouter({
       )
     case "repaso":
       if (!quizScope) return narrowScopeNotice
-      return (
-        <QuizReviewView courseLabel={scopeLabel} scope={quizScope} onBack={backToMenu} />
-      )
+      return <QuizReviewView courseLabel={scopeLabel} scope={quizScope} onBack={backToMenu} />
     case "quiz": {
       if (!quizScope) return narrowScopeNotice
       return (
@@ -1157,8 +1129,8 @@ function Menu({
               </Button>
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/80">
-              El enfoque y la búsqueda web aplican a Tarjetas, Resumen y Mapa. El Quiz y el
-              Examen usan el banco de preguntas del curso completo.
+              El enfoque y la búsqueda web aplican a Tarjetas, Resumen y Mapa. El Quiz y el Examen
+              usan el banco de preguntas del curso completo.
             </p>
           </div>
         )}

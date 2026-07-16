@@ -63,4 +63,20 @@ describe("ChunkRepository — retrieval is ownership-scoped", () => {
     expect(calls[0].text).toContain("su.user_id =")
     expect(calls[0].values).toContain("user-1")
   })
+
+  it("document fingerprints include graph revisions, not only chunk timestamps", async () => {
+    await ChunkRepository.contentFingerprint("syl-1")
+    expect(calls[0].text).toContain("graph_generated_at")
+    expect(calls[0].text).toContain("graph_status")
+    expect(calls[0].text).toContain("syllabus_uploads")
+  })
+
+  it("course fingerprints include membership and the course-map revision", async () => {
+    await ChunkRepository.contentFingerprintByCourse("user-1", "course-9")
+    expect(calls[0].text).toContain("string_agg")
+    expect(calls[0].text).toContain("course_graphs")
+    expect(calls[0].text).toContain("updated_at")
+    expect(calls[0].values).toContain("user-1")
+    expect(calls[0].values).toContain("course-9")
+  })
 })

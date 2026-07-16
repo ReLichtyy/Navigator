@@ -231,7 +231,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
 
     const storedId = readAskChat(key)
     const existing = storedId ? chats.find((c) => c.id === storedId) : undefined
-    if (existing) {
+    if (existing && (!ask.courseId || existing.courseId === ask.courseId)) {
       // Reuse: switch to the course's chat; the deferred effect sends once its
       // history has loaded.
       deferredAskRef.current = {
@@ -246,7 +246,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     // First ask for this scope (or its chat was deleted) → create the chat NOW
     // and remember it for every later ask of the same course.
     void (async () => {
-      const created = await createChat(undefined, ask.syllabusId ?? null)
+      const created = await createChat(undefined, ask.syllabusId ?? null, ask.courseId ?? null)
       if (!created) return
       storeAskChat(key, created.id)
       deferredAskRef.current = {

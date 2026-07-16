@@ -26,9 +26,13 @@ vi.mock("@/lib/server/repositories/document.repo", () => ({
     renameDocument: vi.fn(),
   },
 }))
+vi.mock("@/lib/server/services/study-invalidation.service", () => ({
+  StudyInvalidationService: { invalidateDocumentGraph: vi.fn() },
+}))
 
 import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentRepository } from "@/lib/server/repositories/document.repo"
+import { StudyInvalidationService } from "@/lib/server/services/study-invalidation.service"
 import { DELETE, PATCH } from "../app/api/upload/[id]/route"
 
 const params = (id: string) => ({ params: Promise.resolve({ id }) })
@@ -72,6 +76,7 @@ describe("DELETE /api/upload/[id]", () => {
     const res = await DELETE(req(), params("d1"))
     expect(res.status).toBe(200)
     expect(DocumentRepository.deleteDocument).toHaveBeenCalledWith("d1", "u1")
+    expect(StudyInvalidationService.invalidateDocumentGraph).toHaveBeenCalledWith("u1", "d1")
   })
 })
 

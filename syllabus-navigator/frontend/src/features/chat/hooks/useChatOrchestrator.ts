@@ -11,7 +11,11 @@ interface UseChatOrchestratorProps {
   activeSyllabusId: string | null
   chats: Chat[]
   setChats: React.Dispatch<React.SetStateAction<Chat[]>>
-  createChat: (activeModel?: string, syllabusId?: string | null) => Promise<Chat | null>
+  createChat: (
+    activeModel?: string,
+    syllabusId?: string | null,
+    courseId?: string | null,
+  ) => Promise<Chat | null>
   activeChatId: string
   setActiveChatId: (id: string) => void
   activeChat: Chat | null

@@ -34,6 +34,7 @@ export interface Chat {
   createdAt?: string
   activeModel?: string
   syllabusId?: string | null
+  courseId?: string | null
   /** Document/course name this chat is bound to (for "historial por curso" filter). */
   syllabusName?: string | null
   messageCount?: number

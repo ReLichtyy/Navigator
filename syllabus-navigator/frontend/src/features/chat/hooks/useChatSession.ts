@@ -61,6 +61,7 @@ export function useChatSession(activeChatId: string | null) {
           title: detail.title,
           activeModel: detail.active_model,
           syllabusId: detail.syllabus_id,
+          courseId: detail.course_id,
           createdAt: detail.created_at,
           timestamp: "",
           messageCount: detail.message_count,
