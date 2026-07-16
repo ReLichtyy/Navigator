@@ -1,4 +1,4 @@
-import { MessageSquare, Library, CalendarDays, GraduationCap, Network } from "lucide-react"
+import { MessageSquare, BookOpen, GraduationCap, Network } from "lucide-react"
 
 export interface NavItem {
   icon: typeof MessageSquare
@@ -12,8 +12,8 @@ export interface NavItem {
 
 export const MAIN_NAV: NavItem[] = [
   { icon: MessageSquare, label: "Asistente", labelKey: "assistant", href: "/" },
-  { icon: Library, label: "Cursos", labelKey: "courses", href: "/knowledge" },
-  { icon: CalendarDays, label: "Agenda", labelKey: "agenda", href: "/agenda" },
+  // Cursos + Agenda merged into the unified Knowledge page (2026-07-15).
+  { icon: BookOpen, label: "Knowledge", labelKey: "knowledge", href: "/knowledge" },
 ]
 
 export const STUDY_NAV: NavItem[] = [

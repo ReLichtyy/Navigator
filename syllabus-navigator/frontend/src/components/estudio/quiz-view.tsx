@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowRight, Loader2, Layers, RotateCcw } from "lucide-react"
+import { ArrowRight, Loader2, Layers, RotateCcw, Check, X } from "lucide-react"
 import {
   recordMastery,
   recordQuizFail,
@@ -16,6 +16,14 @@ import {
 import { BackButton, EmptyMode } from "./flashcards-view"
 import { GenerationProgress, useGenerationProgress } from "./generation-progress"
 import { heatFor, stageTier, stageAdvice, topMissedTopics, type Heat } from "@/lib/ui/quiz-stage-ui"
+import {
+  QuizResults,
+  RevealExplain,
+  CiteChip,
+  Conexiones,
+  Ordenar,
+  CompletarHueco,
+} from "./quiz-parts"
 
 /** Fallback correct-answers-to-clear when the server doesn't send `size` (pref-driven). */
 const DEFAULT_STAGE_SIZE = 15
@@ -96,6 +104,8 @@ interface Props {
   /** Which menu entry launched this run — keeps the saved sessions separate. */
   mode: QuizMode
   onBack: () => void
+  /** Results screen "Repasar mis N fallos" → jump straight into Repaso. */
+  onRepaso?: () => void
 }
 
 const GLYPHS = ["A", "B", "C", "D", "E"]
@@ -117,7 +127,7 @@ const HEAT_BAR: Record<Heat, string> = {
   hot: "bg-red-500",
 }
 
-export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
+export function QuizView({ title, courseLabel, scope, mode, onBack, onRepaso }: Props) {
   // Per-stage buffer (15 to clear + spares for wrong-answer swaps) and cursor.
   const [buffer, setBuffer] = useState<QuizQuestionAPI[]>([])
   const [pos, setPos] = useState(0)
@@ -152,6 +162,9 @@ export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
   const servedIds = useRef<Set<string>>(new Set())
   const outcomes = useRef<{ label: string; correct: boolean }[]>([])
   const failedTopics = useRef<Map<string, number>>(new Map()) // wrong-answer topics this stage
+  // Whole-run tallies for the redesigned results screen (topic bars + "puntos que mejorar").
+  const resultOutcomes = useRef<{ topic: string; correct: boolean }[]>([])
+  const failedQuestions = useRef<QuizQuestionAPI[]>([])
   const answeredIds = useRef<string[]>([]) // bank ids answered → marked "seen" (no repeats next session)
   // Prefetched next stage, keyed by `${stage}:${boost}` so a boost change re-fetches.
   const prefetch = useRef<{ key: string; promise: Promise<QuizStageAPI> } | null>(null)
@@ -217,6 +230,11 @@ export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
       setLoading(true)
       setError(null)
       setExhausted(false)
+      // Fresh full-quiz start → drop any accumulated results (e.g. after a restart).
+      if (s === 0) {
+        resultOutcomes.current = []
+        failedQuestions.current = []
+      }
       try {
         const data = await pollFreshStage(s, b)
         ingest(data)
@@ -439,10 +457,12 @@ export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
     setTotalAttempts((s) => s + 1)
     if (q.id) answeredIds.current.push(q.id) // mark as seen → no repeat next session
     if (q.topic) outcomes.current.push({ label: q.topic, correct })
+    resultOutcomes.current.push({ topic: q.topic ?? "General", correct })
     if (!correct) {
       // Wrong → the question leaves the quiz and goes to Repaso. Tally its topic
       // so the stage feedback can name what to reinforce.
       if (q.topic) failedTopics.current.set(q.topic, (failedTopics.current.get(q.topic) ?? 0) + 1)
+      failedQuestions.current.push(q)
       void recordQuizFail(scope, q).catch(() => {})
     }
     const cleared = correct ? clearedInStage + 1 : clearedInStage
@@ -616,35 +636,17 @@ export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
   }
 
   if (finished) {
-    // True accuracy over questions actually answered (a stage can close early when
-    // the bank runs dry, so a fixed stages×15 denominator would understate it).
-    const pct = totalAttempts > 0 ? Math.round((totalCorrect / totalAttempts) * 100) : 0
-    const emoji = pct >= 80 ? "🏆" : pct >= 50 ? "💪" : "📚"
-    const heading =
-      pct >= 80
-        ? "¡Excelente dominio!"
-        : pct >= 50
-          ? "Vas por buen camino"
-          : "A repasar un poco más"
+    // Redesigned results (AreaEstudio.dc 4b): score ring + per-topic bars +
+    // "puntos que mejorar" from the failed questions, with a jump into Repaso.
     return (
-      <div className="mx-auto max-w-2xl">
-        <BackButton onBack={onBack} />
-        <div className="rounded-2xl border border-accent/25 bg-accent/5 p-12 text-center">
-          <div className="text-5xl">{emoji}</div>
-          <h2 className="mt-3 text-2xl font-bold">{heading}</h2>
-          <p className="mt-2 text-accent">
-            Completaste las {stages} etapas · <b>{totalCorrect}</b> aciertos · {pct}% de precisión
-          </p>
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={onBack}
-              className="rounded-xl border border-border px-5 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary"
-            >
-              Volver al estudio
-            </button>
-          </div>
-        </div>
-      </div>
+      <QuizResults
+        correct={totalCorrect}
+        total={totalAttempts}
+        outcomes={resultOutcomes.current}
+        failed={failedQuestions.current}
+        onRepaso={onRepaso}
+        onBack={onBack}
+      />
     )
   }
 
@@ -737,10 +739,17 @@ export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
   const stagePct = Math.round((clearedInStage / stageSize) * 100)
   const heat = heatFor(difficulty, boost)
   const correct = selected === q.answer
+  const pickedWrong = answered && !correct
+  const nextLabel =
+    clearedInStage >= stageSize
+      ? stage >= stages - 1
+        ? "Ver resultados →"
+        : "Siguiente etapa →"
+      : "Siguiente pregunta →"
 
-  return (
-    <div className="mx-auto max-w-2xl">
-      <BackButton onBack={onBack} />
+  // ── Header (stage · difficulty · progress bar) ──
+  const header = (
+    <>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold tracking-tight">{title}</h2>
@@ -760,34 +769,122 @@ export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
           {clearedInStage}/{stageSize}
         </span>
       </div>
-
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
         <div
           className={`h-full transition-[width,background-color] duration-300 ${HEAT_BAR[heat]}`}
           style={{ width: `${stagePct}%` }}
         />
       </div>
+    </>
+  )
+
+  // Shared bookkeeping for the self-contained exercise kinds (conex/order/fill):
+  // mirrors a single MCQ answer — attempts, mastery outcome, Repaso on fail, seen.
+  const recordAltOutcome = (correct: boolean) => {
+    if (answered) return
+    setAnswered(true)
+    setAttemptsInStage((s) => s + 1)
+    setTotalAttempts((s) => s + 1)
+    if (q.id) answeredIds.current.push(q.id)
+    resultOutcomes.current.push({ topic: q.topic ?? "General", correct })
+    if (q.topic) outcomes.current.push({ label: q.topic, correct })
+    if (correct) {
+      setTotalCorrect((s) => s + 1)
+      setClearedInStage((s) => s + 1)
+    } else {
+      if (q.topic) failedTopics.current.set(q.topic, (failedTopics.current.get(q.topic) ?? 0) + 1)
+      failedQuestions.current.push(q)
+      void recordQuizFail(scope, q).catch(() => {})
+    }
+  }
+
+  // ── Self-contained exercise kinds (AreaEstudio.dc 4g) ──
+  const altBody =
+    q.kind === "conex" && q.pairs && q.pairs.length > 0 ? (
+      <Conexiones
+        key={`${stage}:${pos}`}
+        question={q.question}
+        pairs={q.pairs}
+        rightOrder={q.rightOrder}
+        cite={q.cite}
+        onComplete={(allRight) => recordAltOutcome(allRight)}
+        onNext={next}
+        nextLabel={nextLabel}
+        loading={loading}
+      />
+    ) : q.kind === "order" && q.steps && q.steps.length > 0 ? (
+      <Ordenar
+        key={`${stage}:${pos}`}
+        question={q.question}
+        steps={q.steps}
+        whyYes={q.whyYes}
+        cite={q.cite}
+        onComplete={recordAltOutcome}
+        onNext={next}
+        nextLabel={nextLabel}
+        loading={loading}
+      />
+    ) : q.kind === "fill" && q.fillText && q.fillAnswers && q.fillAnswers.length > 0 ? (
+      <CompletarHueco
+        key={`${stage}:${pos}`}
+        question={q.question}
+        fillText={q.fillText}
+        fillAnswers={q.fillAnswers}
+        whyYes={q.whyYes}
+        cite={q.cite}
+        onComplete={recordAltOutcome}
+        onNext={next}
+        nextLabel={nextLabel}
+        loading={loading}
+      />
+    ) : null
+
+  if (altBody) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <BackButton onBack={onBack} />
+        {header}
+        <div className="mt-6">{altBody}</div>
+      </div>
+    )
+  }
+
+  // ── Multiple choice (default) — `vf` renders as two big V/F buttons (4g) ──
+  const isVF = q.kind === "vf" && q.options.length === 2
+  return (
+    <div className="mx-auto max-w-2xl">
+      <BackButton onBack={onBack} />
+      {header}
 
       <div className="mt-6 rounded-2xl border border-border bg-card p-6">
         <div className="text-lg font-bold leading-snug text-foreground">{q.question}</div>
-        <div className="mt-5 flex flex-col gap-3">
+        <div className="mb-1 mt-1 text-[11.5px] text-muted-foreground/70">
+          {isVF ? "¿Verdadero o falso?" : "Elige una opción"}
+        </div>
+        <div className={isVF ? "mt-4 grid grid-cols-2 gap-2.5" : "mt-4 flex flex-col gap-2.5"}>
           {q.options.map((opt, i) => {
-            let cls = "border-border bg-card hover:border-accent/30"
-            let glyph = GLYPHS[i]
-            let markCls = "border-border text-muted-foreground"
+            const isCorrect = i === q.answer
+            const isPicked = i === selected
+            let cls = "border-border bg-card hover:border-accent/40"
+            let markCls = "border-border/60 text-muted-foreground"
+            let textCls = "text-foreground"
+            let badge: { label: string; cls: string } | null = null
             if (answered) {
-              if (i === q.answer) {
-                cls = "border-accent/50 bg-accent/10 text-accent-foreground"
-                glyph = "✓"
-                markCls = "border-accent/60 text-accent"
-              } else if (i === selected) {
-                cls = "border-red-500/50 bg-red-500/5 text-red-400"
-                glyph = "✕"
-                markCls = "border-red-500/50 text-red-400"
+              if (isCorrect) {
+                cls = "border-accent/50 bg-accent/10"
+                markCls = "border-none bg-accent text-accent-foreground"
+                textCls = "font-bold text-foreground"
+                badge = { label: "CORRECTA", cls: "bg-accent/20 text-accent" }
+              } else if (isPicked) {
+                cls = "border-red-500/50 bg-red-500/[0.07]"
+                markCls = "border-none bg-red-500 text-white"
+                textCls = "font-semibold text-red-400"
+                badge = { label: "TU RESPUESTA", cls: "bg-red-500/15 text-red-400" }
               } else {
-                cls = "border-border text-muted-foreground"
+                cls = "border-border opacity-45"
+                textCls = "text-muted-foreground"
               }
-            } else if (i === selected) {
+            } else if (isPicked) {
               cls = "border-accent/40 bg-card"
             }
             return (
@@ -795,62 +892,63 @@ export function QuizView({ title, courseLabel, scope, mode, onBack }: Props) {
                 key={i}
                 onClick={() => answer(i)}
                 disabled={answered}
-                className={`flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-colors ${cls} ${
-                  answered ? "cursor-default" : "cursor-pointer"
-                }`}
+                className={`${
+                  isVF
+                    ? "flex w-full items-center justify-center gap-2 rounded-xl border py-4"
+                    : "flex w-full items-center gap-3 rounded-xl border p-3.5 text-left"
+                } transition-colors ${cls} ${answered ? "cursor-default" : "cursor-pointer"}`}
               >
+                {(!isVF || answered) && (
+                  <span
+                    className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-bold ${markCls}`}
+                  >
+                    {answered && isCorrect ? (
+                      <Check className="h-3 w-3" strokeWidth={3.4} />
+                    ) : answered && isPicked ? (
+                      <X className="h-3 w-3" strokeWidth={3.4} />
+                    ) : (
+                      GLYPHS[i]
+                    )}
+                  </span>
+                )}
                 <span
-                  className={`flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-md border font-mono text-xs font-semibold ${markCls}`}
-                  style={{ width: 26, height: 26 }}
+                  className={`${isVF ? "text-sm font-bold" : "flex-1 text-sm leading-snug"} ${textCls}`}
                 >
-                  {glyph}
+                  {opt}
                 </span>
-                <span className="flex-1 text-sm font-medium leading-snug">{opt}</span>
+                {badge && !isVF && (
+                  <span
+                    className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold tracking-wide ${badge.cls}`}
+                  >
+                    {badge.label}
+                  </span>
+                )}
               </button>
             )
           })}
         </div>
 
         {answered && (
-          <>
-            <div
-              className={`mt-4 flex items-start gap-3 rounded-xl border p-4 ${
-                correct ? "border-accent/25 bg-accent/5" : "border-border bg-secondary/50"
-              }`}
-            >
-              <span className="text-base">{correct ? "✅" : "💡"}</span>
-              <div>
-                <div className={`text-sm font-bold ${correct ? "text-accent" : "text-foreground"}`}>
-                  {correct ? "¡Correcto!" : "No suma — viene otra pregunta"}
-                </div>
-                <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  {q.explanation}
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={next}
-                disabled={loading}
-                className="flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
-              >
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <>
-                    {clearedInStage >= stageSize
-                      ? stage >= stages - 1
-                        ? "Ver resultados"
-                        : "Siguiente etapa"
-                      : "Siguiente pregunta"}
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </>
+          <RevealExplain
+            whyYes={q.whyYes && q.whyYes.length > 0 ? q.whyYes : q.explanation ? [q.explanation] : []}
+            whyNo={pickedWrong && selected != null ? (q.whyNo?.[String(selected)] ?? []) : []}
+            pickedWrong={pickedWrong}
+          />
         )}
       </div>
+
+      {answered && (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <CiteChip cite={q.cite} topic={q.topic} />
+          <button
+            onClick={next}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-xl bg-accent px-6 py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : nextLabel}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

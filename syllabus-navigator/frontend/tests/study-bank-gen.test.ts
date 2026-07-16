@@ -5,6 +5,7 @@ vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn
 vi.mock("@/lib/server/repositories/study-items.repo", () => ({
   StudyItemsRepository: {
     countByTypeDifficulty: vi.fn(),
+    countByKinds: vi.fn(),
     listDedupeTexts: vi.fn(),
     insertDeduped: vi.fn(),
   },
@@ -63,6 +64,8 @@ beforeEach(() => {
   vi.mocked(GraphRepository.getGraph).mockResolvedValue({ topics: [], edges: [] } as any)
   vi.mocked(buildContextByTopics).mockResolvedValue("x".repeat(200))
   vi.mocked(StudyItemsRepository.listDedupeTexts).mockResolvedValue([])
+  // Alt kinds already at their floor by default → ensure/drain behave as before.
+  vi.mocked(StudyItemsRepository.countByKinds).mockResolvedValue(8)
   vi.mocked(StudyItemsRepository.insertDeduped).mockResolvedValue(18 as any)
   vi.mocked(gateQuiz).mockImplementation(async (raw: QuizQuestion[]) => raw)
   vi.mocked(embedTexts).mockImplementation(async (texts: string[]) => texts.map(() => [0.1]))

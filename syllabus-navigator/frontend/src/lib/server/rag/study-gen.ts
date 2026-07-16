@@ -16,6 +16,9 @@ export interface Flashcard {
   back: string
 }
 
+/** Exercise format. `mc` is generated today; the rest are wired for later phases. */
+export type QuizKind = "mc" | "conex" | "order" | "fill" | "vf"
+
 export interface QuizQuestion {
   question: string
   options: string[] // 2â€“5 options
@@ -23,6 +26,27 @@ export interface QuizQuestion {
   explanation: string
   /** Topic this question assesses (a mind-map branch / weighted topic label). Feeds the mastery ledger. */
   topic?: string
+  // ── Redesign (AreaEstudio.dc) — rich reveal + exercise kinds. All optional. ──
+  /** Defaults to `"mc"` when absent. */
+  kind?: QuizKind
+  /** Grounded bullet reasons the correct option is right ("POR QUÉ SÍ"). */
+  whyYes?: string[]
+  /** Per-wrong-option reasons ("POR QUÉ NO LA TUYA"), keyed by the option index as a string. */
+  whyNo?: Record<string, string[]>
+  /** Source citation shown as a chip, e.g. "Álgebra · tema Derivadas". */
+  cite?: string
+  /** One-line "what to reinforce" surfaced in the results "puntos que mejorar" list. */
+  improve?: string
+  /** `conex` pairs (left concept → right definition). */
+  pairs?: { l: string; r: string }[]
+  /** `conex` display order of the right column (indexes into `pairs`). */
+  rightOrder?: number[]
+  /** `order` steps in the CORRECT order (the UI shuffles for display). */
+  steps?: string[]
+  /** `fill` text/code with a `_____` gap the student completes. */
+  fillText?: string
+  /** `fill` accepted answers (normalized comparison; first one shown as the model answer). */
+  fillAnswers?: string[]
 }
 
 export interface SummaryConcept {
@@ -197,15 +221,29 @@ export function shuffleQuizOptions(
   q: QuizQuestion,
   rand: () => number = Math.random,
 ): QuizQuestion {
+  // Only multiple-choice items have shuffleable options; other kinds pass through.
+  if ((q.kind ?? "mc") !== "mc" || q.options.length < 2) return q
   const order = q.options.map((_, i) => i)
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1))
     ;[order[i], order[j]] = [order[j], order[i]]
   }
+  // `whyNo` is keyed by the ORIGINAL option index; remap to the new positions so
+  // "por qué no la tuya" still matches the option the student actually picked.
+  let whyNo = q.whyNo
+  if (whyNo) {
+    const remapped: Record<string, string[]> = {}
+    for (const [k, v] of Object.entries(whyNo)) {
+      const np = order.indexOf(Number(k))
+      if (np >= 0) remapped[String(np)] = v
+    }
+    whyNo = remapped
+  }
   return {
     ...q,
     options: order.map((i) => q.options[i]),
     answer: order.indexOf(q.answer),
+    ...(whyNo ? { whyNo } : {}),
   }
 }
 

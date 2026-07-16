@@ -39,6 +39,10 @@ import { JobRepository, type DbJob } from "../repositories/job.repo"
 import { topicKey } from "../repositories/mastery.repo"
 import { buildContextByTopics } from "../rag/retrieval/hybrid"
 import { inquisitorAgent } from "../rag/agents/inquisitor"
+import { matchingAgent } from "../rag/agents/matching"
+import { verafalsoAgent } from "../rag/agents/verafalso"
+import { orderingAgent } from "../rag/agents/ordering"
+import { fillblankAgent } from "../rag/agents/fillblank"
 import { gateQuiz } from "../rag/eval/gates"
 import { embedTexts } from "@/lib/llm/embeddings"
 import { logError, logInfo } from "@/lib/observability/logger"
@@ -56,6 +60,17 @@ const GEN_BATCH = 18
 // single 18-item call. Sub-batches share `excludeSeen`; insertDeduped drops any
 // near-duplicates between them at persist time.
 const SUB_BATCHES = 3
+// Alternative exercise kinds seeded into the same bank per run (AreaEstudio.dc).
+// Small counts: the bank stays MC-dominant; the stage assembler applies the quota.
+const CONEX_PER_BATCH = 2
+const VF_PER_BATCH = 3
+const ORDER_PER_BATCH = 2
+const FILL_PER_BATCH = 2
+// The alt kinds as stored in the payload, and the per-difficulty floor the
+// mini-migration fills full banks up to. One alt-only batch yields up to 9 items
+// (2+3+2+2), so 8 leaves headroom for a dedupe drop and still completes in one run.
+export const ALT_KINDS = ["conex", "vf", "order", "fill"]
+export const ALT_TARGET_PER_DIFFICULTY = 8
 
 interface BankJobPayload {
   scopeKind: "doc" | "course"
@@ -68,6 +83,12 @@ interface BankJobPayload {
   language?: string
   /** Dedupe key so enqueue collapses duplicate jobs for the same scope+difficulty. */
   dedupeKey: string
+  /**
+   * Mini-migration mode: the quiz bank is already at target but was filled before
+   * the redesign (all multiple-choice) — generate ONLY the alternative kinds
+   * (conex/vf/order/fill) up to ALT_TARGET_PER_DIFFICULTY.
+   */
+  altOnly?: boolean
 }
 
 const dedupeKeyFor = (scope: StudyScope, difficulty: Difficulty) =>
@@ -109,26 +130,36 @@ async function generateQuizBatch(
   difficulty: Difficulty,
   ownerId: string | undefined,
   language: string | undefined,
+  altOnly = false,
 ): Promise<number> {
   const ev = await buildEvidence(scope, ownerId)
   if (!ev || ev.text.trim().length < 80) return 0
 
   const excludeSeen = await StudyItemsRepository.listDedupeTexts(scope, "quiz")
+  const genOpts = { difficulty, weightedTopics: ev.weightedTopics, excludeSeen, language }
   const perBatch = Math.ceil(GEN_BATCH / SUB_BATCHES)
-  const batches = await Promise.all(
-    Array.from({ length: SUB_BATCHES }, () =>
-      inquisitorAgent(
-        ev.text,
-        { difficulty, weightedTopics: ev.weightedTopics, excludeSeen, language },
-        perBatch,
-      ).then((raw) => gateQuiz(raw, ev.text)),
-    ),
-  )
-  const gated = batches.flat()
-  if (gated.length === 0) return 0
+  // MC questions go through the Critic gate; the alternative kinds (conex/vf/
+  // order/fill) use their own schema-level validation (the MC critic doesn't
+  // apply to them) and fail soft so a bad batch never blocks the MC fill.
+  // `altOnly` (mini-migration for pre-redesign full banks) skips the MC chains.
+  const [mcBatches, conex, vf, order, fill] = await Promise.all([
+    altOnly
+      ? Promise.resolve([] as QuizQuestion[][])
+      : Promise.all(
+          Array.from({ length: SUB_BATCHES }, () =>
+            inquisitorAgent(ev.text, genOpts, perBatch).then((raw) => gateQuiz(raw, ev.text)),
+          ),
+        ),
+    matchingAgent(ev.text, genOpts, CONEX_PER_BATCH).catch(() => [] as QuizQuestion[]),
+    verafalsoAgent(ev.text, genOpts, VF_PER_BATCH).catch(() => [] as QuizQuestion[]),
+    orderingAgent(ev.text, genOpts, ORDER_PER_BATCH).catch(() => [] as QuizQuestion[]),
+    fillblankAgent(ev.text, genOpts, FILL_PER_BATCH).catch(() => [] as QuizQuestion[]),
+  ])
+  const all = [...mcBatches.flat(), ...conex, ...vf, ...order, ...fill]
+  if (all.length === 0) return 0
 
-  const embeddings = await embedTexts(gated.map((q) => q.question))
-  const items: NewStudyItem[] = gated.map((q: QuizQuestion, i) => ({
+  const embeddings = await embedTexts(all.map((q) => q.question))
+  const items: NewStudyItem[] = all.map((q: QuizQuestion, i) => ({
     userId: null,
     type: "quiz",
     topicKey: q.topic ? topicKey(q.topic) : null,
@@ -155,7 +186,6 @@ export const StudyBankService = {
     target = BANK_TARGET_PER_DIFFICULTY,
   ): Promise<void> {
     const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", difficulty)
-    if (total >= target) return
     const payload: BankJobPayload = {
       scopeKind: scope.kind,
       scopeId: scope.id,
@@ -164,6 +194,13 @@ export const StudyBankService = {
       ownerId,
       language,
       dedupeKey: dedupeKeyFor(scope, difficulty),
+    }
+    if (total >= target) {
+      // Mini-migration: the bank is full but may predate the redesign (all
+      // multiple-choice). If it's short on alternative kinds, seed JUST those.
+      const alt = await StudyItemsRepository.countByKinds(scope, difficulty, ALT_KINDS)
+      if (alt >= ALT_TARGET_PER_DIFFICULTY) return
+      payload.altOnly = true
     }
     await JobRepository.enqueue(JOB_TYPE_STUDY, payload as unknown as Record<string, unknown>, {
       dedupeKey: payload.dedupeKey,
@@ -215,19 +252,28 @@ async function processBankJob(
   const target = p.target ?? BANK_TARGET_PER_DIFFICULTY
 
   try {
-    const total = await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", p.difficulty)
-    if (total >= target) {
-      await JobRepository.complete(job.id, { added: 0, total, reason: "at-target" })
+    // Alt-only jobs (mini-migration) measure progress against the alt-kind floor,
+    // not the full bank target — the bank is already at target by definition.
+    const total = p.altOnly
+      ? await StudyItemsRepository.countByKinds(scope, p.difficulty, ALT_KINDS)
+      : await StudyItemsRepository.countByTypeDifficulty(scope, "quiz", p.difficulty)
+    const goal = p.altOnly ? ALT_TARGET_PER_DIFFICULTY : target
+    if (total >= goal) {
+      await JobRepository.complete(job.id, {
+        added: 0,
+        total,
+        reason: p.altOnly ? "at-alt-target" : "at-target",
+      })
       tally.processed++
       return
     }
-    const added = await generateQuizBatch(scope, p.difficulty, p.ownerId, p.language)
+    const added = await generateQuizBatch(scope, p.difficulty, p.ownerId, p.language, p.altOnly)
     const newTotal = total + added
-    await JobRepository.complete(job.id, { added, total: newTotal })
+    await JobRepository.complete(job.id, { added, total: newTotal, altOnly: p.altOnly ?? false })
     tally.processed++
     // Keep filling while below target — but only if this run made progress, else
     // the material is exhausted and re-enqueuing would loop forever.
-    if (added > 0 && newTotal < target) {
+    if (added > 0 && newTotal < goal) {
       await JobRepository.enqueue(JOB_TYPE_STUDY, job.payload, { dedupeKey: p.dedupeKey })
     }
   } catch (err) {

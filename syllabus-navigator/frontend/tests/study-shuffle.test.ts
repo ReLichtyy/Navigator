@@ -63,4 +63,32 @@ describe("shuffleQuizOptions", () => {
     )
     expect(answers.size).toBeGreaterThan(1)
   })
+
+  it("remaps whyNo keys so 'por qué no la tuya' still points at the picked option", () => {
+    // order [1,2,3,0] with rand 0 → original idx 1→pos0, 2→pos1, 3→pos2, 0→pos3.
+    const original: QuizQuestion = {
+      ...q(["A", "B", "C", "D"], 0),
+      whyNo: { "1": ["B is wrong"], "3": ["D is wrong"] },
+    }
+    const out = shuffleQuizOptions(original, seqRand([0]))
+    expect(out.options).toEqual(["B", "C", "D", "A"])
+    // original option 1 ("B") now sits at index 0; option 3 ("D") at index 2.
+    expect(out.whyNo).toEqual({ "0": ["B is wrong"], "2": ["D is wrong"] })
+    // the reason keyed to the new index matches the option text it explains.
+    expect(out.options[0]).toBe("B")
+    expect(out.options[2]).toBe("D")
+  })
+
+  it("passes non-mc kinds through untouched (no options to shuffle)", () => {
+    const conex: QuizQuestion = {
+      question: "Une cada comando",
+      options: [],
+      answer: 0,
+      explanation: "",
+      kind: "conex",
+      pairs: [{ l: "INSERT", r: "agrega filas" }],
+      rightOrder: [0],
+    }
+    expect(shuffleQuizOptions(conex, seqRand([0]))).toEqual(conex)
+  })
 })

@@ -201,4 +201,20 @@ export const StudyItemsRepository = {
     `
     return (rows as { n: number }[])[0]?.n ?? 0
   },
+
+  /**
+   * How many quiz items of the given payload `kind`s exist at a difficulty.
+   * Drives the alt-kind mini-migration: banks filled before the redesign are all
+   * multiple-choice, and since a full bank never re-generates, the alternative
+   * exercise kinds would otherwise never appear in them.
+   */
+  async countByKinds(scope: StudyScope, difficulty: string, kinds: string[]): Promise<number> {
+    const rows = await sql`
+      SELECT count(*)::int AS n FROM study_items
+      WHERE scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+        AND type = 'quiz' AND difficulty = ${difficulty}
+        AND payload->>'kind' = ANY(${kinds}::text[])
+    `
+    return (rows as { n: number }[])[0]?.n ?? 0
+  },
 }

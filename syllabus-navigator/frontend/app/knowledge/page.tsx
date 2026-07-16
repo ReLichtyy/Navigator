@@ -89,6 +89,8 @@ import {
 import { useConfirm } from "@/components/ui/confirm-dialog"
 import { getDocStatus, isChatReady, NEEDS_OCR_HINT } from "@/lib/ui/doc-status"
 import { groupByRealCourse, type RealCourse } from "@/lib/ui/course-group"
+import { TopicsArchive } from "@/components/knowledge/topics-archive"
+import { AgendaPanel } from "@/components/knowledge/agenda-panel"
 
 /** Row icon by source kind: web link, pasted text, or an uploaded file. */
 function docRowIcon(sourceType?: string) {
@@ -724,10 +726,10 @@ export default function KnowledgeBasePage() {
       <main className="flex h-dvh w-full items-center justify-center bg-background text-foreground">
         <div className="flex max-w-md flex-col items-center text-center p-8 border border-border/60 rounded-xl bg-card shadow-sm">
           <Library className="h-12 w-12 text-accent mb-4" />
-          <h2 className="text-xl font-semibold mb-2">Tus cursos</h2>
+          <h2 className="text-xl font-semibold mb-2">Knowledge</h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Inicia sesión para crear y gestionar la biblioteca de documentos de tus cursos. Súbelos
-            para potenciar tu asistente de IA.
+            Inicia sesión para gestionar tus cursos y documentos, ver tu agenda de evaluaciones y
+            tomar notas. Todo potencia a tu asistente de IA.
           </p>
           <button
             onClick={() => openAuthModal("signup")}
@@ -773,7 +775,7 @@ export default function KnowledgeBasePage() {
         <h1 className="flex min-w-0 items-center gap-2 text-lg font-semibold">
           <MobileNav />
           <Library className="hidden h-5 w-5 shrink-0 text-accent sm:inline" />
-          <span className="truncate">Cursos</span>
+          <span className="truncate">Knowledge</span>
         </h1>
         <div className="flex shrink-0 items-center gap-2">
           <Button
@@ -817,7 +819,9 @@ export default function KnowledgeBasePage() {
       </header>
 
       <div className="flex-1 overflow-auto overscroll-contain p-4 sm:p-6">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto grid max-w-7xl items-start gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(0,3fr)]">
+          {/* ═══ Left column: Cursos + Archivo de temas ═══ */}
+          <div className="min-w-0">
           <p className="mb-5 max-w-2xl text-sm text-muted-foreground">
             Cada curso tiene su propia carpeta de documentos. Los modos de estudio se generan a
             partir de ellos.
@@ -1303,6 +1307,15 @@ export default function KnowledgeBasePage() {
               })}
             </Accordion>
           )}
+
+          {/* Archivo de temas: every generated topic, grouped by course. */}
+          <TopicsArchive />
+          </div>
+
+          {/* ═══ Right column: Agenda (calendario + próximos días + notas) ═══ */}
+          <div className="min-w-0">
+            <AgendaPanel />
+          </div>
         </div>
       </div>
 

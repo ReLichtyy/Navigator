@@ -31,7 +31,8 @@ describe("UI-3 Settings retired → Configuración modal", () => {
     expect(f).toContain("OPEN_SETTINGS_FLAG")
   })
   it("the settings modal carries every section incl. account/appearance/billing", () => {
-    const f = src("src/components/settings/settings-modal.tsx")
+    // Labels live in the i18n catalog now, so assert against source + es.json.
+    const f = src("src/components/settings/settings-modal.tsx") + src("src/messages/es.json")
     expect(f).toContain("AccountSection")
     expect(f).toContain("BillingSection")
     for (const label of ["Perfil", "Cuenta", "Apariencia", "Plan y facturación"]) {
@@ -83,9 +84,9 @@ describe("UI-5 Estudio window", () => {
   })
 })
 
-describe("UI-6 Agenda window", () => {
-  const f = src("app/agenda/page.tsx")
-  it("imports extracted agenda-format + Badge/Button/Card", () => {
+describe("UI-6 Agenda (unified into Knowledge — AgendaPanel)", () => {
+  const f = src("src/components/knowledge/agenda-panel.tsx")
+  it("imports extracted agenda-format + Badge/Button", () => {
     expect(f).toContain("@/lib/ui/agenda-format")
     expect(f).toContain("@/components/ui/badge")
     expect(f).toContain("@/components/ui/button")
@@ -94,12 +95,14 @@ describe("UI-6 Agenda window", () => {
     expect(f).not.toContain("const TYPE_META")
     expect(f).not.toContain("${m.cls}")
   })
-  it("shows the next-5-days block and the per-week accordion (calendar-first view)", () => {
+  it("shows the next-5-days block and the quick-notes panel (calendar-first view)", () => {
     expect(f).toContain("Próximos 5 días")
-    expect(f).toContain("Temas y actividades por semana")
-    expect(f).toContain("@/components/ui/accordion")
-    // Sync banner was removed to cut visual noise.
-    expect(f).not.toContain("Calendario sincronizado")
+    expect(f).toContain("Notas")
+    expect(f).toContain("listRecentNotes")
+  })
+  it("the old /agenda route now redirects to /knowledge", () => {
+    const r = src("app/agenda/page.tsx")
+    expect(r).toContain('router.replace("/knowledge")')
   })
 })
 
@@ -207,8 +210,8 @@ describe("Agenda sub-vistas (month-calendar / day-notes-panel)", () => {
     expect(f).not.toMatch(/<button\b/)
     expect(f).not.toMatch(/<textarea\b/)
   })
-  it("agenda page wires the calendar and the day panel together", () => {
-    const f = src("app/agenda/page.tsx")
+  it("the Knowledge AgendaPanel wires the calendar and the day panel together", () => {
+    const f = src("src/components/knowledge/agenda-panel.tsx")
     expect(f).toContain("MonthCalendar")
     expect(f).toContain("DayNotesPanel")
   })
@@ -233,8 +236,8 @@ describe("UI-13 Streak wiring", () => {
 
 describe("App sidebar (design chrome)", () => {
   const f = src("src/components/navigator/app-sidebar.tsx")
-  // Nav labels + routes were extracted into nav-items.ts; assert against both.
-  const nav = f + src("src/components/navigator/nav-items.ts")
+  // Nav labels + routes live in nav-items.ts and the i18n catalog; assert against all.
+  const nav = f + src("src/components/navigator/nav-items.ts") + src("src/messages/es.json")
   it("uses Badge primitive for NUEVO chips", () => {
     expect(f).toContain("@/components/ui/badge")
   })
@@ -243,8 +246,8 @@ describe("App sidebar (design chrome)", () => {
       "Navigator",
       "Study OS",
       "Asistente",
-      "Cursos",
-      "Agenda",
+      // Cursos + Agenda merged into the unified Knowledge entry (2026-07-15).
+      "Knowledge",
       "Mapa mental",
       "Área de Estudio",
     ]) {

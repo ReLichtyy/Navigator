@@ -20,6 +20,7 @@ vi.mock("@/lib/observability/logger", () => ({ logError: vi.fn(), logInfo: vi.fn
 vi.mock("@/lib/server/repositories/date-notes.repo", () => ({
   DateNoteRepository: {
     listByDate: vi.fn(),
+    listRecent: vi.fn(),
     listDates: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -49,6 +50,8 @@ const note = (over: Record<string, unknown> = {}) => ({
   id: "n1",
   note_date: "2026-06-23",
   body: "hola",
+  title: null,
+  color: null,
   created_at: "t",
   updated_at: "t",
   ...over,
@@ -106,6 +109,37 @@ describe("POST /api/notes (create)", () => {
     expect(res.status).toBe(201)
     expect(DateNoteRepository.create).toHaveBeenCalledWith("u1", "2026-06-23", "hola")
   })
+  it("201 persists optional title and color metadata", async () => {
+    asUser("u1")
+    vi.mocked(DateNoteRepository.create).mockResolvedValue(
+      note({ title: "Parcial", color: "#3FBF84" }) as any,
+    )
+    const res = await POST(
+      jsonReq({
+        note_date: "2026-06-23",
+        title: "Parcial",
+        body: "repasar capítulos 2 y 3",
+        color: "#3FBF84",
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(DateNoteRepository.create).toHaveBeenCalledWith(
+      "u1",
+      "2026-06-23",
+      "repasar capítulos 2 y 3",
+      { title: "Parcial", color: "#3FBF84" },
+    )
+  })
+  it("400 rejects invalid note colors", async () => {
+    asUser()
+    expect(
+      (
+        await POST(
+          jsonReq({ note_date: "2026-06-23", body: "hola", color: "red; display:none" }),
+        )
+      ).status,
+    ).toBe(400)
+  })
 })
 
 describe("PATCH /api/notes/[id] (edit)", () => {
@@ -119,7 +153,9 @@ describe("PATCH /api/notes/[id] (edit)", () => {
     vi.mocked(DateNoteRepository.update).mockResolvedValue(null)
     const res = await PATCH(jsonReq({ body: "hack" }, "PATCH"), ctx("someone-elses"))
     expect(res.status).toBe(404)
-    expect(DateNoteRepository.update).toHaveBeenCalledWith("u2", "someone-elses", "hack")
+    expect(DateNoteRepository.update).toHaveBeenCalledWith("u2", "someone-elses", {
+      body: "hack",
+    })
   })
   it("200 updates the caller's own note", async () => {
     asUser("u1")
@@ -127,6 +163,21 @@ describe("PATCH /api/notes/[id] (edit)", () => {
     const res = await PATCH(jsonReq({ body: "editada" }, "PATCH"), ctx("n1"))
     expect(res.status).toBe(200)
     expect((await res.json()).note.body).toBe("editada")
+  })
+  it("200 updates note metadata without requiring a body", async () => {
+    asUser("u1")
+    vi.mocked(DateNoteRepository.update).mockResolvedValue(
+      note({ title: "Nuevo título", color: "#E8A0C8" }) as any,
+    )
+    const res = await PATCH(
+      jsonReq({ title: "Nuevo título", color: "#E8A0C8" }, "PATCH"),
+      ctx("n1"),
+    )
+    expect(res.status).toBe(200)
+    expect(DateNoteRepository.update).toHaveBeenCalledWith("u1", "n1", {
+      title: "Nuevo título",
+      color: "#E8A0C8",
+    })
   })
 })
 

@@ -673,6 +673,13 @@ export interface FlashcardAPI {
   back: string
 }
 
+/**
+ * Question kinds. `mc` (multiple choice) is the only one the generator emits
+ * today; the others are the redesigned exercise formats (AreaEstudio.dc) the UI
+ * already knows how to render, wired for a later generation phase. Absent → `mc`.
+ */
+export type QuizKind = "mc" | "conex" | "order" | "fill" | "vf"
+
 export interface QuizQuestionAPI {
   question: string
   options: string[]
@@ -682,6 +689,27 @@ export interface QuizQuestionAPI {
   topic?: string
   /** Bank item id — present for staged-quiz questions (used to exclude served items). */
   id?: string
+  // ── Redesign (AreaEstudio.dc) — all optional; the UI degrades when absent ──
+  /** Exercise format. Defaults to `"mc"` when missing. */
+  kind?: QuizKind
+  /** Bullet reasons the correct option is right ("POR QUÉ SÍ"). Falls back to `explanation`. */
+  whyYes?: string[]
+  /** Per-wrong-option reasons ("POR QUÉ NO LA TUYA"), keyed by the option index as a string. */
+  whyNo?: Record<string, string[]>
+  /** Source citation shown as a chip, e.g. "Repaso DML · p.4". */
+  cite?: string
+  /** One-line "what to reinforce" used in the results "puntos que mejorar" list. */
+  improve?: string
+  /** `conex` pairs: left concept → right definition (correct pairing). */
+  pairs?: { l: string; r: string }[]
+  /** `conex` display order of the right column (indexes into `pairs`). */
+  rightOrder?: number[]
+  /** `order` steps in the CORRECT order (the UI shuffles for display). */
+  steps?: string[]
+  /** `fill` text/code with a `_____` gap the student completes. */
+  fillText?: string
+  /** `fill` accepted answers (normalized comparison; first one shown as the model answer). */
+  fillAnswers?: string[]
 }
 
 export interface StudyGuideSectionAPI {
@@ -1079,6 +1107,8 @@ export async function fetchMastery(syllabusId: string) {
 export interface DateNoteAPI {
   id: string
   note_date: string // yyyy-mm-dd
+  title: string | null
+  color: string | null
   body: string
   created_at: string
   updated_at: string
@@ -1087,6 +1117,14 @@ export interface DateNoteAPI {
 /** Distinct days the user has notes on (for calendar markers). */
 export async function listNoteDates() {
   return request<{ dates: string[] }>(`/notes?dates=1`, { method: "GET", json: false })
+}
+
+/** The user's newest notes across all dates (Knowledge quick-notes panel). */
+export async function listRecentNotes(limit = 10) {
+  return request<{ notes: DateNoteAPI[] }>(`/notes?recent=${limit}`, {
+    method: "GET",
+    json: false,
+  })
 }
 
 /** List the user's notes for one day. */
@@ -1098,18 +1136,25 @@ export async function listNotes(date: string) {
 }
 
 /** Create a note on a day. */
-export async function createNote(date: string, body: string) {
+export async function createNote(
+  date: string,
+  body: string,
+  metadata: { title?: string; color?: string } = {},
+) {
   return request<{ note: DateNoteAPI }>(`/notes`, {
     method: "POST",
-    body: JSON.stringify({ note_date: date, body }),
+    body: JSON.stringify({ note_date: date, body, ...metadata }),
   })
 }
 
 /** Edit a note the user owns. */
-export async function updateNote(id: string, body: string) {
+export async function updateNote(
+  id: string,
+  updates: string | { body?: string; title?: string; color?: string },
+) {
   return request<{ note: DateNoteAPI }>(`/notes/${encodeURIComponent(id)}`, {
     method: "PATCH",
-    body: JSON.stringify({ body }),
+    body: JSON.stringify(typeof updates === "string" ? { body: updates } : updates),
   })
 }
 
@@ -1119,4 +1164,20 @@ export async function deleteNote(id: string) {
     method: "DELETE",
     json: false,
   })
+}
+
+// ============================================================================
+// Knowledge — archivo de temas (topics grouped by course)
+// ============================================================================
+
+export interface TopicsArchiveCourseAPI {
+  course_id: string | null
+  course_name: string | null
+  course_color: string | null
+  topics: string[]
+}
+
+/** All generated topics the user owns, grouped by course. */
+export async function fetchTopicsArchive() {
+  return request<{ courses: TopicsArchiveCourseAPI[] }>(`/topics`, { method: "GET", json: false })
 }

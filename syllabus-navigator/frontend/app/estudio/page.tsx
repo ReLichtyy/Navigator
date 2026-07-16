@@ -41,9 +41,6 @@ import {
   Network,
   AlignLeft,
   Sparkles,
-  BookText,
-  FileText,
-  FolderOpen,
   Flame,
   ChevronDown,
   Globe,
@@ -55,6 +52,8 @@ import { ExamView } from "@/components/estudio/exam-view"
 import { QuizReviewView } from "@/components/estudio/review-view"
 import { ResumenView } from "@/components/estudio/mind-resumen-view"
 import { MasteryPanel } from "@/components/estudio/mastery-panel"
+import { StudyConfig, type Mode } from "@/components/estudio/study-config"
+import { useConfirm } from "@/components/ui/confirm-dialog"
 import {
   GenerationProgress,
   useGenerationProgress,
@@ -65,8 +64,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { MobileNav } from "@/components/navigator/mobile-nav"
-
-type Mode = "menu" | "flash" | "repaso" | "quiz" | "examen" | "mind" | "resumen"
 
 /**
  * Study scope: the whole course (aggregated), one specific PDF, a subset of the
@@ -132,9 +129,10 @@ function EstudioContent() {
   // Selected scope within the folder. null until the folder resolves a default.
   const [scope, setScope] = useState<Scope | null>(null)
   const [mode, setMode] = useState<Mode>("menu")
-  // Course/scope selector collapse (manual on the menu; auto-hidden inside a mode).
-  // Closed by default — the trigger row already names the active course · scope.
-  const [selectorsOpen, setSelectorsOpen] = useState(false)
+  // The mode the student has picked in the config panel (launched via "Generar").
+  const [selectedMode, setSelectedMode] = useState<Mode>("quiz")
+  // Confirmation dialog for leaving an in-progress quiz (its progress is saved).
+  const { confirm, confirmDialog } = useConfirm()
 
   const [set, setSet] = useState<StudySetAPI | null>(null)
   const [setLoading, setSetLoading] = useState(false)
@@ -561,8 +559,12 @@ function EstudioContent() {
     ) {
       await loadSet(scope, { difficulty, topic, web: webSearch })
     }
-    setSelectorsOpen(false)
     setMode(m)
+  }
+
+  // Launch the mode picked in the config panel via the "Generar" CTA.
+  const handleGenerate = () => {
+    void launchMode(selectedMode)
   }
 
   // Honor ?mode= deep links once a scope resolves (launchMode loads material
@@ -580,7 +582,22 @@ function EstudioContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope])
 
-  const backToMenu = () => setMode("menu")
+  // Leaving an in-progress quiz: warn first, but reassure that the progress is
+  // saved (quiz-view snapshots to localStorage after every answer + records
+  // mastery/fails), so returning offers "Continuar".
+  const backToMenu = async () => {
+    if (mode === "quiz") {
+      const ok = await confirm({
+        title: "¿Salir del quiz?",
+        description:
+          "Tu avance se guarda automáticamente: al volver podrás continuar donde lo dejaste. Pero saldrás de la sesión actual.",
+        confirmLabel: "Salir",
+        cancelLabel: "Seguir en el quiz",
+      })
+      if (!ok) return
+    }
+    setMode("menu")
+  }
 
   // Toggle a folder in/out of the multi-selection; never let it become empty.
   const toggleFolder = (g: RealCourseGroup) => {
@@ -602,6 +619,19 @@ function EstudioContent() {
   }
   const selectedDocIds =
     scope?.kind === "doc" ? [scope.docId] : scope?.kind === "docs" ? scope.docIds : []
+
+  // Config-panel view models.
+  const wholeCourseActive = scope?.kind === "course"
+  const comboScope = scope?.kind === "docs" || scope?.kind === "combo"
+  const studyingLabel = multi
+    ? `${selectedGroups.length} cursos combinados`
+    : wholeCourseActive
+      ? (selectedGroup?.name ?? "Todo el curso")
+      : selectedDocIds.length > 0
+        ? selectedDocIds
+            .map((id) => cleanName(uploads.find((u) => u.id === id)?.original_filename ?? "PDF"))
+            .join(" · ")
+        : ""
 
   // ---------- gates ----------
   if (ready && (status === "anonymous" || status === "guest")) {
@@ -631,10 +661,10 @@ function EstudioContent() {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto overscroll-contain p-6 sm:px-10 sm:py-9">
+      <div className="flex-1 overflow-auto overscroll-contain px-4 py-6 sm:px-6 sm:py-8 lg:px-8 xl:px-10">
         <div
           className={`mx-auto transition-[max-width] duration-300 ${
-            mode === "menu" ? "max-w-4xl" : "max-w-3xl"
+            mode === "menu" ? "w-full max-w-[1480px]" : "max-w-3xl"
           }`}
         >
           {coursesLoading ? (
@@ -643,95 +673,50 @@ function EstudioContent() {
             <EmptyCourses />
           ) : (
             <>
-              {/* ── Course + scope selector — collapsible; hidden inside a study mode so the activity stays centered ── */}
-              {mode === "menu" && (
-                <div className="overflow-hidden rounded-xl border border-border bg-card/30">
-                  <button
-                    onClick={() => setSelectorsOpen((o) => !o)}
-                    className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-secondary/40"
-                  >
-                    <FolderOpen className="h-4 w-4 flex-none text-accent" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                      {multi
-                        ? `${selectedGroups.length} cursos combinados`
-                        : (selectedGroup?.name ?? "Curso")}
-                      {!multi && scopeLabel && (
-                        <span className="font-normal text-muted-foreground"> · {scopeLabel}</span>
-                      )}
-                    </span>
-                    <span className="flex-none text-[11px] tabular-nums text-muted-foreground">
-                      {selectedGroups.length}/{groups.length}
-                    </span>
-                    <ChevronDown
-                      className="h-4 w-4 flex-none text-muted-foreground transition-transform"
-                      style={{ transform: selectorsOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-                    />
-                  </button>
-
-                  {selectorsOpen && (
-                    <div className="border-t border-border/60 p-4">
-                      {/* Course folders (horizontal, multi-select) */}
-                      <div className="flex flex-wrap gap-2">
-                        {groups.map((g) => {
-                          const active = selectedKeys.includes(folderKey(g))
-                          const count = g.docs.filter(isReady).length
-                          return (
-                            <Button
-                              key={folderKey(g)}
-                              variant={active ? "secondary" : "outline"}
-                              onClick={() => toggleFolder(g)}
-                              className={
-                                active
-                                  ? "gap-2 border-accent/40 bg-accent/10 text-foreground"
-                                  : "gap-2 text-muted-foreground"
-                              }
-                            >
-                              <span
-                                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                                  active ? "border-accent bg-accent/20" : "border-border"
-                                }`}
-                              >
-                                {active && <span className="h-2 w-2 rounded-sm bg-accent" />}
-                              </span>
-                              <BookText
-                                className="h-4 w-4 text-accent"
-                                style={g.color ? { color: g.color } : undefined}
-                              />
-                              {g.name}
-                              <span className="rounded-full bg-secondary px-1.5 text-[10px] tabular-nums text-muted-foreground">
-                                {count}
-                              </span>
-                            </Button>
-                          )
-                        })}
-                      </div>
-
-                      {/* Scope: Todo el curso / PDFs (multi-select) — single folder only */}
-                      {selectedGroup && (
-                        <ScopePicker
-                          readyDocs={readyDocs}
-                          canWholeCourse={canWholeCourse}
-                          scope={scope}
-                          selectedDocIds={selectedDocIds}
-                          onPickWhole={() =>
-                            selectedGroup.id &&
-                            setScope({ kind: "course", courseId: selectedGroup.id })
-                          }
-                          onToggleDoc={toggleDoc}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="mt-6">
+              <div className="mt-2">
                 {setLoading || genProgress.visible ? (
                   <GenerationProgress pct={genProgress.pct} />
                 ) : setError ? (
                   <SetError message={setError} onRetry={() => scope && loadSet(scope)} />
+                ) : mode === "menu" ? (
+                  <StudyConfig
+                    groups={groups}
+                    selectedKeys={selectedKeys}
+                    folderKey={folderKey}
+                    onToggleFolder={toggleFolder}
+                    selectedGroup={selectedGroup}
+                    multi={multi}
+                    selectedGroups={selectedGroups}
+                    readyDocs={readyDocs}
+                    canWholeCourse={canWholeCourse}
+                    wholeCourseActive={wholeCourseActive}
+                    selectedDocIds={selectedDocIds}
+                    onPickWhole={() =>
+                      selectedGroup?.id && setScope({ kind: "course", courseId: selectedGroup.id })
+                    }
+                    onToggleDoc={toggleDoc}
+                    studyingLabel={studyingLabel}
+                    scopeLabel={scopeLabel}
+                    comboScope={comboScope}
+                    set={set}
+                    status={studyStatus}
+                    suggestion={suggestion}
+                    selectedMode={selectedMode}
+                    onSelectMode={setSelectedMode}
+                    onGenerate={handleGenerate}
+                    generating={setLoading}
+                    syllabusId={activeDocId}
+                    topic={topic}
+                    onTopic={applyTopic}
+                    weekTopics={weekTopics}
+                    onApplyFocus={applyFocus}
+                    regenerating={regenerating}
+                    web={webSearch}
+                    onWeb={setWebSearch}
+                    focusState={focusState}
+                  />
                 ) : scope ? (
-                  <SelectionAsk onAsk={ask} enabled={mode !== "menu"}>
+                  <SelectionAsk onAsk={ask} enabled>
                     {/* keyed on mode → gentle fade when entering/leaving an activity */}
                     <div key={mode} className="animate-fade-in">
                       <ModeRouter
@@ -770,104 +755,8 @@ function EstudioContent() {
           )}
         </div>
       </div>
+      {confirmDialog}
     </main>
-  )
-}
-
-/**
- * Vertical scope list: "Todo el curso" (when available) + each ready PDF.
- * PDFs are multi-selectable: one checked → `doc` scope (full adaptive features),
- * several → `docs` scope (sets combined client-side).
- */
-function ScopePicker({
-  readyDocs,
-  canWholeCourse,
-  scope,
-  selectedDocIds,
-  onPickWhole,
-  onToggleDoc,
-}: {
-  readyDocs: SyllabusUploadAPI[]
-  canWholeCourse: boolean
-  scope: Scope | null
-  selectedDocIds: string[]
-  onPickWhole: () => void
-  onToggleDoc: (id: string) => void
-}) {
-  return (
-    <ul className="mt-4 divide-y divide-border/40 border-t border-border/60">
-      {canWholeCourse && (
-        <ScopeRow
-          active={scope?.kind === "course"}
-          onClick={onPickWhole}
-          icon={<Layers className="h-4 w-4 text-accent" />}
-          label="Todo el curso"
-          meta={`${readyDocs.length} ${readyDocs.length === 1 ? "PDF" : "PDFs"}`}
-        />
-      )}
-      {readyDocs.map((d) => (
-        <ScopeRow
-          key={d.id}
-          active={selectedDocIds.includes(d.id)}
-          checkbox
-          onClick={() => onToggleDoc(d.id)}
-          icon={<FileText className="h-4 w-4 text-accent/70" />}
-          label={cleanName(d.original_filename)}
-        />
-      ))}
-      {selectedDocIds.length > 1 && (
-        <li className="px-2 py-2 text-[11px] text-muted-foreground">
-          {selectedDocIds.length} PDFs combinados — Tarjetas, Resumen y Mapa. Para Quiz o Repaso
-          elige un solo PDF o el curso completo.
-        </li>
-      )}
-    </ul>
-  )
-}
-
-function ScopeRow({
-  active,
-  checkbox = false,
-  onClick,
-  icon,
-  label,
-  meta,
-}: {
-  active: boolean
-  /** Square multi-select indicator (PDF rows) instead of the radio circle. */
-  checkbox?: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-  meta?: string
-}) {
-  return (
-    <li>
-      <button
-        onClick={onClick}
-        aria-pressed={active}
-        className={`flex w-full items-center gap-3 px-2 py-2.5 text-left transition-colors ${
-          active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        <span
-          className={`flex h-4 w-4 shrink-0 items-center justify-center border ${
-            checkbox ? "rounded" : "rounded-full"
-          } ${active ? "border-accent" : "border-border"}`}
-        >
-          {active && (
-            <span className={`h-2 w-2 bg-accent ${checkbox ? "rounded-sm" : "rounded-full"}`} />
-          )}
-        </span>
-        {icon}
-        <span className={`min-w-0 flex-1 truncate text-sm ${active ? "font-medium" : ""}`}>
-          {label}
-        </span>
-        {meta && (
-          <span className="flex-none text-[11px] tabular-nums text-muted-foreground">{meta}</span>
-        )}
-      </button>
-    </li>
   )
 }
 
@@ -1017,6 +906,7 @@ function ModeRouter({
           scope={quizScope}
           mode="quiz"
           onBack={backToMenu}
+          onRepaso={() => setMode("repaso")}
         />
       )
     }
@@ -1029,6 +919,7 @@ function ModeRouter({
           courseName={courseName}
           subjectTags={subjectTags}
           onBack={backToMenu}
+          onRepaso={() => setMode("repaso")}
         />
       )
     }

@@ -46,6 +46,7 @@ import {
   type Flashcard,
   type QuizQuestion,
 } from "../rag/study-gen"
+import { composeStageWithQuota } from "./study-stage-compose"
 
 // ── Configuración → Study Engine mappings (the UI stores Spanish labels) ─────
 // "Adaptativa" maps to no default: difficulty stays automatic.
@@ -639,7 +640,7 @@ export const StudyService = {
       prefs.language,
     )
 
-    const orderedItems = orderByPlan(items, orderedKeys).slice(0, poolSize)
+    const orderedItems = composeStageWithQuota(orderByPlan(items, orderedKeys), poolSize)
     return {
       stage,
       stages: STAGES,
@@ -695,7 +696,7 @@ export const StudyService = {
       prefs.language,
     )
 
-    const ordered = orderByPlan(items, []).slice(0, poolSize)
+    const ordered = composeStageWithQuota(orderByPlan(items, []), poolSize)
     return {
       stage,
       stages: STAGES,

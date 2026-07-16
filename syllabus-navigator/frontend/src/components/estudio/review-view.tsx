@@ -1,9 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowRight, Loader2, RotateCcw, Inbox } from "lucide-react"
+import { Loader2, RotateCcw, Inbox, AlarmClock, Check, X } from "lucide-react"
 import { fetchQuizReview, resolveQuizReview, recordMastery, type QuizQuestionAPI } from "@/lib/api"
 import { BackButton } from "./flashcards-view"
+import { RevealExplain, CiteChip, Conexiones, Ordenar, CompletarHueco } from "./quiz-parts"
 
 type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
 
@@ -22,6 +23,8 @@ export function QuizReviewView({ courseLabel, scope, onBack }: Props) {
   const [answered, setAnswered] = useState(false)
   const [resolved, setResolved] = useState(0)
   const [stillStuck, setStillStuck] = useState(0)
+  // Whether the last self-contained exercise (conex/order/fill) was solved right.
+  const [lastOk, setLastOk] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const outcomes = useRef<{ label: string; correct: boolean }[]>([])
@@ -151,51 +154,130 @@ export function QuizReviewView({ courseLabel, scope, onBack }: Props) {
   }
 
   const correct = selected === q.answer
+  const pickedWrong = answered && !correct
   const pct = Math.round((idx / queue.length) * 100)
+  const reviewNextLabel = idx + 1 >= queue.length ? "Ver resumen →" : "Siguiente →"
+
+  // Self-contained exercise kinds (conex/order/fill): resolve on success, keep on
+  // fail — mirroring the MC answer() bookkeeping.
+  const completeAlt = (ok: boolean) => {
+    if (answered) return
+    setAnswered(true)
+    setLastOk(ok)
+    if (q.topic) outcomes.current.push({ label: q.topic, correct: ok })
+    if (ok) {
+      setResolved((r) => r + 1)
+      void resolveQuizReview(scope, q.question).catch(() => {})
+    } else {
+      setStillStuck((s) => s + 1)
+    }
+  }
+
+  const altBody =
+    q.kind === "conex" && q.pairs && q.pairs.length > 0 ? (
+      <Conexiones
+        key={idx}
+        question={q.question}
+        pairs={q.pairs}
+        rightOrder={q.rightOrder}
+        cite={q.cite}
+        onComplete={completeAlt}
+        onNext={next}
+        nextLabel={reviewNextLabel}
+      />
+    ) : q.kind === "order" && q.steps && q.steps.length > 0 ? (
+      <Ordenar
+        key={idx}
+        question={q.question}
+        steps={q.steps}
+        whyYes={q.whyYes}
+        cite={q.cite}
+        onComplete={completeAlt}
+        onNext={next}
+        nextLabel={reviewNextLabel}
+      />
+    ) : q.kind === "fill" && q.fillText && q.fillAnswers && q.fillAnswers.length > 0 ? (
+      <CompletarHueco
+        key={idx}
+        question={q.question}
+        fillText={q.fillText}
+        fillAnswers={q.fillAnswers}
+        whyYes={q.whyYes}
+        cite={q.cite}
+        onComplete={completeAlt}
+        onNext={next}
+        nextLabel={reviewNextLabel}
+      />
+    ) : null
 
   return (
     <div className="mx-auto max-w-2xl">
       <BackButton onBack={onBack} />
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight">Repaso · preguntas falladas</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {courseLabel} · {idx + 1} de {queue.length}
-          </p>
-        </div>
-        <span className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 font-mono text-sm text-accent">
-          {resolved} dominadas
+
+      {/* Repaso badges (AreaEstudio.dc 4c) */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/[0.08] px-3 py-1 text-[10.5px] font-semibold text-amber-500">
+          <AlarmClock className="h-3 w-3" /> De tu lista de fallos · {courseLabel}
+        </span>
+        <span className="rounded-full border border-border bg-secondary/40 px-3 py-1 font-mono text-[10px] text-muted-foreground">
+          reintento
+        </span>
+        <span className="ml-auto rounded-lg border border-accent/30 bg-accent/10 px-3 py-1 font-mono text-xs text-accent">
+          {resolved} dominadas · {idx + 1}/{queue.length}
         </span>
       </div>
 
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary">
+      <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-secondary">
         <div
           className="h-full bg-accent transition-[width] duration-300"
           style={{ width: `${pct}%` }}
         />
       </div>
 
-      <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+      {altBody ? (
+        <div className="rounded-2xl border border-border bg-card p-6">
+          {answered && (
+            <div
+              className={`mb-4 rounded-xl border p-3 text-sm font-bold ${
+                lastOk
+                  ? "border-accent/25 bg-accent/5 text-accent"
+                  : "border-amber-500/25 bg-amber-500/5 text-amber-500"
+              }`}
+            >
+              {lastOk ? "¡Dominada! Sale del repaso ✦" : "Sigue en repaso — inténtala de nuevo"}
+            </div>
+          )}
+          {altBody}
+        </div>
+      ) : (
+        <>
+        <div className="rounded-2xl border border-border bg-card p-6">
         <div className="text-lg font-bold leading-snug text-foreground">{q.question}</div>
-        <div className="mt-5 flex flex-col gap-3">
+        <div className="mt-4 flex flex-col gap-2.5">
           {q.options.map((opt, i) => {
-            let cls = "border-border bg-card hover:border-accent/30"
-            let glyph = GLYPHS[i]
-            let markCls = "border-border text-muted-foreground"
+            const isCorrect = i === q.answer
+            const isPicked = i === selected
+            let cls = "border-border bg-card hover:border-accent/40"
+            let markCls = "border-border/60 text-muted-foreground"
+            let textCls = "text-foreground"
+            let tag: string | null = null
             if (answered) {
-              if (i === q.answer) {
-                cls = "border-accent/50 bg-accent/10 text-accent-foreground"
-                glyph = "✓"
-                markCls = "border-accent/60 text-accent"
-              } else if (i === selected) {
-                cls = "border-red-500/50 bg-red-500/5 text-red-400"
-                glyph = "✕"
-                markCls = "border-red-500/50 text-red-400"
+              if (isCorrect) {
+                cls = "border-accent/50 bg-accent/10"
+                markCls = "border-none bg-accent text-accent-foreground"
+                textCls = "font-bold text-foreground"
+              } else if (isPicked) {
+                cls = "border-red-500/50 bg-red-500/[0.07]"
+                markCls = "border-none bg-red-500 text-white"
+                textCls = "font-semibold text-red-400"
               } else {
-                cls = "border-border text-muted-foreground"
+                cls = "border-border opacity-45"
+                textCls = "text-muted-foreground"
               }
-            } else if (i === selected) {
-              cls = "border-accent/40 bg-card"
+            } else if (isPicked) {
+              cls = "border-accent bg-accent/10"
+              markCls = "border-accent text-accent"
+              tag = "seleccionada"
             }
             return (
               <button
@@ -207,12 +289,20 @@ export function QuizReviewView({ courseLabel, scope, onBack }: Props) {
                 }`}
               >
                 <span
-                  className="flex shrink-0 items-center justify-center rounded-md border font-mono text-xs font-semibold"
-                  style={{ width: 26, height: 26 }}
+                  className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-bold ${markCls}`}
                 >
-                  <span className={markCls}>{glyph}</span>
+                  {answered && isCorrect ? (
+                    <Check className="h-3 w-3" strokeWidth={3.4} />
+                  ) : answered && isPicked ? (
+                    <X className="h-3 w-3" strokeWidth={3.4} />
+                  ) : (
+                    GLYPHS[i]
+                  )}
                 </span>
-                <span className="flex-1 text-sm font-medium leading-snug">{opt}</span>
+                <span className={`flex-1 text-sm leading-snug ${textCls}`}>{opt}</span>
+                {tag && (
+                  <span className="ml-auto shrink-0 text-[11px] font-semibold text-accent">{tag}</span>
+                )}
               </button>
             )
           })}
@@ -221,32 +311,36 @@ export function QuizReviewView({ courseLabel, scope, onBack }: Props) {
         {answered && (
           <>
             <div
-              className={`mt-4 flex items-start gap-3 rounded-xl border p-4 ${
-                correct ? "border-accent/25 bg-accent/5" : "border-border bg-secondary/50"
+              className={`mt-4 rounded-xl border p-3 text-sm font-bold ${
+                correct
+                  ? "border-accent/25 bg-accent/5 text-accent"
+                  : "border-amber-500/25 bg-amber-500/5 text-amber-500"
               }`}
             >
-              <span className="text-base">{correct ? "✅" : "💡"}</span>
-              <div>
-                <div className={`text-sm font-bold ${correct ? "text-accent" : "text-foreground"}`}>
-                  {correct ? "¡Dominada! Sale del repaso" : "Sigue en repaso — inténtala de nuevo"}
-                </div>
-                <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                  {q.explanation}
-                </div>
-              </div>
+              {correct ? "¡Dominada! Sale del repaso ✦" : "Sigue en repaso — inténtala de nuevo"}
             </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={next}
-                className="flex items-center gap-2 rounded-xl bg-accent px-5 py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90"
-              >
-                {idx + 1 >= queue.length ? "Ver resumen" : "Siguiente"}
-                <ArrowRight className="h-4 w-4" />
-              </button>
-            </div>
+            <RevealExplain
+              whyYes={q.explanation ? [q.explanation] : []}
+              whyNo={[]}
+              pickedWrong={pickedWrong}
+            />
           </>
         )}
       </div>
+
+      {answered && (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <CiteChip cite={q.cite} topic={q.topic} />
+          <button
+            onClick={next}
+            className="flex items-center gap-2 rounded-xl bg-accent px-6 py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90"
+          >
+            {reviewNextLabel}
+          </button>
+        </div>
+      )}
+        </>
+      )}
     </div>
   )
 }

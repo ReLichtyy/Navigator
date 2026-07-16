@@ -23,7 +23,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         { status: 400 },
       )
     }
-    const note = await DateNoteRepository.update(userId, id, parsed.data.body)
+    const note = await DateNoteRepository.update(userId, id, parsed.data)
     if (!note) return NextResponse.json({ error: "Note not found" }, { status: 404 })
     return NextResponse.json({ note })
   } catch (err) {

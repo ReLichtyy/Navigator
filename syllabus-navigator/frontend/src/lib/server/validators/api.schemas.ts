@@ -227,12 +227,24 @@ export const UpdatePreferencesSchema = z
 export type UpdatePreferencesInput = z.infer<typeof UpdatePreferencesSchema>
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+const NoteTitleSchema = z.string().trim().min(1, "Title is required").max(120, "Title is too long")
+const NoteColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Invalid note color")
 
 export const CreateNoteSchema = z.object({
   note_date: z.string().regex(ISO_DATE, "Invalid date (expected YYYY-MM-DD)"),
   body: z.string().trim().min(1, "Note is required").max(2000, "Note is too long"),
+  title: NoteTitleSchema.optional(),
+  color: NoteColorSchema.optional(),
 })
 
-export const UpdateNoteSchema = z.object({
-  body: z.string().trim().min(1, "Note is required").max(2000, "Note is too long"),
-})
+export const UpdateNoteSchema = z
+  .object({
+    body: z.string().trim().min(1, "Note is required").max(2000, "Note is too long").optional(),
+    title: NoteTitleSchema.optional(),
+    color: NoteColorSchema.optional(),
+  })
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: "No valid fields to update.",
+  })

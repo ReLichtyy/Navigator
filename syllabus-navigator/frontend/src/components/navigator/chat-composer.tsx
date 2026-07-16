@@ -53,28 +53,37 @@ const TOOLS: { id: string; label: string; prompt: string; Icon: typeof CalendarD
 
 export function ChatComposer({
   attachments,
+  draft,
   activeModel,
   hasSyllabus,
   disabled,
   onAddAttachment,
   onRemoveAttachment,
+  onDraftChange,
   onSend,
   onModelChange,
   webSearch,
   onWebSearchChange,
 }: {
   attachments: AttachedFile[]
+  draft?: string
   activeModel?: string
   hasSyllabus?: boolean
   disabled?: boolean
   onAddAttachment: (file: AttachedFile) => void
   onRemoveAttachment: (id: string) => void
+  onDraftChange?: (draft: string) => void
   onSend: (text: string) => void | Promise<boolean>
   onModelChange?: (model: string) => void
   webSearch?: boolean
   onWebSearchChange?: (on: boolean) => void
 }) {
-  const [value, setValue] = useState("")
+  const [innerDraft, setInnerDraft] = useState("")
+  const value = draft ?? innerDraft
+  const setDraft = (nextDraft: string) => {
+    if (draft === undefined) setInnerDraft(nextDraft)
+    onDraftChange?.(nextDraft)
+  }
   const [isDragging, setIsDragging] = useState(false)
   // Self-managed when uncontrolled; mirrors `webSearch` prop when provided.
   const [webSearchInner, setWebSearchInner] = useState(false)
@@ -124,7 +133,7 @@ export function ChatComposer({
   const runTool = (prompt: string) => {
     setToolsOpen(false)
     if (disabled) return
-    void onSend(prompt)
+    setDraft(prompt)
   }
 
   const onDrop = useCallback(
@@ -165,12 +174,12 @@ export function ChatComposer({
   const handleSend = async () => {
     if (!canSend) return
     const currentVal = value
-    setValue("")
+    setDraft("")
     const result = onSend(currentVal)
     if (result instanceof Promise) {
       const success = await result
       if (success === false) {
-        setValue(currentVal) // Restore text on failure
+        setDraft(currentVal) // Restore text on failure
       }
     }
   }
@@ -267,7 +276,7 @@ export function ChatComposer({
           </button>
           <textarea
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={isDragging ? "Suelta los PDFs…" : "Escribe o pregunta lo que quieras…"}
             rows={1}
@@ -348,7 +357,7 @@ export function ChatComposer({
         <div className="flex flex-col gap-2 px-3 py-2.5">
           <textarea
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={
               isDragging ? "Suelta los PDFs para adjuntar…" : "Escribe o pregunta lo que quieras…"

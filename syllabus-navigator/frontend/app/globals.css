@@ -242,6 +242,20 @@
   animation: nav-fade-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Wrong-match nudge for the Conexiones exercise (AreaEstudio.dc) */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
 /* Three-dot pulse for the AI typing indicator */
 @keyframes nav-dot-pulse {
   0%,

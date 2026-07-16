@@ -27,6 +27,7 @@ function PageContent() {
 
   // Composer "Web" toggle → augments the answer with a live web search.
   const [webSearch, setWebSearch] = useState(false)
+  const [composerDraft, setComposerDraft] = useState("")
   const sendMessage = ws.sendMessage
   const sendWithWeb = useCallback(
     (text: string) => sendMessage(text, { web: webSearch }),
@@ -133,7 +134,8 @@ function PageContent() {
                   <ChatThread
                     key={ws.transitionKey}
                     messages={ws.activeChat?.messages ?? []}
-                    onPrompt={sendWithWeb}
+                    onSuggestion={setComposerDraft}
+                    onRegenerate={sendWithWeb}
                   />
                 )
               ) : ws.graphData ? (
@@ -155,11 +157,13 @@ function PageContent() {
               <div className="pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-2">
                 <ChatComposer
                   attachments={ws.attachments}
+                  draft={composerDraft}
                   activeModel={ws.activeChat?.activeModel}
                   hasSyllabus={Boolean(ws.activeSyllabusId)}
                   disabled={ws.isSending || ws.isCreatingChat || ws.messagesLoading}
                   onAddAttachment={ws.addAttachment}
                   onRemoveAttachment={ws.removeAttachment}
+                  onDraftChange={setComposerDraft}
                   onSend={sendWithWeb}
                   onModelChange={ws.handleModelChange}
                   webSearch={webSearch}

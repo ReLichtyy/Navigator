@@ -325,10 +325,14 @@ CREATE TABLE IF NOT EXISTS date_notes (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   note_date  DATE NOT NULL,
+  title      TEXT,
+  color      TEXT,
   body       TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE date_notes ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE date_notes ADD COLUMN IF NOT EXISTS color TEXT;
 CREATE INDEX IF NOT EXISTS date_notes_user_date_idx ON date_notes (user_id, note_date);
 
 -- Spaced-repetition state per flashcard (Modo repaso). card_key is a stable hash

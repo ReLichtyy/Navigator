@@ -23,6 +23,13 @@ export async function GET(req: Request) {
       const dates = await DateNoteRepository.listDates(userId)
       return NextResponse.json({ dates })
     }
+    // ?recent=N → the user's newest notes across all dates (Knowledge quick notes).
+    const recent = params.get("recent")
+    if (recent) {
+      const limit = Math.min(Math.max(parseInt(recent, 10) || 10, 1), 50)
+      const notes = await DateNoteRepository.listRecent(userId, limit)
+      return NextResponse.json({ notes })
+    }
     const date = params.get("date")
     if (!date || !ISO_DATE.test(date)) {
       return NextResponse.json({ error: "A valid ?date=YYYY-MM-DD is required." }, { status: 400 })
@@ -48,8 +55,11 @@ export async function POST(req: Request) {
         { status: 400 },
       )
     }
-    const { note_date, body } = parsed.data
-    const note = await DateNoteRepository.create(userId, note_date, body)
+    const { note_date, body, title, color } = parsed.data
+    const metadata = title || color ? { title, color } : undefined
+    const note = metadata
+      ? await DateNoteRepository.create(userId, note_date, body, metadata)
+      : await DateNoteRepository.create(userId, note_date, body)
     return NextResponse.json({ note }, { status: 201 })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {

@@ -24,16 +24,25 @@ describe("DateNoteRepository — every query is scoped to the user", () => {
   })
 
   it("create binds the owner user_id", async () => {
-    await DateNoteRepository.create("user-1", "2026-06-23", "hola")
-    expect(calls[0]).toEqual(["user-1", "2026-06-23", "hola"])
+    await DateNoteRepository.create("user-1", "2026-06-23", "hola", {
+      title: "Saludo",
+      color: "#3FBF84",
+    })
+    expect(calls[0]).toEqual(["user-1", "2026-06-23", "hola", "Saludo", "#3FBF84"])
   })
 
   it("update scopes by both note id AND user_id (ownership)", async () => {
-    await DateNoteRepository.update("user-1", "note-9", "edit")
+    await DateNoteRepository.update("user-1", "note-9", {
+      body: "edit",
+      title: "Título",
+      color: "#D8C79A",
+    })
     // values: body, id, userId
     expect(calls[0]).toContain("user-1")
     expect(calls[0]).toContain("note-9")
     expect(calls[0]).toContain("edit")
+    expect(calls[0]).toContain("Título")
+    expect(calls[0]).toContain("#D8C79A")
   })
 
   it("remove scopes by both note id AND user_id (ownership)", async () => {
@@ -43,7 +52,7 @@ describe("DateNoteRepository — every query is scoped to the user", () => {
   })
 
   it("update returns null when no row matches (not owned / missing)", async () => {
-    const res = await DateNoteRepository.update("user-1", "note-x", "x")
+    const res = await DateNoteRepository.update("user-1", "note-x", { body: "x" })
     expect(res).toBeNull()
   })
 

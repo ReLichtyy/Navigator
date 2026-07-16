@@ -232,6 +232,31 @@ export const GraphRepository = {
     return rows as { syllabus_id: string; label: string; prereqs: string[] }[]
   },
 
+  /**
+   * All topic labels the user owns, tagged with their course (null course_id =
+   * "sin curso"). Powers the Knowledge "Archivo de temas". Labels are
+   * de-duplicated per course in SQL; ordering is course name then label.
+   */
+  async listUserTopicsByCourse(
+    userId: string,
+  ): Promise<
+    { course_id: string | null; course_name: string | null; course_color: string | null; label: string }[]
+  > {
+    const rows = await sql`
+      SELECT DISTINCT c.id AS course_id, c.name AS course_name, c.color AS course_color, t.label
+      FROM topics t
+      JOIN syllabus_uploads su ON su.id = t.syllabus_id AND su.user_id = ${userId}
+      LEFT JOIN courses c ON c.id = su.course_id
+      ORDER BY c.name ASC NULLS LAST, t.label ASC
+    `
+    return rows as {
+      course_id: string | null
+      course_name: string | null
+      course_color: string | null
+      label: string
+    }[]
+  },
+
   async getGraph(
     syllabusId: string,
   ): Promise<{ topics: GraphTopic[]; edges: GraphEdge[]; crossLinks: GraphCrossLink[] }> {

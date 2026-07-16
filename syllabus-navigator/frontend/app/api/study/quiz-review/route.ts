@@ -15,6 +15,9 @@ export const dynamic = "force-dynamic"
 
 const Scope = z.object({ kind: z.enum(["doc", "course"]), id: z.string().uuid() })
 
+// Mirrors QuizQuestion (study-gen). The redesign fields are optional but must be
+// DECLARED — zod strips unknown keys, so omitting them would strip the rich
+// reveal / exercise payload the moment a failed question enters Repaso.
 const QuestionSchema = z.object({
   question: z.string().min(1),
   options: z.array(z.string()),
@@ -22,6 +25,16 @@ const QuestionSchema = z.object({
   explanation: z.string().default(""),
   topic: z.string().optional(),
   id: z.string().optional(),
+  kind: z.enum(["mc", "conex", "order", "fill", "vf"]).optional(),
+  whyYes: z.array(z.string()).optional(),
+  whyNo: z.record(z.string(), z.array(z.string())).optional(),
+  cite: z.string().optional(),
+  improve: z.string().optional(),
+  pairs: z.array(z.object({ l: z.string(), r: z.string() })).optional(),
+  rightOrder: z.array(z.number()).optional(),
+  steps: z.array(z.string()).optional(),
+  fillText: z.string().optional(),
+  fillAnswers: z.array(z.string()).optional(),
 })
 
 const AddBody = Scope.extend({ question: QuestionSchema })

@@ -94,10 +94,12 @@ function phrasesFromPlan(plan: {
 
 export function ChatThread({
   messages,
-  onPrompt,
+  onSuggestion,
+  onRegenerate,
 }: {
   messages: Message[]
-  onPrompt?: (text: string) => void
+  onSuggestion?: (text: string) => void
+  onRegenerate?: (text: string) => void
 }) {
   const { displayName } = useUser()
   const firstName = displayName?.trim().split(/\s+/)[0] ?? null
@@ -198,7 +200,7 @@ export function ChatThread({
             <button
               key={phraseIdx}
               type="button"
-              onClick={() => onPrompt?.(phrases[phraseIdx % phrases.length])}
+              onClick={() => onSuggestion?.(phrases[phraseIdx % phrases.length])}
               className="animate-phrase-swap flex max-w-full items-center gap-2.5 rounded-full border border-border bg-card px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-accent/40 hover:bg-secondary/60 hover:text-foreground"
             >
               <Search className="h-4 w-4 shrink-0 text-accent-bright" strokeWidth={1.9} />
@@ -222,8 +224,8 @@ export function ChatThread({
             key={m.id}
             message={m}
             onRegenerate={
-              onPrompt && prevUserById.has(m.id)
-                ? () => onPrompt(prevUserById.get(m.id)!)
+              onRegenerate && prevUserById.has(m.id)
+                ? () => onRegenerate(prevUserById.get(m.id)!)
                 : undefined
             }
           />
