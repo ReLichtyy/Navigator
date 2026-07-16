@@ -158,7 +158,9 @@ export function StudyConfig({
   onWeb,
   focusState,
 }: Props) {
-  const [focusOpen, setFocusOpen] = useState(false)
+  // Material scope list starts expanded; the course header row collapses it
+  // (AreaEstudio.dc.html: chevron + collapsed summary line).
+  const [scopeOpen, setScopeOpen] = useState(true)
   const activeMode = MODES.find((m) => m.key === selectedMode) ?? MODES[0]
   const modeBlockedByScope = comboScope && SINGLE_SCOPE_MODES.includes(selectedMode)
   const hasMaterial = selectedDocIds.length > 0 || wholeCourseActive || multi
@@ -166,6 +168,15 @@ export function StudyConfig({
 
   const selCount = wholeCourseActive ? readyDocs.length : selectedDocIds.length
   const totalCount = readyDocs.length
+  const collapsedSummary = wholeCourseActive
+    ? `Todo el curso · ${totalCount} ${totalCount === 1 ? "PDF" : "PDFs"}`
+    : selectedDocIds.length === 1
+      ? cleanName(
+          readyDocs.find((d) => d.id === selectedDocIds[0])?.original_filename ?? "1 PDF",
+        )
+      : selectedDocIds.length > 1
+        ? `${selectedDocIds.length} PDFs seleccionados`
+        : "Sin selección"
 
   return (
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] xl:gap-8">
@@ -231,33 +242,66 @@ export function StudyConfig({
           </div>
         ) : (
           selectedGroup && (
-            <ul className="flex flex-col divide-y divide-border/40 border-t border-border/60 pt-1">
-              {canWholeCourse && (
-                <ScopeRow
-                  active={wholeCourseActive}
-                  onClick={onPickWhole}
-                  icon={<Layers className="h-4 w-4 text-accent" />}
-                  label="Todo el curso"
-                  meta={`${readyDocs.length} ${readyDocs.length === 1 ? "PDF" : "PDFs"}`}
+            <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
+              {/* Course header row — toggles the scope list (design: chevron rotates,
+                  collapsed shows a one-line summary). */}
+              <button
+                onClick={() => setScopeOpen((o) => !o)}
+                aria-expanded={scopeOpen}
+                className="flex w-full items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/30 px-3.5 py-2.5 text-left transition-colors hover:border-accent/30"
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <FolderOpen className="h-4 w-4 shrink-0 text-accent" />
+                  <span className="min-w-0 truncate text-sm font-bold text-foreground">
+                    {selectedGroup.name}
+                  </span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+                    {totalCount} {totalCount === 1 ? "PDF" : "PDFs"}
+                  </span>
+                </span>
+                <ChevronDown
+                  className="h-4 w-4 shrink-0 text-muted-foreground transition-transform"
+                  style={{ transform: scopeOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                 />
+              </button>
+
+              {scopeOpen ? (
+                <ul className="flex flex-col divide-y divide-border/40">
+                  {canWholeCourse && (
+                    <ScopeRow
+                      active={wholeCourseActive}
+                      onClick={onPickWhole}
+                      icon={<Layers className="h-4 w-4 text-accent" />}
+                      label="Todo el curso"
+                      meta={`${readyDocs.length} ${readyDocs.length === 1 ? "PDF" : "PDFs"}`}
+                    />
+                  )}
+                  {readyDocs.map((d) => (
+                    <ScopeRow
+                      key={d.id}
+                      active={selectedDocIds.includes(d.id)}
+                      checkbox
+                      onClick={() => onToggleDoc(d.id)}
+                      icon={<FileText className="h-4 w-4 text-accent/70" />}
+                      label={cleanName(d.original_filename)}
+                    />
+                  ))}
+                  {selectedDocIds.length > 1 && (
+                    <li className="px-1 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                      {selectedDocIds.length} PDFs combinados: Tarjetas, Resumen y Mapa. Para
+                      Quiz, Repaso o Examen elige un solo PDF o el curso completo.
+                    </li>
+                  )}
+                </ul>
+              ) : (
+                <div className="flex items-center gap-2 px-1.5 py-1">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                  <span className="min-w-0 truncate text-xs text-accent/80">
+                    {collapsedSummary}
+                  </span>
+                </div>
               )}
-              {readyDocs.map((d) => (
-                <ScopeRow
-                  key={d.id}
-                  active={selectedDocIds.includes(d.id)}
-                  checkbox
-                  onClick={() => onToggleDoc(d.id)}
-                  icon={<FileText className="h-4 w-4 text-accent/70" />}
-                  label={cleanName(d.original_filename)}
-                />
-              ))}
-              {selectedDocIds.length > 1 && (
-                <li className="px-1 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                  {selectedDocIds.length} PDFs combinados: Tarjetas, Resumen y Mapa. Para Quiz,
-                  Repaso o Examen elige un solo PDF o el curso completo.
-                </li>
-              )}
-            </ul>
+            </div>
           )
         )}
       </aside>
@@ -339,24 +383,20 @@ export function StudyConfig({
           })}
         </div>
 
-        {/* ─── Enfocar material — collapsed disclosure (optional) ─── */}
-        <div className="border-t border-border/60">
-          <button
-            onClick={() => setFocusOpen((o) => !o)}
-            className="flex w-full items-center gap-2 py-4 text-left"
-          >
+        {/* ─── Enfoque — always-visible card (AreaEstudio.dc.html): textarea +
+            sugerencia chips + web toggle, with the Generar CTA inside. Shown for
+            every mode selection. ─── */}
+        <div className="rounded-2xl border border-accent/20 bg-accent/[0.04] p-5">
+          <div className="flex flex-wrap items-center gap-2">
             <Sparkles className="h-4 w-4 flex-none text-accent" />
-            <span className="text-sm font-semibold text-foreground">Enfocar material</span>
-            {!focusOpen && topic && (
-              <span className="min-w-0 truncate text-xs text-accent" title={topic}>
-                · {topic}
-              </span>
-            )}
-            {!focusOpen && web && <Globe className="h-3.5 w-3.5 flex-none text-accent" />}
+            <span className="text-sm font-bold text-foreground">Enfoque</span>
+            <span className="text-xs text-accent/70">
+              opcional · dile a Navigator en qué concentrarse
+            </span>
             {focusState === "pending" && (
               <span
                 className="flex-none rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500"
-                title="El material actual aún no refleja este enfoque. Pulsa Aplicar o abre un modo para regenerarlo."
+                title="El material actual aún no refleja este enfoque. Pulsa Aplicar o genera un modo para regenerarlo."
               >
                 pendiente
               </span>
@@ -369,55 +409,83 @@ export function StudyConfig({
                 ✓ aplicado
               </span>
             )}
-            <ChevronDown
-              className="ml-auto h-4 w-4 flex-none text-muted-foreground transition-transform"
-              style={{ transform: focusOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-            />
-          </button>
+          </div>
 
-          {focusOpen && (
-            <div className="pb-4">
-              <div className="relative">
-                <Textarea
-                  value={topic ?? ""}
-                  onChange={(e) => onTopic(e.target.value.trimStart() || null)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault()
-                      if (!regenerating) onApplyFocus()
-                    }
-                  }}
-                  maxLength={MAX_TOPIC}
-                  placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
-                  className="min-h-[5rem] resize-none pb-6 text-sm"
-                />
-                <span className="pointer-events-none absolute bottom-1.5 right-2 font-mono text-[10px] text-muted-foreground/70">
-                  {topic?.length ?? 0}/{MAX_TOPIC}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
-                {weekTopics.map((t) => (
-                  <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
-                ))}
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => onWeb(!web)}
-                  aria-pressed={web}
-                  title="Enriquecer el material con una búsqueda web en vivo"
-                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
-                    web
-                      ? "border-accent/40 bg-accent/[0.06] text-accent"
-                      : "border-border bg-secondary/40 text-muted-foreground hover:border-accent/40 hover:text-foreground"
+          <div className="relative mt-3">
+            <Textarea
+              value={topic ?? ""}
+              onChange={(e) => onTopic(e.target.value.trimStart() || null)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  if (!regenerating) onApplyFocus()
+                }
+              }}
+              maxLength={MAX_TOPIC}
+              placeholder="ej: solo ejercicios prácticos de derivadas, con casos límite"
+              className="min-h-[4.5rem] resize-none border-border/60 bg-background/40 pb-6 text-sm"
+            />
+            <span className="pointer-events-none absolute bottom-1.5 right-2 font-mono text-[10px] text-muted-foreground/70">
+              {topic?.length ?? 0}/{MAX_TOPIC}
+            </span>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Sugerencias
+            </span>
+            <TopicChip label="General" active={!topic} onClick={() => onTopic(null)} />
+            {weekTopics.map((t) => (
+              <TopicChip key={t} label={t} active={topic === t} onClick={() => onTopic(t)} />
+            ))}
+            {/* Web toggle — pill with sliding knob, pushed to the right (design). */}
+            <button
+              type="button"
+              onClick={() => onWeb(!web)}
+              aria-pressed={web}
+              title="Enriquecer el material con una búsqueda web en vivo"
+              className="ml-auto flex items-center gap-2 rounded-full border border-border bg-secondary/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Globe className="h-3.5 w-3.5" strokeWidth={2.25} />
+              Búsqueda web
+              <span
+                className={`relative h-[18px] w-8 shrink-0 rounded-full transition-colors ${
+                  web ? "bg-accent" : "bg-border"
+                }`}
+              >
+                <span
+                  className={`absolute top-[2px] h-[14px] w-[14px] rounded-full bg-background transition-[left] ${
+                    web ? "left-[16px]" : "left-[2px]"
                   }`}
-                >
-                  <Globe className="h-4 w-4" strokeWidth={2.25} />
-                  Búsqueda web
-                </button>
+                />
+              </span>
+            </button>
+          </div>
+
+          <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground/80">
+            El enfoque y la búsqueda web aplican a Tarjetas, Resumen y Mapa. El Quiz y el
+            Examen usan el banco de preguntas del curso completo.
+          </p>
+
+          {/* Summary + CTA row inside the card (design footer). */}
+          <div className="mt-4 flex flex-col gap-3 border-t border-accent/15 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {!hasMaterial
+                ? "Marca al menos un PDF o el curso completo."
+                : modeBlockedByScope
+                  ? "Ese modo necesita un solo PDF o el curso completo."
+                  : (
+                    <>
+                      <span className="font-semibold text-foreground">{activeMode.title}</span> ·{" "}
+                      {activeMode.meta(set, status)}
+                      {scopeLabel && <span> · {scopeLabel}</span>}
+                    </>
+                  )}
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              {focusState === "pending" && (
                 <Button
-                  variant="accent"
+                  variant="outline"
                   size="sm"
                   onClick={onApplyFocus}
                   disabled={regenerating}
@@ -430,45 +498,24 @@ export function StudyConfig({
                   )}
                   {regenerating ? "Generando…" : "Aplicar"}
                 </Button>
-              </div>
-              <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground/80">
-                El enfoque y la búsqueda web aplican a Tarjetas, Resumen y Mapa. El Quiz y el
-                Examen usan el banco de preguntas del curso completo.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Generate CTA */}
-        <div className="flex flex-col gap-3 rounded-2xl border border-accent/20 bg-accent/[0.04] p-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {!hasMaterial
-              ? "Marca al menos un PDF o el curso completo."
-              : modeBlockedByScope
-                ? "Ese modo necesita un solo PDF o el curso completo."
-                : (
+              )}
+              <button
+                onClick={onGenerate}
+                disabled={!canGenerate}
+                className="flex items-center justify-center gap-2 rounded-xl bg-accent px-7 py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {generating ? (
                   <>
-                    <span className="font-semibold text-foreground">{activeMode.title}</span> ·{" "}
-                    {activeMode.meta(set, status)}
-                    {scopeLabel && <span> · {scopeLabel}</span>}
+                    <Loader2 className="h-4 w-4 animate-spin" /> Generando…
+                  </>
+                ) : (
+                  <>
+                    {activeMode.cta} <ArrowRight className="h-4 w-4" />
                   </>
                 )}
-          </p>
-          <button
-            onClick={onGenerate}
-            disabled={!canGenerate}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-7 py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {generating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Generando…
-              </>
-            ) : (
-              <>
-                {activeMode.cta} <ArrowRight className="h-4 w-4" />
-              </>
-            )}
-          </button>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Mastery is tracked per PDF; only for a single-document scope. */}

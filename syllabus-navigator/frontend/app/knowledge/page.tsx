@@ -1312,7 +1312,7 @@ export default function KnowledgeBasePage() {
           <TopicsArchive />
           </div>
 
-          {/* ═══ Right column: Agenda (calendario + próximos días + notas) ═══ */}
+          {/* ═══ Right column: Agenda (calendario + notas) ═══ */}
           <div className="min-w-0">
             <AgendaPanel />
           </div>

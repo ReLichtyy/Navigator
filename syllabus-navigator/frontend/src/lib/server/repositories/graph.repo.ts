@@ -247,6 +247,7 @@ export const GraphRepository = {
       FROM topics t
       JOIN syllabus_uploads su ON su.id = t.syllabus_id AND su.user_id = ${userId}
       LEFT JOIN courses c ON c.id = su.course_id
+      WHERE t.level = 1 -- solo temas de título (ramas principales), no cada sub-nodo del mapa
       ORDER BY c.name ASC NULLS LAST, t.label ASC
     `
     return rows as {

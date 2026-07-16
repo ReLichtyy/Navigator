@@ -20,6 +20,7 @@ import {
   QuizResults,
   RevealExplain,
   CiteChip,
+  McOption,
   Conexiones,
   Ordenar,
   CompletarHueco,
@@ -856,7 +857,8 @@ export function QuizView({ title, courseLabel, scope, mode, onBack, onRepaso }: 
       <BackButton onBack={onBack} />
       {header}
 
-      <div className="mt-6 rounded-2xl border border-border bg-card p-6">
+      {/* Question flat on the page (design: no card wrapper around the quiz). */}
+      <div className="mt-7">
         <div className="text-lg font-bold leading-snug text-foreground">{q.question}</div>
         <div className="mb-1 mt-1 text-[11.5px] text-muted-foreground/70">
           {isVF ? "¿Verdadero o falso?" : "Elige una opción"}
@@ -865,64 +867,57 @@ export function QuizView({ title, courseLabel, scope, mode, onBack, onRepaso }: 
           {q.options.map((opt, i) => {
             const isCorrect = i === q.answer
             const isPicked = i === selected
-            let cls = "border-border bg-card hover:border-accent/40"
-            let markCls = "border-border/60 text-muted-foreground"
-            let textCls = "text-foreground"
-            let badge: { label: string; cls: string } | null = null
-            if (answered) {
-              if (isCorrect) {
-                cls = "border-accent/50 bg-accent/10"
-                markCls = "border-none bg-accent text-accent-foreground"
-                textCls = "font-bold text-foreground"
-                badge = { label: "CORRECTA", cls: "bg-accent/20 text-accent" }
-              } else if (isPicked) {
-                cls = "border-red-500/50 bg-red-500/[0.07]"
-                markCls = "border-none bg-red-500 text-white"
-                textCls = "font-semibold text-red-400"
-                badge = { label: "TU RESPUESTA", cls: "bg-red-500/15 text-red-400" }
-              } else {
-                cls = "border-border opacity-45"
-                textCls = "text-muted-foreground"
-              }
-            } else if (isPicked) {
-              cls = "border-accent/40 bg-card"
+            if (!isVF) {
+              return (
+                <McOption
+                  key={i}
+                  letter={GLYPHS[i]}
+                  text={opt}
+                  revealed={answered}
+                  isCorrect={isCorrect}
+                  isPicked={isPicked}
+                  onClick={() => answer(i)}
+                />
+              )
             }
+            // V/F keeps its two big centered buttons; states mirror McOption.
+            const cls = !answered
+              ? "border border-border bg-card hover:border-accent/40"
+              : isCorrect
+                ? "border-[1.5px] border-accent bg-accent/10"
+                : isPicked
+                  ? "border-[1.5px] border-red-400/60 bg-red-500/[0.07]"
+                  : "border border-border opacity-45"
+            const textCls = !answered
+              ? "text-foreground"
+              : isCorrect
+                ? "text-foreground"
+                : isPicked
+                  ? "text-red-300"
+                  : "text-muted-foreground"
             return (
               <button
                 key={i}
                 onClick={() => answer(i)}
                 disabled={answered}
-                className={`${
-                  isVF
-                    ? "flex w-full items-center justify-center gap-2 rounded-xl border py-4"
-                    : "flex w-full items-center gap-3 rounded-xl border p-3.5 text-left"
-                } transition-colors ${cls} ${answered ? "cursor-default" : "cursor-pointer"}`}
+                className={`flex w-full items-center justify-center gap-2 rounded-xl py-4 transition-colors ${cls} ${
+                  answered ? "cursor-default" : "cursor-pointer"
+                }`}
               >
-                {(!isVF || answered) && (
+                {answered && (isCorrect || isPicked) && (
                   <span
-                    className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-bold ${markCls}`}
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                      isCorrect ? "bg-accent text-accent-foreground" : "bg-red-500 text-white"
+                    }`}
                   >
-                    {answered && isCorrect ? (
+                    {isCorrect ? (
                       <Check className="h-3 w-3" strokeWidth={3.4} />
-                    ) : answered && isPicked ? (
-                      <X className="h-3 w-3" strokeWidth={3.4} />
                     ) : (
-                      GLYPHS[i]
+                      <X className="h-3 w-3" strokeWidth={3.4} />
                     )}
                   </span>
                 )}
-                <span
-                  className={`${isVF ? "text-sm font-bold" : "flex-1 text-sm leading-snug"} ${textCls}`}
-                >
-                  {opt}
-                </span>
-                {badge && !isVF && (
-                  <span
-                    className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold tracking-wide ${badge.cls}`}
-                  >
-                    {badge.label}
-                  </span>
-                )}
+                <span className={`text-sm font-bold ${textCls}`}>{opt}</span>
               </button>
             )
           })}
@@ -935,20 +930,24 @@ export function QuizView({ title, courseLabel, scope, mode, onBack, onRepaso }: 
             pickedWrong={pickedWrong}
           />
         )}
-      </div>
 
-      {answered && (
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <CiteChip cite={q.cite} topic={q.topic} />
+        {/* Footer always visible (design): cite chip appears after reveal, and the
+            Next button sits disabled until an answer is picked. */}
+        <div className="mt-5 flex items-center justify-between gap-3">
+          {answered ? <CiteChip cite={q.cite} topic={q.topic} /> : <span />}
           <button
             onClick={next}
-            disabled={loading}
-            className="flex items-center gap-2 rounded-xl bg-accent px-6 py-3 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+            disabled={!answered || loading}
+            className={`flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold transition-opacity ${
+              answered
+                ? "bg-accent text-accent-foreground hover:opacity-90 disabled:opacity-60"
+                : "cursor-not-allowed bg-secondary text-muted-foreground"
+            }`}
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : nextLabel}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : answered ? nextLabel : "Siguiente →"}
           </button>
         </div>
-      )}
+      </div>
     </div>
   )
 }

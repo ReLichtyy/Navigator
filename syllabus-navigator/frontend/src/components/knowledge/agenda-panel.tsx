@@ -16,12 +16,10 @@ import {
 import { useUser } from "@/context/UserContext"
 import { MonthCalendar, bucketEventsByDate } from "@/components/agenda/month-calendar"
 import { DayNotesPanel } from "@/components/agenda/day-notes-panel"
-import { coursesMissingTermStart, weekRangeLabel } from "@/lib/ui/agenda-weeks"
-import { meta, whenLabel, daysBadge, dayMonthLabel } from "@/lib/ui/agenda-format"
-import { resolveCourseColor } from "@/lib/ui/course-color"
+import { weekRangeLabel } from "@/lib/ui/agenda-weeks"
+import { dayMonthLabel } from "@/lib/ui/agenda-format"
 import { prepareQuickNote, QUICK_NOTE_COLORS } from "@/lib/ui/quick-note"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import {
   CalendarDays,
@@ -59,8 +57,8 @@ function splitNote(body: string): { title: string; rest: string } {
 
 /**
  * Right-hand Agenda column of the unified Knowledge page: month calendar with
- * the inline day panel, the "próximos 5 días" assessments, and a quick-notes
- * panel (recent notes across all days + a composer that saves on today).
+ * the inline day panel, and a quick-notes panel (recent notes across all days
+ * + a composer that saves on today).
  */
 export function AgendaPanel() {
   const { status, ready } = useUser()
@@ -180,10 +178,6 @@ export function AgendaPanel() {
   }
 
   const dayBuckets = bucketEventsByDate(events)
-  const next5 = (plan?.upcoming_assessments ?? []).filter(
-    (a) => a.days_until != null && a.days_until >= 0 && a.days_until <= 5,
-  )
-  const needTermStart = coursesMissingTermStart(events)
 
   return (
     <div className="flex flex-col gap-5">
@@ -229,68 +223,6 @@ export function AgendaPanel() {
               ) : null
             }
           />
-
-          {/* ─── Próximos 5 días ─── */}
-          {plan && (
-            <section className="rounded-2xl border border-accent/30 bg-accent/5 p-4">
-              <h3 className="mb-3 text-[11px] font-bold uppercase tracking-widest text-accent">
-                Próximos 5 días
-              </h3>
-              {next5.length > 0 ? (
-                <ul className="space-y-2">
-                  {next5.map((a) => {
-                    const m = meta(a.event_type)
-                    const badge = daysBadge(a.days_until, a.date_precision)
-                    const color = resolveCourseColor(
-                      a.course_color,
-                      a.course_id ?? `doc:${a.syllabus_id}`,
-                    )
-                    return (
-                      <li
-                        key={a.id}
-                        className="rounded-lg border border-l-4 border-border/60 bg-card p-2.5"
-                        style={{ borderLeftColor: color }}
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={m.variant}>
-                            <m.Icon className="h-3 w-3" />
-                            {m.label}
-                          </Badge>
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                            {a.title}
-                          </span>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {whenLabel(a)}
-                            {badge && (
-                              <span className="ml-1.5 font-medium text-accent">· {badge}</span>
-                            )}
-                          </span>
-                        </div>
-                        <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <span
-                            className="h-2 w-2 flex-none rounded-full"
-                            style={{ background: color }}
-                          />
-                          {a.course_name}
-                        </p>
-                      </li>
-                    )
-                  })}
-                </ul>
-              ) : needTermStart.length > 0 ? (
-                <p className="text-xs text-muted-foreground">
-                  {needTermStart.join(", ")}{" "}
-                  {needTermStart.length === 1 ? "tiene eventos" : "tienen eventos"} en &ldquo;Semana
-                  N&rdquo; sin fecha: fija el inicio del semestre del curso (icono de calendario en
-                  su carpeta) y aparecerán aquí.
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Sin evaluaciones en los próximos 5 días.
-                </p>
-              )}
-            </section>
-          )}
 
           {/* ─── Notas rápidas ─── */}
           <section className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-card p-4">

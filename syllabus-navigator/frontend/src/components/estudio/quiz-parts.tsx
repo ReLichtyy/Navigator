@@ -17,6 +17,91 @@ import { useState } from "react"
 import { Check, X, FileText, Target, RotateCcw } from "lucide-react"
 import type { QuizQuestionAPI } from "@/lib/api"
 
+// ── MC option row — design states (AreaEstudio.dc.html quiz view) ───────────────
+// The letter stays inside the circle in every state (the design never swaps it
+// for a check/X icon): correct → filled green circle + "CORRECTA" badge; the
+// picked wrong option → filled red circle + "TU RESPUESTA" badge, red text;
+// the rest dim to 45%.
+export function McOption({
+  letter,
+  text,
+  revealed,
+  isCorrect,
+  isPicked,
+  onClick,
+  preTag,
+}: {
+  letter: string
+  text: string
+  revealed: boolean
+  isCorrect: boolean
+  isPicked: boolean
+  onClick: () => void
+  /** Optional tag shown on the picked option before reveal (e.g. "seleccionada"). */
+  preTag?: string
+}) {
+  const rowCls = !revealed
+    ? isPicked
+      ? "border-[1.5px] border-accent bg-accent/10"
+      : "border border-border bg-card hover:border-accent/40"
+    : isCorrect
+      ? "border-[1.5px] border-accent bg-accent/10"
+      : isPicked
+        ? "border-[1.5px] border-red-400/60 bg-red-500/[0.07]"
+        : "border border-border opacity-45"
+  const circCls = revealed
+    ? isCorrect
+      ? "border-none bg-accent text-accent-foreground"
+      : isPicked
+        ? "border-none bg-red-500 text-white"
+        : "border-[1.5px] border-border/70 text-muted-foreground"
+    : isPicked
+      ? "border-[1.5px] border-accent text-accent"
+      : "border-[1.5px] border-border/70 text-muted-foreground"
+  const textCls = revealed
+    ? isCorrect
+      ? "font-bold text-foreground"
+      : isPicked
+        ? "font-semibold text-red-300"
+        : "text-muted-foreground"
+    : "text-foreground"
+  const badge = revealed
+    ? isCorrect
+      ? { label: "CORRECTA", cls: "bg-accent/20 text-accent" }
+      : isPicked
+        ? { label: "TU RESPUESTA", cls: "bg-red-500/15 text-red-400" }
+        : null
+    : null
+  return (
+    <button
+      onClick={onClick}
+      disabled={revealed}
+      className={`flex w-full items-center gap-3 rounded-xl p-3.5 text-left transition-colors ${rowCls} ${
+        revealed ? "cursor-default" : "cursor-pointer"
+      }`}
+    >
+      <span
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold ${circCls}`}
+      >
+        {letter}
+      </span>
+      <span className={`flex-1 text-sm leading-snug ${textCls}`}>{text}</span>
+      {badge ? (
+        <span
+          className={`ml-auto shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-extrabold tracking-wide ${badge.cls}`}
+        >
+          {badge.label}
+        </span>
+      ) : (
+        preTag &&
+        isPicked && (
+          <span className="ml-auto shrink-0 text-[11px] font-semibold text-accent">{preTag}</span>
+        )
+      )}
+    </button>
+  )
+}
+
 // ── Reveal: why the correct answer is right / why the chosen one isn't ──────────
 export function RevealExplain({
   whyYes,

@@ -1,10 +1,10 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Loader2, RotateCcw, Inbox, AlarmClock, Check, X } from "lucide-react"
+import { Loader2, RotateCcw, Inbox, AlarmClock } from "lucide-react"
 import { fetchQuizReview, resolveQuizReview, recordMastery, type QuizQuestionAPI } from "@/lib/api"
 import { BackButton } from "./flashcards-view"
-import { RevealExplain, CiteChip, Conexiones, Ordenar, CompletarHueco } from "./quiz-parts"
+import { RevealExplain, CiteChip, McOption, Conexiones, Ordenar, CompletarHueco } from "./quiz-parts"
 
 type Scope = { kind: "doc"; docId: string } | { kind: "course"; courseId: string }
 
@@ -254,58 +254,18 @@ export function QuizReviewView({ courseLabel, scope, onBack }: Props) {
         <div className="rounded-2xl border border-border bg-card p-6">
         <div className="text-lg font-bold leading-snug text-foreground">{q.question}</div>
         <div className="mt-4 flex flex-col gap-2.5">
-          {q.options.map((opt, i) => {
-            const isCorrect = i === q.answer
-            const isPicked = i === selected
-            let cls = "border-border bg-card hover:border-accent/40"
-            let markCls = "border-border/60 text-muted-foreground"
-            let textCls = "text-foreground"
-            let tag: string | null = null
-            if (answered) {
-              if (isCorrect) {
-                cls = "border-accent/50 bg-accent/10"
-                markCls = "border-none bg-accent text-accent-foreground"
-                textCls = "font-bold text-foreground"
-              } else if (isPicked) {
-                cls = "border-red-500/50 bg-red-500/[0.07]"
-                markCls = "border-none bg-red-500 text-white"
-                textCls = "font-semibold text-red-400"
-              } else {
-                cls = "border-border opacity-45"
-                textCls = "text-muted-foreground"
-              }
-            } else if (isPicked) {
-              cls = "border-accent bg-accent/10"
-              markCls = "border-accent text-accent"
-              tag = "seleccionada"
-            }
-            return (
-              <button
-                key={i}
-                onClick={() => answer(i)}
-                disabled={answered}
-                className={`flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-colors ${cls} ${
-                  answered ? "cursor-default" : "cursor-pointer"
-                }`}
-              >
-                <span
-                  className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border font-mono text-[10px] font-bold ${markCls}`}
-                >
-                  {answered && isCorrect ? (
-                    <Check className="h-3 w-3" strokeWidth={3.4} />
-                  ) : answered && isPicked ? (
-                    <X className="h-3 w-3" strokeWidth={3.4} />
-                  ) : (
-                    GLYPHS[i]
-                  )}
-                </span>
-                <span className={`flex-1 text-sm leading-snug ${textCls}`}>{opt}</span>
-                {tag && (
-                  <span className="ml-auto shrink-0 text-[11px] font-semibold text-accent">{tag}</span>
-                )}
-              </button>
-            )
-          })}
+          {q.options.map((opt, i) => (
+            <McOption
+              key={i}
+              letter={GLYPHS[i]}
+              text={opt}
+              revealed={answered}
+              isCorrect={i === q.answer}
+              isPicked={i === selected}
+              onClick={() => answer(i)}
+              preTag="seleccionada"
+            />
+          ))}
         </div>
 
         {answered && (
@@ -320,8 +280,10 @@ export function QuizReviewView({ courseLabel, scope, onBack }: Props) {
               {correct ? "¡Dominada! Sale del repaso ✦" : "Sigue en repaso — inténtala de nuevo"}
             </div>
             <RevealExplain
-              whyYes={q.explanation ? [q.explanation] : []}
-              whyNo={[]}
+              whyYes={
+                q.whyYes && q.whyYes.length > 0 ? q.whyYes : q.explanation ? [q.explanation] : []
+              }
+              whyNo={pickedWrong && selected != null ? (q.whyNo?.[String(selected)] ?? []) : []}
               pickedWrong={pickedWrong}
             />
           </>
