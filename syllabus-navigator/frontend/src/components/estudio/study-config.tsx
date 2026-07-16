@@ -62,7 +62,13 @@ const MODES: {
   Icon: typeof HelpCircle
   meta: (s: StudySetAPI | null, st: StudyStatusAPI | null) => string
 }[] = [
-  { key: "quiz", title: "Quiz", cta: "Generar quiz", Icon: HelpCircle, meta: () => "3 etapas · 45 preguntas" },
+  {
+    key: "quiz",
+    title: "Quiz",
+    cta: "Generar quiz",
+    Icon: HelpCircle,
+    meta: () => "3 etapas · 45 preguntas",
+  },
   {
     key: "flash",
     title: "Tarjetas",
@@ -75,10 +81,28 @@ const MODES: {
           ? `${Math.min(st.flashcards, SET_FLASHCARDS_CAP)} tarjetas`
           : "tarjetas dinámicas",
   },
-  { key: "repaso", title: "Repaso", cta: "Iniciar repaso", Icon: RotateCcw, meta: () => "tus fallos" },
-  { key: "examen", title: "Examen", cta: "Iniciar examen", Icon: Timer, meta: () => "20 min · nota /20" },
+  {
+    key: "repaso",
+    title: "Repaso",
+    cta: "Iniciar repaso",
+    Icon: RotateCcw,
+    meta: () => "tus fallos",
+  },
+  {
+    key: "examen",
+    title: "Examen",
+    cta: "Iniciar examen",
+    Icon: Timer,
+    meta: () => "20 min · nota /20",
+  },
   { key: "mind", title: "Mapa mental", cta: "Ver mapa", Icon: Network, meta: () => "visual" },
-  { key: "resumen", title: "Resumen", cta: "Generar resumen", Icon: AlignLeft, meta: () => "síntesis" },
+  {
+    key: "resumen",
+    title: "Resumen",
+    cta: "Generar resumen",
+    Icon: AlignLeft,
+    meta: () => "síntesis",
+  },
 ]
 
 const cleanName = (f: string) => f.replace(/\.pdf$/i, "")
@@ -171,9 +195,7 @@ export function StudyConfig({
   const collapsedSummary = wholeCourseActive
     ? `Todo el curso · ${totalCount} ${totalCount === 1 ? "PDF" : "PDFs"}`
     : selectedDocIds.length === 1
-      ? cleanName(
-          readyDocs.find((d) => d.id === selectedDocIds[0])?.original_filename ?? "1 PDF",
-        )
+      ? cleanName(readyDocs.find((d) => d.id === selectedDocIds[0])?.original_filename ?? "1 PDF")
       : selectedDocIds.length > 1
         ? `${selectedDocIds.length} PDFs seleccionados`
         : "Sin selección"
@@ -181,92 +203,128 @@ export function StudyConfig({
   return (
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)] xl:gap-8">
       {/* ── Material ── */}
-      <aside className="flex h-fit flex-col gap-4 rounded-2xl border border-border bg-card/40 p-5 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-9rem)] lg:overflow-y-auto">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-            Material
+      <aside className="flex h-fit flex-col rounded-2xl border border-border/70 bg-card/70 p-3 shadow-sm shadow-accent/5 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-9rem)] lg:overflow-y-auto">
+        <div className="flex items-start gap-3 px-2 pb-4 pt-2">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
+            <BookText className="h-[18px] w-[18px]" />
           </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-bold tracking-tight text-foreground">
+              Material de estudio
+            </h2>
+            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+              Selecciona cursos y documentos
+            </p>
+          </div>
           {!multi && totalCount > 0 && (
-            <span className="ml-auto font-mono text-[11px] text-accent">
-              {selCount}/{totalCount} seleccionado
+            <span className="shrink-0 rounded-lg bg-accent/10 px-2 py-1 text-[10px] font-semibold tabular-nums text-accent">
+              {selCount} de {totalCount}
             </span>
           )}
         </div>
 
         {/* Course folders (multi-select) */}
-        <div className="flex flex-col gap-2">
-          {groups.map((g) => {
-            const active = selectedKeys.includes(folderKey(g))
-            const count = g.docs.filter(isReady).length
-            return (
-              <button
-                key={folderKey(g)}
-                onClick={() => onToggleFolder(g)}
-                className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors ${
-                  active
-                    ? "border-accent/40 bg-accent/[0.08]"
-                    : "border-border/60 hover:border-accent/30"
-                }`}
-              >
-                <span
-                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                    active ? "border-accent bg-accent/20" : "border-border"
-                  }`}
-                >
-                  {active && <span className="h-2 w-2 rounded-sm bg-accent" />}
-                </span>
-                <BookText
-                  className="h-4 w-4 shrink-0 text-accent"
-                  style={g.color ? { color: g.color } : undefined}
-                />
-                <span
-                  className={`min-w-0 flex-1 truncate text-sm ${
-                    active ? "font-semibold text-foreground" : "text-muted-foreground"
-                  }`}
-                >
-                  {g.name}
-                </span>
-                <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                  {count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+        <nav aria-label="Cursos disponibles">
+          <ul className="space-y-1">
+            {groups.map((g) => {
+              const active = selectedKeys.includes(folderKey(g))
+              const count = g.docs.filter(isReady).length
+              return (
+                <li key={folderKey(g)}>
+                  <button
+                    type="button"
+                    onClick={() => onToggleFolder(g)}
+                    aria-pressed={active}
+                    title={g.name}
+                    className={`group flex min-h-11 w-full items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition-[background-color,border-color,color,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 active:scale-[0.99] ${
+                      active
+                        ? "border-accent/25 bg-accent/[0.09] text-foreground"
+                        : "border-transparent text-muted-foreground hover:border-border/70 hover:bg-secondary/45 hover:text-foreground"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                        active ? "bg-accent/[0.12]" : "bg-secondary/60 group-hover:bg-secondary"
+                      }`}
+                    >
+                      <BookText
+                        className="h-4 w-4 text-accent"
+                        style={g.color ? { color: g.color } : undefined}
+                      />
+                    </span>
+                    <span
+                      className={`min-w-0 flex-1 truncate text-[13px] ${active ? "font-semibold" : "font-medium"}`}
+                    >
+                      {g.name}
+                    </span>
+                    <span className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground/80">
+                      {count}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border transition-colors ${
+                        active
+                          ? "border-accent bg-accent text-accent-foreground"
+                          : "border-border/80 bg-background/30"
+                      }`}
+                    >
+                      {active && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
 
         {/* Scope within the single selected folder */}
         {multi ? (
-          <div className="flex items-center gap-2 rounded-xl bg-secondary/40 px-3.5 py-2.5 text-xs text-muted-foreground">
-            <FolderOpen className="h-4 w-4 text-accent" />
-            {selectedGroups.length} cursos combinados
+          <div className="mt-3 flex min-h-11 items-center gap-3 border-t border-border/60 px-2 pt-3 text-xs text-muted-foreground">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10">
+              <FolderOpen className="h-4 w-4 text-accent" />
+            </span>
+            <span>
+              <strong className="font-semibold text-foreground">
+                {selectedGroups.length} cursos
+              </strong>
+              <span className="block text-[10px]">Material combinado</span>
+            </span>
           </div>
         ) : (
           selectedGroup && (
-            <div className="flex flex-col gap-2 border-t border-border/60 pt-3">
-              {/* Course header row — toggles the scope list (design: chevron rotates,
-                  collapsed shows a one-line summary). */}
+            <section
+              aria-label="Material del curso"
+              className="mt-3 border-t border-border/60 pt-3"
+            >
               <button
+                type="button"
                 onClick={() => setScopeOpen((o) => !o)}
                 aria-expanded={scopeOpen}
-                className="flex w-full items-center justify-between gap-2 rounded-xl border border-border/60 bg-secondary/30 px-3.5 py-2.5 text-left transition-colors hover:border-accent/30"
+                aria-controls="study-material-documents"
+                className="flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-secondary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
               >
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <FolderOpen className="h-4 w-4 shrink-0 text-accent" />
-                  <span className="min-w-0 truncate text-sm font-bold text-foreground">
-                    {selectedGroup.name}
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary/70">
+                  <FolderOpen className="h-4 w-4 text-accent" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold text-foreground">
+                    Documentos
                   </span>
-                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                    {totalCount} {totalCount === 1 ? "PDF" : "PDFs"}
+                  <span className="block truncate text-[10px] leading-4 text-muted-foreground">
+                    {scopeOpen ? `${totalCount} disponibles` : collapsedSummary}
                   </span>
                 </span>
                 <ChevronDown
-                  className="h-4 w-4 shrink-0 text-muted-foreground transition-transform"
+                  className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200"
                   style={{ transform: scopeOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                 />
               </button>
 
-              {scopeOpen ? (
-                <ul className="flex flex-col divide-y divide-border/40">
+              {scopeOpen && (
+                <ul
+                  id="study-material-documents"
+                  className="mt-1 space-y-1 rounded-xl bg-background/25 p-1"
+                >
                   {canWholeCourse && (
                     <ScopeRow
                       active={wholeCourseActive}
@@ -287,21 +345,14 @@ export function StudyConfig({
                     />
                   ))}
                   {selectedDocIds.length > 1 && (
-                    <li className="px-1 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                      {selectedDocIds.length} PDFs combinados: Tarjetas, Resumen y Mapa. Para
-                      Quiz, Repaso o Examen elige un solo PDF o el curso completo.
+                    <li className="mx-2 my-2 border-l-2 border-accent/30 pl-3 text-[10px] leading-4 text-muted-foreground">
+                      {selectedDocIds.length} PDFs combinados: Tarjetas, Resumen y Mapa. Para Quiz,
+                      Repaso o Examen elige un solo PDF o el curso completo.
                     </li>
                   )}
                 </ul>
-              ) : (
-                <div className="flex items-center gap-2 px-1.5 py-1">
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                  <span className="min-w-0 truncate text-xs text-accent/80">
-                    {collapsedSummary}
-                  </span>
-                </div>
               )}
-            </div>
+            </section>
           )
         )}
       </aside>
@@ -463,24 +514,24 @@ export function StudyConfig({
           </div>
 
           <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground/80">
-            El enfoque y la búsqueda web aplican a Tarjetas, Resumen y Mapa. El Quiz y el
-            Examen usan el banco de preguntas del curso completo.
+            El enfoque y la búsqueda web aplican a Tarjetas, Resumen y Mapa. El Quiz y el Examen
+            usan el banco de preguntas del curso completo.
           </p>
 
           {/* Summary + CTA row inside the card (design footer). */}
           <div className="mt-4 flex flex-col gap-3 border-t border-accent/15 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
-              {!hasMaterial
-                ? "Marca al menos un PDF o el curso completo."
-                : modeBlockedByScope
-                  ? "Ese modo necesita un solo PDF o el curso completo."
-                  : (
-                    <>
-                      <span className="font-semibold text-foreground">{activeMode.title}</span> ·{" "}
-                      {activeMode.meta(set, status)}
-                      {scopeLabel && <span> · {scopeLabel}</span>}
-                    </>
-                  )}
+              {!hasMaterial ? (
+                "Marca al menos un PDF o el curso completo."
+              ) : modeBlockedByScope ? (
+                "Ese modo necesita un solo PDF o el curso completo."
+              ) : (
+                <>
+                  <span className="font-semibold text-foreground">{activeMode.title}</span> ·{" "}
+                  {activeMode.meta(set, status)}
+                  {scopeLabel && <span> · {scopeLabel}</span>}
+                </>
+              )}
             </p>
             <div className="flex shrink-0 items-center gap-2">
               {focusState === "pending" && (
@@ -567,28 +618,43 @@ function ScopeRow({
   return (
     <li>
       <button
+        type="button"
         onClick={onClick}
         aria-pressed={active}
-        className={`flex w-full items-center gap-3 px-1 py-2.5 text-left transition-colors ${
-          active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+        title={label}
+        className={`group flex min-h-11 w-full items-center gap-2.5 rounded-xl border border-transparent px-2 py-1.5 text-left transition-[background-color,border-color,color,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 active:scale-[0.99] ${
+          active
+            ? "border-accent/20 bg-accent/[0.08] text-foreground"
+            : "text-muted-foreground hover:border-border/60 hover:bg-secondary/45 hover:text-foreground"
         }`}
       >
         <span
-          className={`flex h-4 w-4 shrink-0 items-center justify-center border ${
-            checkbox ? "rounded" : "rounded-full"
-          } ${active ? "border-accent" : "border-border"}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${active ? "bg-accent/[0.12]" : "bg-secondary/55 group-hover:bg-secondary"}`}
         >
-          {active && (
-            <span className={`h-2 w-2 bg-accent ${checkbox ? "rounded-sm" : "rounded-full"}`} />
-          )}
+          {icon}
         </span>
-        {icon}
-        <span className={`min-w-0 flex-1 truncate text-sm ${active ? "font-medium" : ""}`}>
+        <span
+          className={`min-w-0 flex-1 truncate text-[12px] ${active ? "font-semibold" : "font-medium"}`}
+        >
           {label}
         </span>
         {meta && (
-          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{meta}</span>
+          <span className="shrink-0 text-[10px] font-medium tabular-nums text-muted-foreground">
+            {meta}
+          </span>
         )}
+        <span
+          aria-hidden="true"
+          className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center border transition-colors ${
+            checkbox ? "rounded-md" : "rounded-full"
+          } ${
+            active
+              ? "border-accent bg-accent text-accent-foreground"
+              : "border-border/80 bg-background/30"
+          }`}
+        >
+          {active && <Check className="h-3 w-3" strokeWidth={3} />}
+        </span>
       </button>
     </li>
   )

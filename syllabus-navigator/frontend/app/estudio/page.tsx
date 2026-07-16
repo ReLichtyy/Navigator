@@ -29,6 +29,7 @@ import { combineStudySets, type NamedStudySet } from "@/lib/ui/combine-study"
 import { toast } from "sonner"
 import { Textarea } from "@/components/ui/textarea"
 import { pickWeekTopics } from "@/lib/ui/week-topics"
+import { writeMindMapSelection } from "@/lib/ui/mind-map-selection"
 import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
 import {
   GraduationCap,
@@ -540,9 +541,27 @@ function EstudioContent() {
   // for the chosen difficulty/topic if needed. This is where the heavy work now
   // happens — never on scope selection.
   const launchMode = async (m: Mode) => {
-    // The mind map lives on its own page (/mapa), which owns the course→doc
-    // selector; a specific doc/course deep-links straight into its graph.
+    // The mind map lives on its own page (/mapa). Instead of letting it
+    // auto-generate, hand off the selection (course + PDFs + focus) via
+    // localStorage so /mapa opens with a PREVIEW of what will be processed.
     if (m === "mind") {
+      if (selectedGroup && scope && scope.kind !== "combo") {
+        const docs =
+          scope.kind === "doc"
+            ? readyDocs.filter((d) => d.id === scope.docId)
+            : scope.kind === "docs"
+              ? readyDocs.filter((d) => scope.docIds.includes(d.id))
+              : readyDocs // whole course
+        if (docs.length > 0) {
+          writeMindMapSelection({
+            courseId: selectedGroup.id,
+            courseName: selectedGroup.name,
+            docIds: docs.map((d) => d.id),
+            docNames: docs.map((d) => cleanName(d.original_filename)),
+            topic,
+          })
+        }
+      }
       const target =
         scope?.kind === "doc"
           ? `/mapa?course=${scope.docId}`

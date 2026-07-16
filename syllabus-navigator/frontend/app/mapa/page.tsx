@@ -18,7 +18,12 @@ import {
   type CourseGraphRegeneratePayload,
 } from "@/lib/api"
 import { groupByRealCourse, type RealCourse, type RealCourseGroup } from "@/lib/ui/course-group"
-import { Network, Loader2, AlertCircle } from "lucide-react"
+import {
+  readMindMapSelection,
+  clearMindMapSelection,
+  type MindMapSelection,
+} from "@/lib/ui/mind-map-selection"
+import { Network, Loader2, AlertCircle, FileText, Check, Sparkles, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"
@@ -45,6 +50,17 @@ function MapaContent() {
   const [coursesLoading, setCoursesLoading] = useState(true)
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+
+  // Pending handoff from /estudio (course + PDFs + focus). While present, the
+  // page opens on a PREVIEW of what will be processed — nothing generates until
+  // the student confirms.
+  const [pending, setPending] = useState<MindMapSelection | null>(null)
+  // Doc ids ticked in the preview; null = not initialized yet (defaults apply).
+  const [previewChecked, setPreviewChecked] = useState<string[] | null>(null)
+  const [previewDismissed, setPreviewDismissed] = useState(false)
+  useEffect(() => {
+    setPending(readMindMapSelection())
+  }, [])
 
   // Course-level map (real course folders) / per-doc fallback ("sin curso").
   const [courseGraph, setCourseGraph] = useState<CourseGraphResponseAPI | null>(null)
@@ -138,11 +154,11 @@ function MapaContent() {
   }, [])
 
   // Load the map whenever the selected folder changes. Course folders read the
-  // course map (auto-generating it from ALL ready docs the first time); "sin
-  // curso" folders keep the per-document graph. Monotonic guard so a slow
+  // course map; "sin curso" folders keep the per-document graph. A first visit
+  // (graph_status "none") no longer auto-generates — the preview view below asks
+  // the student to confirm what should be processed. Monotonic guard so a slow
   // earlier fetch can't overwrite a newer selection.
   const loadSeq = useRef(0)
-  const autoGenTried = useRef(new Set<string>())
   const loadGraph = useCallback(async () => {
     const seq = ++loadSeq.current
     setGraphLoading(true)
@@ -154,15 +170,6 @@ function MapaContent() {
         const g = await fetchCourseGraph(courseId)
         if (seq !== loadSeq.current) return
         setCourseGraph(g)
-        // First visit: generate from every ready doc, once per course per session.
-        if (
-          g.graph_status === "none" &&
-          readyDocs.length > 0 &&
-          !autoGenTried.current.has(courseId)
-        ) {
-          autoGenTried.current.add(courseId)
-          void regenerate(courseId, { fileIds: readyDocs.map((d) => d.id) })
-        }
       } else if (fallbackDocId) {
         const g = await fetchGraph(fallbackDocId)
         if (seq !== loadSeq.current) return
@@ -175,11 +182,18 @@ function MapaContent() {
     } finally {
       if (seq === loadSeq.current) setGraphLoading(false)
     }
-  }, [courseId, fallbackDocId, readyDocs, regenerate])
+  }, [courseId, fallbackDocId])
 
   useEffect(() => {
     if (courseId || fallbackDocId) void loadGraph()
   }, [courseId, fallbackDocId, loadGraph])
+
+  // Switching folders resets the preview state (ticks + dismissal) — each
+  // folder decides for itself whether it needs the confirm step.
+  useEffect(() => {
+    setPreviewChecked(null)
+    setPreviewDismissed(false)
+  }, [selectedKey])
 
   // Per-doc fallback reprocess: re-enqueue generation, then poll until it settles.
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -229,6 +243,63 @@ function MapaContent() {
   }
 
   const isCourseMode = !!courseId
+
+  // ── Preview (initial view) ──
+  // The handoff only applies to the folder it was written for.
+  const pendingMatches = !!pending && !!selectedGroup && pending.courseId === selectedGroup.id
+  // Show the confirm step when a selection arrived from /estudio, or on a first
+  // visit to a course whose map was never generated (replaces the old auto-gen).
+  const showPreview =
+    !!selectedGroup &&
+    !graphLoading &&
+    !regenerating &&
+    !error &&
+    !previewDismissed &&
+    readyDocs.length > 0 &&
+    (pendingMatches || (isCourseMode && courseGraph?.graph_status === "none"))
+  const hasExistingMap = isCourseMode
+    ? courseGraph?.graph_status === "ready"
+    : docGraph?.graph_status === "ready"
+  // Ticked docs: the /estudio selection when present, else every ready doc.
+  const checkedIds =
+    previewChecked ??
+    (pendingMatches
+      ? pending!.docIds.filter((id) => readyDocs.some((d) => d.id === id))
+      : readyDocs.map((d) => d.id))
+  const togglePreviewDoc = (id: string) =>
+    setPreviewChecked(
+      checkedIds.includes(id) ? checkedIds.filter((x) => x !== id) : [...checkedIds, id],
+    )
+
+  // Confirm: consume the selection and generate. "Sin curso" folders have no
+  // course map — reprocess the per-doc graph only when it isn't usable yet.
+  const confirmGenerate = () => {
+    const topic = pendingMatches ? pending!.topic : null
+    clearMindMapSelection()
+    setPending(null)
+    setPreviewDismissed(true)
+    if (courseId) {
+      void regenerate(courseId, {
+        fileIds: checkedIds,
+        instructions: topic ?? undefined,
+      })
+    } else if (
+      fallbackDocId &&
+      docGraph &&
+      docGraph.graph_status !== "ready" &&
+      docGraph.graph_status !== "pending" &&
+      docGraph.graph_status !== "processing"
+    ) {
+      void handleReprocessDoc()
+    }
+  }
+  // Secondary action: drop the pending selection and show the current map.
+  const dismissPreview = () => {
+    clearMindMapSelection()
+    setPending(null)
+    setPreviewDismissed(true)
+  }
+
   const graphStatus = isCourseMode
     ? regenerating
       ? "processing"
@@ -289,6 +360,19 @@ function MapaContent() {
               }}
             />
           </CenterFill>
+        ) : showPreview && selectedGroup ? (
+          <CenterFill>
+            <MindMapPreview
+              courseName={selectedGroup.name}
+              docs={readyDocs.map((d) => ({ id: d.id, name: cleanName(d.original_filename) }))}
+              checkedIds={checkedIds}
+              onToggle={togglePreviewDoc}
+              topic={pendingMatches ? pending!.topic : null}
+              hasExisting={hasExistingMap}
+              onGenerate={confirmGenerate}
+              onDismiss={dismissPreview}
+            />
+          </CenterFill>
         ) : hasGraph && selectedGroup ? (
           <SelectionAsk onAsk={ask} className="h-full">
             <GraphCanvas
@@ -346,6 +430,118 @@ function MapaContent() {
         ) : null}
       </div>
     </main>
+  )
+}
+
+/**
+ * Initial view of /mapa: preview of what will be processed (course + PDF
+ * checklist + optional focus from /estudio). Nothing generates until the
+ * student presses the CTA.
+ */
+function MindMapPreview({
+  courseName,
+  docs,
+  checkedIds,
+  onToggle,
+  topic,
+  hasExisting,
+  onGenerate,
+  onDismiss,
+}: {
+  courseName: string
+  docs: { id: string; name: string }[]
+  checkedIds: string[]
+  onToggle: (id: string) => void
+  topic: string | null
+  hasExisting: boolean
+  onGenerate: () => void
+  onDismiss: () => void
+}) {
+  const canGenerate = checkedIds.length > 0
+  return (
+    <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10">
+          <Network className="h-5 w-5 text-accent" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Vista previa del mapa mental
+          </div>
+          <div className="truncate text-lg font-extrabold leading-tight">{courseName}</div>
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm text-muted-foreground">
+        Este material alimentará el mapa. Marca o desmarca PDFs antes de generarlo.
+      </p>
+
+      <ul className="mt-3 flex max-h-64 flex-col gap-1.5 overflow-y-auto">
+        {docs.map((d) => {
+          const active = checkedIds.includes(d.id)
+          return (
+            <li key={d.id}>
+              <button
+                onClick={() => onToggle(d.id)}
+                aria-pressed={active}
+                className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                  active
+                    ? "border-accent/40 bg-accent/[0.07]"
+                    : "border-border/60 hover:border-accent/30"
+                }`}
+              >
+                <span
+                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                    active ? "border-accent bg-accent" : "border-border"
+                  }`}
+                >
+                  {active && (
+                    <Check className="h-3 w-3 text-accent-foreground" strokeWidth={3.2} />
+                  )}
+                </span>
+                <FileText className="h-4 w-4 shrink-0 text-accent/70" />
+                <span
+                  className={`min-w-0 flex-1 truncate text-sm ${
+                    active ? "font-medium text-foreground" : "text-muted-foreground"
+                  }`}
+                >
+                  {d.name}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+
+      {topic && (
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/[0.06] px-3 py-2">
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <span className="min-w-0 truncate text-xs text-accent" title={topic}>
+            Enfoque: {topic}
+          </span>
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-4">
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {checkedIds.length}/{docs.length} {docs.length === 1 ? "PDF" : "PDFs"}
+        </span>
+        <div className="flex items-center gap-2">
+          {hasExisting && (
+            <Button variant="outline" size="sm" onClick={onDismiss}>
+              Ver mapa actual
+            </Button>
+          )}
+          <button
+            onClick={onGenerate}
+            disabled={!canGenerate}
+            className="flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Generar mapa mental <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

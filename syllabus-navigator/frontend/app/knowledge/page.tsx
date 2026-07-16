@@ -777,37 +777,6 @@ export default function KnowledgeBasePage() {
           <Library className="hidden h-5 w-5 shrink-0 text-accent sm:inline" />
           <span className="truncate">Knowledge</span>
         </h1>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            onClick={() => {
-              setNewCourseName("")
-              openCreateCourse()
-            }}
-            disabled={isUploading}
-            variant="outline"
-            size="pill"
-          >
-            <FolderPlus className="h-4 w-4" />
-            <span className="hidden sm:inline">Añadir curso</span>
-          </Button>
-          <Button
-            onClick={() => {
-              setAddCourseId(null)
-              setAddTab("pdf")
-              setAddOpen(true)
-            }}
-            disabled={isUploading}
-            variant="accent"
-            size="pill"
-          >
-            {isUploading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">{isUploading ? "Subiendo…" : "Añadir fuente"}</span>
-          </Button>
-        </div>
         <input
           type="file"
           ref={fileInputRef}
@@ -829,7 +798,7 @@ export default function KnowledgeBasePage() {
 
           <CourseSuggestions uploads={uploads} onChanged={() => fetchUploads(true)} />
 
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-6 flex items-center justify-between gap-3">
             <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10" />
               <Input
@@ -840,6 +809,19 @@ export default function KnowledgeBasePage() {
                 className="rounded-full border-border/60 bg-secondary/50 pl-9"
               />
             </div>
+            <Button
+              onClick={() => {
+                setNewCourseName("")
+                openCreateCourse()
+              }}
+              disabled={isUploading}
+              variant="accent"
+              size="pill"
+              className="shrink-0 shadow-[0_0_18px_rgba(63,191,132,0.35)]"
+            >
+              <FolderPlus className="h-4 w-4" />
+              Añadir curso
+            </Button>
           </div>
 
           {loading ? (

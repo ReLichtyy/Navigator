@@ -17,11 +17,19 @@ describe("Área de Estudio responsive layout", () => {
   it("keeps material readable while the study panel grows", () => {
     const config = src("src/components/estudio/study-config.tsx")
 
-    expect(config).toContain(
-      "lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]",
-    )
+    expect(config).toContain("lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]")
     expect(config).toContain("lg:max-h-[calc(100dvh-9rem)]")
     expect(config).toContain("lg:overflow-y-auto")
+  })
+
+  it("presents material as an accessible two-level picker", () => {
+    const config = src("src/components/estudio/study-config.tsx")
+
+    expect(config).toContain("Material de estudio")
+    expect(config).toContain('aria-label="Cursos disponibles"')
+    expect(config).toContain('aria-label="Material del curso"')
+    expect(config).toContain("min-h-11")
+    expect(config).toContain("Documentos")
   })
 
   it("collapses modes to one column on phones and expands to three on wide screens", () => {
