@@ -258,6 +258,41 @@ function MapaContent() {
     }
   }, [fallbackDocId])
 
+  // ── Launch from /estudio: generate DIRECTLY with what was decided there ──
+  // The handoff selection (PDFs + enfoque) skips the modal entirely: consume it
+  // once the target folder's graph state is known and fire the generation with
+  // the % progress screen. Direct navigation (no handoff) asks in the modal.
+  const autoLaunched = useRef(false)
+  useEffect(() => {
+    if (autoLaunched.current || !pending || !selectedGroup || graphLoading) return
+    if (pending.courseId !== selectedGroup.id) return
+    autoLaunched.current = true
+    const sel = pending
+    clearMindMapSelection()
+    setPending(null)
+    if (courseId && readyDocs.length > 0) {
+      const ids = sel.docIds.filter((id) => readyDocs.some((d) => d.id === id))
+      setFromPreview(true)
+      setPreviewDismissed(true)
+      void regenerate(courseId, {
+        fileIds: ids.length > 0 ? ids : readyDocs.map((d) => d.id),
+        instructions: sel.topic ?? undefined,
+      })
+    } else if (
+      fallbackDocId &&
+      docGraph &&
+      docGraph.graph_status !== "ready" &&
+      docGraph.graph_status !== "pending" &&
+      docGraph.graph_status !== "processing"
+    ) {
+      // "Sin curso": no course map — (re)process the per-doc graph if unusable.
+      setFromPreview(true)
+      setPreviewDismissed(true)
+      void handleReprocessDoc()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, selectedGroup, graphLoading, courseId, fallbackDocId, docGraph])
+
   if (ready && (status === "anonymous" || status === "guest")) {
     return (
       <main className="flex h-dvh w-full items-center justify-center bg-background text-foreground">
@@ -277,9 +312,7 @@ function MapaContent() {
 
   const isCourseMode = !!courseId
 
-  // ── Preview (initial view) ──
-  // The handoff only applies to the folder it was written for.
-  const pendingMatches = !!pending && !!selectedGroup && pending.courseId === selectedGroup.id
+  // ── Preview modal (direct navigation only — /estudio launches skip it) ──
   // Show the confirm step when a selection arrived from /estudio, or on a first
   // visit to a course whose map was never generated (replaces the old auto-gen).
   // A stored "processing"/"pending" course status with no client regeneration in
@@ -294,44 +327,37 @@ function MapaContent() {
       courseGraph?.graph_status === "stale")
   const showPreview =
     !!selectedGroup &&
+    !pending &&
     !graphLoading &&
     !regenerating &&
     !error &&
     !previewDismissed &&
     readyDocs.length > 0 &&
-    (pendingMatches || staleCourseStatus)
+    staleCourseStatus
   const hasExistingMap = isCourseMode
     ? courseGraph?.graph_status === "ready" || courseGraph?.graph_status === "stale"
     : docGraph?.graph_status === "ready"
-  // Ticked docs: the /estudio selection when present, else the docs the last
-  // map was built from, else every ready doc.
+  // Ticked docs: the docs the last map was built from, else every ready doc.
   const lastSourceIds = (courseGraph?.source_doc_ids ?? []).filter((id) =>
     readyDocs.some((d) => d.id === id),
   )
   const checkedIds =
-    previewChecked ??
-    (pendingMatches
-      ? pending!.docIds.filter((id) => readyDocs.some((d) => d.id === id))
-      : lastSourceIds.length > 0
-        ? lastSourceIds
-        : readyDocs.map((d) => d.id))
+    previewChecked ?? (lastSourceIds.length > 0 ? lastSourceIds : readyDocs.map((d) => d.id))
   const togglePreviewDoc = (id: string) =>
     setPreviewChecked(
       checkedIds.includes(id) ? checkedIds.filter((x) => x !== id) : [...checkedIds, id],
     )
 
-  // Confirm: consume the selection and generate. "Sin curso" folders have no
-  // course map — reprocess the per-doc graph only when it isn't usable yet.
-  const confirmGenerate = () => {
-    const topic = pendingMatches ? pending!.topic : null
-    clearMindMapSelection()
-    setPending(null)
+  // Confirm from the modal (direct-nav flow): generate with the ticked docs and
+  // the optional enfoque typed there. "Sin curso" folders have no course map —
+  // reprocess the per-doc graph only when it isn't usable yet.
+  const confirmGenerate = (focus: string | null) => {
     setPreviewDismissed(true)
     if (courseId) {
       setFromPreview(true)
       void regenerate(courseId, {
         fileIds: checkedIds,
-        instructions: topic ?? undefined,
+        instructions: focus ?? undefined,
       })
     } else if (
       fallbackDocId &&
@@ -422,7 +448,6 @@ function MapaContent() {
               docs={readyDocs.map((d) => ({ id: d.id, name: cleanName(d.original_filename) }))}
               checkedIds={checkedIds}
               onToggle={togglePreviewDoc}
-              topic={pendingMatches ? pending!.topic : null}
               hasExisting={hasExistingMap}
               onGenerate={confirmGenerate}
               onDismiss={dismissPreview}
@@ -488,17 +513,19 @@ function MapaContent() {
   )
 }
 
+// Max enfoque length — mirrors the study-area cap.
+const MAX_FOCUS = 160
+
 /**
- * Initial view of /mapa: preview of what will be processed (course + PDF
- * checklist + optional focus from /estudio). Nothing generates until the
- * student presses the CTA.
+ * Initial view of /mapa on direct navigation: asks WHICH material feeds the
+ * map (PDF checklist) plus an optional enfoque, before anything generates.
+ * Launches from /estudio never see this — they carry their own selection.
  */
 function MindMapPreview({
   courseName,
   docs,
   checkedIds,
   onToggle,
-  topic,
   hasExisting,
   onGenerate,
   onDismiss,
@@ -507,11 +534,11 @@ function MindMapPreview({
   docs: { id: string; name: string }[]
   checkedIds: string[]
   onToggle: (id: string) => void
-  topic: string | null
   hasExisting: boolean
-  onGenerate: () => void
+  onGenerate: (focus: string | null) => void
   onDismiss: () => void
 }) {
+  const [focus, setFocus] = useState("")
   const canGenerate = checkedIds.length > 0
   return (
     <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6">
@@ -568,14 +595,26 @@ function MindMapPreview({
         })}
       </ul>
 
-      {topic && (
-        <div className="mt-3 flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/[0.06] px-3 py-2">
-          <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <span className="min-w-0 truncate text-xs text-accent" title={topic}>
-            Enfoque: {topic}
+      {/* Enfoque opcional — free instruction passed to the graph generator. */}
+      <div className="mt-3">
+        <div className="mb-1.5 flex items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5 text-accent" />
+          <span className="text-xs font-semibold text-foreground">Enfoque</span>
+          <span className="text-[11px] text-muted-foreground">opcional</span>
+        </div>
+        <div className="relative">
+          <input
+            value={focus}
+            onChange={(e) => setFocus(e.target.value.trimStart())}
+            maxLength={MAX_FOCUS}
+            placeholder="ej: céntrate en los JOINs y sus casos límite"
+            className="w-full rounded-xl border border-border/60 bg-background/40 px-3 py-2.5 pr-14 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-accent/50"
+          />
+          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-muted-foreground/60">
+            {focus.length}/{MAX_FOCUS}
           </span>
         </div>
-      )}
+      </div>
 
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-4">
         <span className="font-mono text-[11px] text-muted-foreground">
@@ -588,7 +627,7 @@ function MindMapPreview({
             </Button>
           )}
           <button
-            onClick={onGenerate}
+            onClick={() => onGenerate(focus.trim() || null)}
             disabled={!canGenerate}
             className="flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
