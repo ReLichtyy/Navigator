@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
-import type { AttachedFile } from "@/components/navigator/types"
+import type { AttachedFile, SuggestedPrompt } from "@/types/models"
 import { fetchChatModels, type ChatModelAPI } from "@/lib/api"
 
 const DEFAULT_MODELS: ChatModelAPI[] = [{ id: "deepseek-v4-pro", displayName: "GPT-5.5" }]
@@ -64,6 +64,7 @@ export function ChatComposer({
   onModelChange,
   webSearch,
   onWebSearchChange,
+  suggestions = [],
 }: {
   attachments: AttachedFile[]
   draft?: string
@@ -77,6 +78,7 @@ export function ChatComposer({
   onModelChange?: (model: string) => void
   webSearch?: boolean
   onWebSearchChange?: (on: boolean) => void
+  suggestions?: SuggestedPrompt[]
 }) {
   const [innerDraft, setInnerDraft] = useState("")
   const value = draft ?? innerDraft
@@ -106,9 +108,7 @@ export function ChatComposer({
   // model id still read "GPT-5.5" instead of a raw id. Never surface a raw model
   // id (e.g. "gpt-4o-mini") — if the catalog is empty, show the brand name only.
   const currentModelLabel =
-    models.find((m) => m.id === currentModelId)?.displayName ??
-    models[0]?.displayName ??
-    "GPT"
+    models.find((m) => m.id === currentModelId)?.displayName ?? models[0]?.displayName ?? "GPT"
   const canSend = hasText && !disabled
 
   useEffect(() => {
@@ -201,6 +201,27 @@ export function ChatComposer({
         onChange={onPick}
         className="sr-only"
       />
+
+      {suggestions.length > 0 && (
+        <div
+          className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          role="group"
+          aria-label="Posibles siguientes preguntas"
+        >
+          {suggestions.map((suggestion) => (
+            <button
+              key={suggestion.prompt}
+              type="button"
+              onClick={() => setDraft(suggestion.prompt)}
+              disabled={disabled}
+              title={suggestion.prompt}
+              className="flex-none rounded-full border border-border/60 bg-secondary/35 px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-accent/35 hover:bg-accent/[0.06] hover:text-foreground disabled:opacity-50"
+            >
+              {suggestion.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ===== MOBILE dock (Chat Movil design): quick chips + pill input ===== */}
       <div className="flex flex-col gap-2 md:hidden">

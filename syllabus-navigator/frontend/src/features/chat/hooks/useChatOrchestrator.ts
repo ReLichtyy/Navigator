@@ -75,7 +75,10 @@ export function useChatOrchestrator({
   }, [canMutateChat, activeSyllabusId, setActiveChatId, initializeSession, setTransitionKey])
 
   const sendMessage = useCallback(
-    async (text: string, opts?: { syllabusId?: string | null; web?: boolean }): Promise<boolean> => {
+    async (
+      text: string,
+      opts?: { syllabusId?: string | null; web?: boolean },
+    ): Promise<boolean> => {
       if (!canMutateChat()) return false
 
       const trimmed = text.trim()
@@ -155,7 +158,7 @@ export function useChatOrchestrator({
         )
 
         if (activeChatIdRef.current === targetChatId) {
-          // Mark pending as done, attach title/citations from final event
+          // Replace the optimistic id and attach final response metadata.
           setActiveChat((prev) => {
             if (!prev) return prev
             return {
@@ -163,7 +166,13 @@ export function useChatOrchestrator({
               title: data.title ?? prev.title,
               messages: prev.messages.map((m) =>
                 m.id === pendingId
-                  ? { ...m, pending: false, citations: (data.citations ?? []) as any }
+                  ? {
+                      ...m,
+                      id: data.id ?? pendingId,
+                      pending: false,
+                      citations: data.citations ?? [],
+                      suggestions: data.suggestions ?? [],
+                    }
                   : m,
               ),
             }

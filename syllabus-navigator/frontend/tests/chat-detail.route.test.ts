@@ -64,13 +64,23 @@ describe("GET /api/chat/[chatId]", () => {
     vi.mocked(sql)
       .mockResolvedValueOnce([CHAT] as any) // chat
       .mockResolvedValueOnce([
-        { id: "m1", role: "user", content: "hi", citations: [], created_at: "now" },
+        {
+          id: "m1",
+          role: "ai",
+          content: "hi",
+          citations: [],
+          suggestions: [{ label: "Practicar", prompt: "Dame un ejercicio" }],
+          created_at: "now",
+        },
       ] as any) // messages
     const res = await GET(new Request("http://t/x"), params("c1"))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toMatchObject({ id: "c1", message_count: 1 })
     expect(body.messages).toHaveLength(1)
+    expect(body.messages[0].suggestions).toEqual([
+      { label: "Practicar", prompt: "Dame un ejercicio" },
+    ])
   })
 })
 

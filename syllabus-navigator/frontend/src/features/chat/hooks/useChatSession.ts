@@ -14,6 +14,7 @@ function mapApiMessage(m: any): Message {
     content: m.content,
     createdAt: m.created_at,
     citations: m.citations ?? [],
+    suggestions: m.suggestions ?? [],
   } as any // The `citations` is not in models.ts but we can extend it or use it locally
 }
 

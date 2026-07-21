@@ -29,6 +29,9 @@ function PageContent() {
   const [webSearch, setWebSearch] = useState(false)
   const [composerDraft, setComposerDraft] = useState("")
   const sendMessage = ws.sendMessage
+  const latestMessage = ws.activeChat?.messages.at(-1)
+  const latestSuggestions =
+    latestMessage?.role === "ai" && !latestMessage.pending ? (latestMessage.suggestions ?? []) : []
   const sendWithWeb = useCallback(
     (text: string) => sendMessage(text, { web: webSearch }),
     [sendMessage, webSearch],
@@ -168,6 +171,7 @@ function PageContent() {
                   onModelChange={ws.handleModelChange}
                   webSearch={webSearch}
                   onWebSearchChange={setWebSearch}
+                  suggestions={latestSuggestions}
                 />
               </div>
             )}

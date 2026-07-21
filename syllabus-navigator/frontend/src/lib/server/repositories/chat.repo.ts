@@ -46,7 +46,7 @@ export const ChatRepository = {
     const chat = chatRows[0] as DbChatRow | undefined
     if (!chat) return undefined
     const messages = await sql`
-      SELECT id, role, content, citations, created_at
+      SELECT id, role, content, citations, suggestions, created_at
       FROM messages
       WHERE chat_id = ${chatId}::uuid
       ORDER BY created_at ASC
@@ -132,12 +132,23 @@ export const ChatRepository = {
     role: string,
     content: string,
     citations?: unknown[],
-  ): Promise<void> {
+    suggestions?: unknown[],
+  ): Promise<string> {
     const citationsJson = citations && citations.length > 0 ? JSON.stringify(citations) : null
-    await sql`
-      INSERT INTO messages (chat_id, role, content, citations)
-      VALUES (${chatId}::uuid, ${role}, ${content}, ${citationsJson}::jsonb)
+    const suggestionsJson =
+      suggestions && suggestions.length > 0 ? JSON.stringify(suggestions) : null
+    const rows = await sql`
+      INSERT INTO messages (chat_id, role, content, citations, suggestions)
+      VALUES (
+        ${chatId}::uuid,
+        ${role},
+        ${content},
+        ${citationsJson}::jsonb,
+        ${suggestionsJson}::jsonb
+      )
+      RETURNING id
     `
+    return (rows[0] as { id: string }).id
   },
 
   async updateTitle(chatId: string, title: string): Promise<void> {

@@ -10,6 +10,7 @@ import { embedText } from "@/lib/llm/embeddings"
 import { ChunkRepository, type RetrievedChunk } from "../repositories/chunk.repo"
 import type { CitationAPI } from "@/types/api"
 import { flags } from "@/lib/config/flags"
+import { getPrompt } from "@/lib/prompts"
 
 const EMPTY_RESULT: RetrievalResult = { hasContext: false, contextBlock: "", citations: [] }
 
@@ -50,15 +51,7 @@ export interface RetrievalResult {
   citations: CitationAPI[]
 }
 
-export const GROUNDED_SYSTEM_PROMPT =
-  "Eres Navigator, un mentor académico para estudiantes. Tu meta es ayudar al estudiante a " +
-  "entender el material y a prepararse para sus cursos, no solo a darle datos. Explica con " +
-  "claridad, paso a paso y con ejemplos cuando ayude, y sugiere qué repasar a continuación. " +
-  "Para datos concretos del curso (fechas, porcentajes, políticas de evaluación) usa únicamente " +
-  "el contexto proporcionado del sílabo; si no constan, dilo claramente y no los inventes. " +
-  "Cuando uses información de un fragmento, menciónalo con su etiqueta, p. ej. [Fragmento 1]. " +
-  "Mantén un tono cercano y alentador, como un buen tutor. Puedes usar el historial para " +
-  "resolver referencias como 'eso' o 'el examen'."
+export const GROUNDED_SYSTEM_PROMPT = getPrompt("chat:syllabus-rag").system
 
 export const NO_CONTEXT_MESSAGE =
   "No consta en tus archivos subidos: no encontré fragmentos relevantes en este sílabo."

@@ -57,6 +57,7 @@ async function request<T>(path: string, init: RequestInit & { json?: boolean } =
 
 import type {
   CitationAPI,
+  SuggestedPromptAPI,
   ChatOutAPI,
   ChatDetailAPI,
   MessageOutAPI,
@@ -68,6 +69,7 @@ import type {
 
 export type {
   CitationAPI,
+  SuggestedPromptAPI,
   ChatOutAPI,
   ChatDetailAPI,
   MessageOutAPI,
@@ -164,8 +166,10 @@ export async function fetchChatModels() {
 }
 
 export interface StreamResult {
+  id?: string
   title?: string
   citations?: CitationAPI[]
+  suggestions?: SuggestedPromptAPI[]
   provider?: string
   model?: string
 }
@@ -220,10 +224,17 @@ export async function querySyllabus(
             onChunk(parsed.content)
           }
           // Final event carries title, citations, provider, model
-          if (parsed.title !== undefined || parsed.citations !== undefined) {
+          if (
+            parsed.id !== undefined ||
+            parsed.title !== undefined ||
+            parsed.citations !== undefined ||
+            parsed.suggestions !== undefined
+          ) {
             result = {
+              id: parsed.id,
               title: parsed.title,
               citations: parsed.citations ?? [],
+              suggestions: parsed.suggestions ?? [],
               provider: parsed.provider,
               model: parsed.model,
             }

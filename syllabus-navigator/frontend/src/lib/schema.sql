@@ -254,8 +254,11 @@ CREATE TABLE IF NOT EXISTS messages (
   role       TEXT        NOT NULL CHECK (role IN ('user','ai')),
   content    TEXT        NOT NULL,
   citations  JSONB,
+  suggestions JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS suggestions JSONB;
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id);
 

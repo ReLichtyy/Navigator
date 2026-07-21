@@ -22,6 +22,13 @@ export interface CitationAPI {
   syllabus_id?: string | null
 }
 
+export interface SuggestedPromptAPI {
+  /** Short chip label shown above the chat composer. */
+  label: string
+  /** Full prompt copied into the composer after user confirmation. */
+  prompt: string
+}
+
 export interface ChatOutAPI {
   id: string
   title: string
@@ -40,6 +47,7 @@ export interface MessageOutAPI {
   content: string
   created_at: string
   citations: CitationAPI[]
+  suggestions?: SuggestedPromptAPI[]
 }
 
 export interface ChatDetailAPI extends ChatOutAPI {

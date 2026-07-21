@@ -17,6 +17,7 @@ import type { CitationAPI } from "@/types/api"
 import { flags } from "@/lib/config/flags"
 import { runToolLoop } from "@/lib/llm/tools-loop"
 import { getToolDefinitions, executeTool } from "@/lib/tools"
+import { AssistantResponseParser } from "@/lib/chat/assistant-response-parser"
 
 const MAX_HISTORY_TURNS = 6
 const MAX_AGENDA_ITEMS = 40
@@ -304,12 +305,21 @@ export const ChatService = {
       }),
     )
 
-    // 8. Output guardrails
-    const outputCheck = validateOutput(llmResponse.content)
-    const finalAnswer = outputCheck.sanitized ?? llmResponse.content
+    // 8. Separate the visible answer from optional structured follow-up prompts.
+    const responseParser = new AssistantResponseParser()
+    responseParser.push(llmResponse.content)
+    const parsedResponse = responseParser.finish()
+    const outputCheck = validateOutput(parsedResponse.content)
+    const finalAnswer = outputCheck.sanitized ?? parsedResponse.content
 
     // 9. Save AI message
-    await ChatRepository.saveMessage(chatId, "ai", finalAnswer, citations)
+    const messageId = await ChatRepository.saveMessage(
+      chatId,
+      "ai",
+      finalAnswer,
+      citations,
+      parsedResponse.suggestions,
+    )
 
     // 10. Generate title for first message
     let title: string | undefined
@@ -354,8 +364,10 @@ export const ChatService = {
 
     return {
       finalAnswer,
+      messageId,
       title,
       citations,
+      suggestions: parsedResponse.suggestions,
       provider: llmResponse.provider,
       model: llmResponse.model,
       latencyMs: llmLatencyMs,
@@ -455,6 +467,7 @@ export const ChatService = {
     const readable = new ReadableStream({
       async start(controller) {
         let fullContent = ""
+        const responseParser = new AssistantResponseParser()
         let llmProvider = routing.provider
         let llmModel = routing.model
         let promptTokens = 0
@@ -464,9 +477,12 @@ export const ChatService = {
         try {
           for await (const chunk of stream) {
             if (chunk.type === "text") {
-              fullContent += chunk.content
-              const sse = `data: ${JSON.stringify({ content: chunk.content })}\n\n`
-              controller.enqueue(new TextEncoder().encode(sse))
+              const visibleDelta = responseParser.push(chunk.content)
+              if (visibleDelta) {
+                fullContent += visibleDelta
+                const sse = `data: ${JSON.stringify({ content: visibleDelta })}\n\n`
+                controller.enqueue(new TextEncoder().encode(sse))
+              }
             } else if (chunk.type === "finish") {
               llmProvider = chunk.provider
               llmModel = chunk.model
@@ -476,11 +492,24 @@ export const ChatService = {
             }
           }
 
+          const parsedResponse = responseParser.finish()
+          if (parsedResponse.contentDelta) {
+            fullContent += parsedResponse.contentDelta
+            const sse = `data: ${JSON.stringify({ content: parsedResponse.contentDelta })}\n\n`
+            controller.enqueue(new TextEncoder().encode(sse))
+          }
+
           // Output guardrails (best effort since we already streamed, we can't redact retroactively, but we save sanitized)
           const outputCheck = validateOutput(fullContent)
           const finalAnswer = outputCheck.sanitized ?? fullContent
 
-          await ChatRepository.saveMessage(chatId, "ai", finalAnswer, citations)
+          const messageId = await ChatRepository.saveMessage(
+            chatId,
+            "ai",
+            finalAnswer,
+            citations,
+            parsedResponse.suggestions,
+          )
 
           const ms = Date.now() - startTime
           recordUsage({
@@ -500,9 +529,10 @@ export const ChatService = {
 
           // Final event
           const finalEvent = `data: ${JSON.stringify({
-            id: crypto.randomUUID(),
+            id: messageId,
             content: "", // We already sent the content
             citations,
+            suggestions: parsedResponse.suggestions,
             title: generatedTitle,
             provider: llmProvider,
             model: llmModel,

@@ -10,11 +10,16 @@ export interface Citation {
   char_start?: number | null
   char_end?: number | null
   quote: string
-  source_type?: "pdf" | "link" | "text" | null
+  source_type?: "pdf" | "link" | "text" | "docx" | "pptx" | "xlsx" | null
   source_url?: string | null
   file_url?: string | null
   source_name?: string | null
   syllabus_id?: string | null
+}
+
+export interface SuggestedPrompt {
+  label: string
+  prompt: string
 }
 
 export interface Message {
@@ -25,6 +30,7 @@ export interface Message {
   createdAt?: string
   pending?: boolean
   citations?: Citation[]
+  suggestions?: SuggestedPrompt[]
 }
 
 export interface Chat {
