@@ -635,7 +635,7 @@ function EstudioContent() {
 
   return (
     <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:px-6">
+      <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border/60 pb-0 pl-3 pr-[calc(3.5rem+env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] sm:pl-6 lg:pr-[calc(9rem+env(safe-area-inset-right))]">
         <MobileNav />
         <GraduationCap className="h-5 w-5 text-accent" />
         <h1 className="text-lg font-semibold">Área de Estudio</h1>

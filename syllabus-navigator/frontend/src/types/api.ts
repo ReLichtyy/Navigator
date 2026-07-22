@@ -3,6 +3,8 @@
  * These interfaces represent the exact JSON shapes exchanged over the network.
  */
 
+import type { ProductFeedbackCategory } from "@/lib/ui/product-feedback"
+
 export interface CitationAPI {
   chunk_id: string
   page_start: number | null
@@ -126,4 +128,20 @@ export interface CourseGraphResponseAPI {
   nodes: GraphResponseAPI["nodes"]
   edges: GraphResponseAPI["edges"]
   crossLinks: GraphResponseAPI["crossLinks"]
+}
+
+export type ProductFeedbackCategoryAPI = ProductFeedbackCategory
+
+export interface ProductFeedbackSubmissionAPI {
+  category: ProductFeedbackCategoryAPI
+  description: string
+  clientRequestId: string
+}
+
+export interface ProductFeedbackReceiptAPI {
+  feedback: {
+    id: string
+    createdAt: string
+    syncStatus: "pending" | "synced"
+  }
 }

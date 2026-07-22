@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server"
 import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { StudyBankService } from "@/lib/server/services/study-bank.service"
+import { drainProductFeedbackSyncQueue } from "@/lib/server/services/product-feedback.service"
 import { logError } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
@@ -27,6 +28,14 @@ async function handle(request: Request) {
   }
 
   try {
+    // Small, isolated projection queue first. When Notion is not configured the
+    // service returns immediately without claiming jobs or consuming attempts.
+    const productFeedback = await drainProductFeedbackSyncQueue(1).catch((err) => {
+      logError("cron.process.product_feedback_drain_error", {
+        errorType: err instanceof Error ? err.name : "unknown",
+      })
+      return { processed: 0, failed: 1, retried: 0, deferred: false }
+    })
     const result = await IngestionService.drainQueue()
     // Also fill any pending study-bank jobs (staged-quiz question banks). NOTE:
     // on the Hobby plan this cron only runs ONCE A DAY, so it's a safety net, not
@@ -37,7 +46,10 @@ async function handle(request: Request) {
       logError("cron.process.study_drain_error", { error: String(err) })
       return { processed: 0, failed: 0 }
     })
-    return NextResponse.json({ message: "Queue drained", ...result, study }, { status: 200 })
+    return NextResponse.json(
+      { message: "Queue drained", ...result, productFeedback, study },
+      { status: 200 },
+    )
   } catch (error) {
     logError("cron.process.error", { error: String(error) })
     return NextResponse.json({ error: "Failed to process queue" }, { status: 500 })

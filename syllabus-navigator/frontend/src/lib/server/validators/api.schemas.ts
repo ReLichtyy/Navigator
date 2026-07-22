@@ -1,4 +1,8 @@
 import { z } from "zod"
+import {
+  PRODUCT_FEEDBACK_CATEGORIES,
+  PRODUCT_FEEDBACK_DESCRIPTION_MAX,
+} from "@/lib/ui/product-feedback"
 
 export const MessageRequestSchema = z.object({
   question: z.string().min(1, "Question is required").max(4000, "Question is too long"),
@@ -49,6 +53,20 @@ export const CreateChatSchema = z.object({
 }).refine((value) => !(value.syllabus_id && value.course_id), {
   message: "Choose either a syllabus or a course scope",
 })
+
+export const ProductFeedbackSchema = z
+  .object({
+    category: z.enum(PRODUCT_FEEDBACK_CATEGORIES),
+    description: z
+      .string()
+      .trim()
+      .min(1, "La descripción es obligatoria")
+      .max(PRODUCT_FEEDBACK_DESCRIPTION_MAX, "La descripción es demasiado larga"),
+    clientRequestId: z.string().uuid("ID de solicitud inválido"),
+  })
+  .strict()
+
+export type ProductFeedbackInput = z.infer<typeof ProductFeedbackSchema>
 
 export const UpdateChatSchema = z.object({
   title: z.string().optional(),

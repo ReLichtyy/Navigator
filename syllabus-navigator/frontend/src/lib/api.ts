@@ -65,6 +65,9 @@ import type {
   GraphResponseAPI,
   CourseGraphResponseAPI,
   CourseAPI,
+  ProductFeedbackCategoryAPI,
+  ProductFeedbackSubmissionAPI,
+  ProductFeedbackReceiptAPI,
 } from "@/types/api"
 
 export type {
@@ -77,6 +80,9 @@ export type {
   GraphResponseAPI,
   CourseGraphResponseAPI,
   CourseAPI,
+  ProductFeedbackCategoryAPI,
+  ProductFeedbackSubmissionAPI,
+  ProductFeedbackReceiptAPI,
 }
 
 export interface UserStudyPrefsAPI {
@@ -476,6 +482,13 @@ export async function submitFeedback(messageId: string, vote: "up" | "down", com
       rating: vote === "up" ? 1 : -1,
       comment,
     }),
+  })
+}
+
+export async function submitProductFeedback(input: ProductFeedbackSubmissionAPI) {
+  return request<ProductFeedbackReceiptAPI>("/product-feedback", {
+    method: "POST",
+    body: JSON.stringify(input),
   })
 }
 

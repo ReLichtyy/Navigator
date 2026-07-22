@@ -401,7 +401,7 @@ function MapaContent() {
   return (
     <main className="flex h-dvh w-full flex-col overflow-hidden bg-background text-foreground">
       {/* Slim header for mobile nav only — desktop is a full-bleed canvas. */}
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 px-3 sm:hidden">
+      <header className="flex h-[calc(3rem+env(safe-area-inset-top))] shrink-0 items-center gap-2 border-b border-border/60 pl-3 pr-[calc(3.5rem+env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] sm:hidden">
         <MobileNav />
         <Network className="h-5 w-5 text-accent" />
         <h1 className="text-base font-semibold">Mapa mental</h1>

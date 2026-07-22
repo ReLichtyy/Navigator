@@ -801,7 +801,7 @@ export default function KnowledgeBasePage() {
 
   return (
     <main className="flex h-dvh w-full flex-col bg-background text-foreground overflow-hidden">
-      <header className="flex h-14 items-center justify-between gap-2 border-b border-border/60 px-3 shrink-0 sm:px-6">
+      <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center justify-between gap-2 border-b border-border/60 pb-0 pl-3 pr-[calc(3.5rem+env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] sm:pl-6 lg:pr-[calc(9rem+env(safe-area-inset-right))]">
         <h1 className="flex min-w-0 items-center gap-2 text-lg font-semibold">
           <MobileNav />
           <Library className="hidden h-5 w-5 shrink-0 text-accent sm:inline" />

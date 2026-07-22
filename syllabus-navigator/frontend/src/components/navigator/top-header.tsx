@@ -113,7 +113,7 @@ export function TopHeader({
   )
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border/60 bg-background/85 px-3 backdrop-blur-md md:hidden">
+    <header className="sticky top-0 z-40 flex h-[calc(3.5rem+env(safe-area-inset-top))] items-center justify-between border-b border-border/60 bg-background/85 pb-0 pl-3 pr-[calc(3.5rem+env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] backdrop-blur-md md:hidden">
       <div className="flex min-w-0 items-center gap-2.5">
         <MobileNav>{drawerHistory}</MobileNav>
 

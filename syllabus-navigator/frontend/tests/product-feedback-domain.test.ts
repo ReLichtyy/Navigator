@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { ProductFeedbackSchema } from "@/lib/server/validators/api.schemas"
 import {
   PRODUCT_FEEDBACK_CATEGORIES,
   PRODUCT_FEEDBACK_DESCRIPTION_MAX,
+  resolveProductFeedbackRequestId,
   shouldShowProductFeedbackLauncher,
   validateProductFeedbackDraft,
 } from "@/lib/ui/product-feedback"
@@ -89,5 +90,13 @@ describe("product feedback UI rules", () => {
     expect(shouldShowProductFeedbackLauncher("authenticated", "/sign-in")).toBe(false)
     expect(shouldShowProductFeedbackLauncher("authenticated", "/sign-up/start")).toBe(false)
     expect(shouldShowProductFeedbackLauncher("authenticated", "/sso-callback")).toBe(false)
+  })
+
+  it("keeps one client request id across retries", () => {
+    const create = vi.fn(() => requestId)
+
+    expect(resolveProductFeedbackRequestId("", create)).toBe(requestId)
+    expect(resolveProductFeedbackRequestId(requestId, create)).toBe(requestId)
+    expect(create).toHaveBeenCalledTimes(1)
   })
 })

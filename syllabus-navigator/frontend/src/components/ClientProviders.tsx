@@ -9,6 +9,7 @@ import { AuthModalProvider } from "@/context/AuthModalContext"
 import { ChatNavProvider } from "@/context/ChatNavContext"
 import { BienvenidaProvider } from "@/context/BienvenidaContext"
 import { BienvenidaGate } from "@/components/bienvenida/bienvenida-gate"
+import { ProductFeedbackLauncher } from "@/components/feedback/product-feedback-launcher"
 
 export default function ClientProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -28,6 +29,7 @@ export default function ClientProviders({ children }: { children: React.ReactNod
               <BienvenidaProvider>
                 <ChatNavProvider>{children}</ChatNavProvider>
                 <BienvenidaGate />
+                <ProductFeedbackLauncher />
               </BienvenidaProvider>
               {/* Renders all sonner toasts (upload progress, success/error). Without
                   this, toast() calls across the app do nothing. */}

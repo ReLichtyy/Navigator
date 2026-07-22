@@ -70,7 +70,7 @@ describe("POST /api/product-feedback", () => {
     vi.mocked(requireProductFeedbackRateLimit).mockRejectedValue(
       new ApiErrorResponse("Too many feedback requests", 429),
     )
-    expect((await POST(request(input))).status).toBe(429)
+    expect((await POST(request({ ...input, personName: "Nombre falso" }))).status).toBe(429)
     expect(submitProductFeedback).not.toHaveBeenCalled()
   })
 

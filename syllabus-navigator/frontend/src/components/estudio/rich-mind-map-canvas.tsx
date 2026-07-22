@@ -869,7 +869,7 @@ export function RichMindMapCanvas({
 
         {/* top-right: Lienzo (skins) + Editar mapa */}
         <div
-          className="absolute right-4 top-4 z-[22] flex items-start gap-2"
+          className="absolute right-14 top-4 z-[22] flex items-start gap-2 lg:right-36"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
@@ -1096,7 +1096,7 @@ export function RichMindMapCanvas({
         {editOpen && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute bottom-0 right-0 top-0 z-[25] flex w-[340px] flex-col"
+            className="absolute bottom-0 right-0 top-0 z-[45] flex w-[340px] flex-col"
             style={{
               background: "rgba(11,15,13,0.97)",
               borderLeft: "1px solid rgba(255,255,255,0.09)",

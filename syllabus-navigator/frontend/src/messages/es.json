@@ -53,5 +53,37 @@
     "languageEs": "Español",
     "languageEn": "English",
     "student": "Estudiante"
+  },
+  "feedback": {
+    "launcher": "Feedback",
+    "launcherAria": "Enviar feedback",
+    "modalTitle": "Cuéntanos qué podemos mejorar",
+    "modalDescription": "Tu opinión nos ayuda a mejorar Navigator para todos.",
+    "personLabel": "Enviado por",
+    "personFallback": "Usuario",
+    "categoryLabel": "Categoría",
+    "categoryPlaceholder": "Selecciona una categoría",
+    "categoryRequired": "Selecciona una categoría.",
+    "descriptionLabel": "Descripción",
+    "descriptionPlaceholder": "Describe lo que pasó o qué te gustaría mejorar…",
+    "descriptionHelp": "No incluyas contraseñas ni información sensible.",
+    "descriptionRequired": "Escribe una descripción.",
+    "descriptionTooLong": "La descripción no puede superar {max} caracteres.",
+    "characterCount": "{count}/{max}",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "submit": "Enviar feedback",
+    "submitting": "Enviando…",
+    "successSynced": "Gracias. Tu feedback fue enviado.",
+    "successPending": "Gracias. Guardamos tu feedback y lo sincronizaremos cuando la conexión esté disponible.",
+    "rateLimited": "Has enviado varios comentarios. Inténtalo de nuevo en un momento.",
+    "error": "No pudimos enviar tu feedback. Inténtalo de nuevo.",
+    "categories": {
+      "error": "Error",
+      "suggestion": "Sugerencia",
+      "usability": "Usabilidad",
+      "content": "Contenido",
+      "other": "Otro"
+    }
   }
 }

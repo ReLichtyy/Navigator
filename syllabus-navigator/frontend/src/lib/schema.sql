@@ -292,6 +292,40 @@ CREATE TABLE IF NOT EXISTS feedback (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Product-level feedback submitted from the global launcher. This stays
+-- separate from response votes above: Neon is the source of truth and Notion
+-- is an eventually-consistent projection.
+CREATE TABLE IF NOT EXISTS product_feedback (
+  id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  person_name          TEXT NOT NULL CHECK (char_length(person_name) BETWEEN 1 AND 200),
+  category             TEXT NOT NULL CHECK (
+    category IN ('Error', 'Sugerencia', 'Usabilidad', 'Contenido', 'Otro')
+  ),
+  description          TEXT NOT NULL CHECK (char_length(description) BETWEEN 1 AND 2000),
+  client_request_id    UUID NOT NULL,
+  notion_page_id       TEXT,
+  notion_sync_status   TEXT NOT NULL DEFAULT 'pending' CHECK (
+    notion_sync_status IN ('pending', 'synced', 'failed')
+  ),
+  notion_last_error    TEXT,
+  sync_started_at      TIMESTAMPTZ,
+  synced_at            TIMESTAMPTZ,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, client_request_id)
+);
+
+ALTER TABLE product_feedback
+  ADD COLUMN IF NOT EXISTS sync_started_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS product_feedback_sync_idx
+  ON product_feedback (notion_sync_status, created_at)
+  WHERE notion_sync_status = 'pending';
+
+CREATE UNIQUE INDEX IF NOT EXISTS product_feedback_notion_page_uidx
+  ON product_feedback (notion_page_id)
+  WHERE notion_page_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS jobs (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   type         TEXT NOT NULL,

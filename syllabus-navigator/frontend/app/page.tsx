@@ -111,7 +111,7 @@ function PageContent() {
 
         <section className="relative flex min-h-0 flex-1 flex-col">
           <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col px-4 sm:px-6">
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-2 pr-12 lg:pr-32">
               {ws.activeSyllabusId && (
                 <Button
                   variant="secondary"

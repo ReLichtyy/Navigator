@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   buildNotionFeedbackProperties,
+  isNotionFeedbackConfigured,
   resolveNotionFeedbackConfig,
 } from "@/lib/server/integrations/notion-feedback"
 
@@ -22,6 +23,13 @@ describe("Notion feedback preconfiguration", () => {
         NOTION_FEEDBACK_DATA_SOURCE_ID: "source-id",
       }),
     ).toEqual({ accessToken: "secret", dataSourceId: "source-id" })
+    expect(isNotionFeedbackConfigured({})).toBe(false)
+    expect(
+      isNotionFeedbackConfigured({
+        NOTION_ACCESS_TOKEN: "secret",
+        NOTION_FEEDBACK_DATA_SOURCE_ID: "source-id",
+      }),
+    ).toBe(true)
   })
 
   it("maps exactly the five requested Notion properties", () => {

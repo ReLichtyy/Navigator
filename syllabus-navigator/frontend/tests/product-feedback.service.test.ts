@@ -26,6 +26,7 @@ function makeDeps(): ProductFeedbackServiceDependencies {
   return {
     repository: {
       createOrGet: vi.fn().mockResolvedValue({ record, created: true }),
+      claimForSync: vi.fn().mockResolvedValue(record),
       markSynced: vi.fn().mockImplementation(async (_id, pageId) => ({
         ...record,
         notionPageId: pageId,
@@ -59,6 +60,10 @@ describe("submitProductFeedback", () => {
     expect(vi.mocked(deps.repository.createOrGet).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(deps.syncFeedback).mock.invocationCallOrder[0],
     )
+    expect(deps.repository.claimForSync).toHaveBeenCalledWith(record.id)
+    expect(vi.mocked(deps.repository.claimForSync).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(deps.syncFeedback).mock.invocationCallOrder[0],
+    )
     expect(deps.repository.markSynced).toHaveBeenCalledWith(record.id, "notion-page")
     expect(result.feedback.syncStatus).toBe("synced")
   })
@@ -76,10 +81,11 @@ describe("submitProductFeedback", () => {
       createdAt: record.createdAt,
       syncStatus: "pending",
     })
+    expect(deps.repository.markPending).toHaveBeenCalledWith(record.id, "not_configured")
     expect(deps.enqueueSync).not.toHaveBeenCalled()
   })
 
-  it("keeps transient failures pending and queues one retry", async () => {
+  it("keeps transient failures pending and relies on the atomic job for a new row", async () => {
     const deps = makeDeps()
     vi.mocked(deps.syncFeedback).mockResolvedValue({
       status: "pending",
@@ -94,7 +100,40 @@ describe("submitProductFeedback", () => {
     )
 
     expect(deps.repository.markPending).toHaveBeenCalledWith(record.id, "rate_limited")
-    expect(deps.enqueueSync).toHaveBeenCalledWith(record.id)
+    expect(deps.enqueueSync).not.toHaveBeenCalled()
+    expect(result.feedback.syncStatus).toBe("pending")
+  })
+
+  it("still acknowledges locally persisted feedback when the auxiliary enqueue fails", async () => {
+    const deps = makeDeps()
+    vi.mocked(deps.repository.createOrGet).mockResolvedValue({ record, created: false })
+    vi.mocked(deps.syncFeedback).mockResolvedValue({
+      status: "pending",
+      reason: "rate_limited",
+      retryable: true,
+    })
+    vi.mocked(deps.enqueueSync).mockRejectedValue(new Error("queue unavailable"))
+
+    await expect(
+      submitProductFeedback({ userId: record.userId, personName: record.personName }, input, deps),
+    ).resolves.toMatchObject({ feedback: { id: record.id, syncStatus: "pending" } })
+  })
+
+  it("keeps configuration failures pending so the existing job can recover later", async () => {
+    const deps = makeDeps()
+    vi.mocked(deps.syncFeedback).mockResolvedValue({
+      status: "pending",
+      reason: "unauthorized",
+      retryable: false,
+    })
+
+    const result = await submitProductFeedback(
+      { userId: record.userId, personName: record.personName },
+      input,
+      deps,
+    )
+
+    expect(deps.repository.markPending).toHaveBeenCalledWith(record.id, "unauthorized")
     expect(result.feedback.syncStatus).toBe("pending")
   })
 
@@ -113,5 +152,27 @@ describe("submitProductFeedback", () => {
 
     expect(deps.syncFeedback).not.toHaveBeenCalled()
     expect(result.feedback.syncStatus).toBe("synced")
+  })
+
+  it("allows only one concurrent replay to enter the external sync", async () => {
+    const deps = makeDeps()
+    let leaseAvailable = true
+    vi.mocked(deps.repository.claimForSync).mockImplementation(async () => {
+      if (!leaseAvailable) return null
+      leaseAvailable = false
+      return record
+    })
+    vi.mocked(deps.syncFeedback).mockResolvedValue({ status: "synced", pageId: "notion-page" })
+
+    const results = await Promise.all([
+      submitProductFeedback({ userId: record.userId, personName: record.personName }, input, deps),
+      submitProductFeedback({ userId: record.userId, personName: record.personName }, input, deps),
+    ])
+
+    expect(deps.syncFeedback).toHaveBeenCalledTimes(1)
+    expect(results.map((result) => result.feedback.syncStatus).sort()).toEqual([
+      "pending",
+      "synced",
+    ])
   })
 })

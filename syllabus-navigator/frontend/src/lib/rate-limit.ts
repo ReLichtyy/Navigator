@@ -7,6 +7,7 @@ const LIMITS = {
   anonymous: 5,
   guest: 10,
   authenticated: 100,
+  "product-feedback": 5,
 }
 
 let redisClient: Redis | null = null
@@ -42,6 +43,13 @@ const limiters = {
     ? new Ratelimit({
         redis: redisClient,
         limiter: Ratelimit.slidingWindow(LIMITS.authenticated, "1 m"),
+        analytics: true,
+      })
+    : null,
+  "product-feedback": redisClient
+    ? new Ratelimit({
+        redis: redisClient,
+        limiter: Ratelimit.slidingWindow(LIMITS["product-feedback"], "1 m"),
         analytics: true,
       })
     : null,
@@ -81,7 +89,7 @@ function inMemoryLimit(key: string, limit: number): RateLimitResult {
   }
 }
 
-export type RateLimitTier = "anonymous" | "guest" | "authenticated"
+export type RateLimitTier = "anonymous" | "guest" | "authenticated" | "product-feedback"
 
 export interface RateLimitResult {
   success: boolean

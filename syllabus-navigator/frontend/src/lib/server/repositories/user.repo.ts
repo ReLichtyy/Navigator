@@ -82,6 +82,14 @@ export async function getUserImage(userId: string): Promise<string | null> {
   return rows[0]?.image ?? null
 }
 
+/** Local profile-name fallback for server-owned audit records. */
+export async function getUserDisplayName(userId: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT display_name FROM users WHERE id = ${userId}::uuid
+  `) as { display_name: string | null }[]
+  return rows[0]?.display_name?.trim() || null
+}
+
 /** Set (or clear, with null) the user's avatar/profile image URL. */
 export async function setUserImage(userId: string, url: string | null): Promise<void> {
   await sql`
