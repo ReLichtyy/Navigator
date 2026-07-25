@@ -41,10 +41,10 @@
     "dotenv": "^17.4.2",
     "katex": "^0.17.0",
     "lucide-react": "^1.14.0",
-    "next": "^14.2.35",
-    "next-intl": "^3.26.5",
+    "next": "^14.2.25",
+    "next-intl": "^4.13.4",
     "next-themes": "^0.4.6",
-    "officeparser": "^4.2.0",
+    "officeparser": "^7.4.0",
     "openai": "^6.39.1",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -62,13 +62,13 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
-    "eslint": "^8.57.1",
-    "eslint-config-next": "^14.2.35",
+    "eslint": "^10.8.0",
+    "eslint-config-next": "^0.2.4",
     "knip": "^5.88.1",
     "postcss": "^8.5.14",
     "prettier": "^3.8.4",
     "tailwindcss": "^4.2.4",
     "typescript": "^6.0.3",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.10"
   }
 }
