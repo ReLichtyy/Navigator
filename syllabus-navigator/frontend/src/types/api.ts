@@ -24,6 +24,42 @@ export interface CitationAPI {
   syllabus_id?: string | null
 }
 
+/** Verifiable source locator attached to generated knowledge and study artifacts. */
+export interface SourceRefAPI {
+  syllabus_id: string
+  /** Canonical extracted block when available. */
+  source_block_id?: string | null
+  /** Retrieval chunk when the reference was resolved after embedding. */
+  chunk_id?: string | null
+  /** Existing graph topic used by deterministic previews. */
+  topic_id?: string | null
+  source_name?: string | null
+  source_type?: CitationAPI["source_type"]
+  page_start?: number | null
+  page_end?: number | null
+  char_start?: number | null
+  char_end?: number | null
+  quote?: string | null
+}
+
+export type ArtifactRunStatus = "queued" | "running" | "completed" | "failed" | "cancelled"
+
+export interface ArtifactRunAPI {
+  id: string
+  scope_kind: "doc" | "course"
+  scope_id: string
+  artifact_type: "document_inventory" | "document_graph" | "course_graph" | "study_kit"
+  status: ArtifactRunStatus
+  stage: string
+  progress: number
+  error: string | null
+  retryable: boolean
+  workflow_run_id: string | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+}
+
 export interface SuggestedPromptAPI {
   /** Short chip label shown above the chat composer. */
   label: string
@@ -108,6 +144,9 @@ export interface GraphResponseAPI {
     parent_id: string | null
     detail: string | null
     color: string | null
+    source_refs?: SourceRefAPI[]
+    confidence?: number | null
+    generation_version?: number
   }[]
   edges: { source: string; target: string }[]
   crossLinks: { source: string; target: string; label: string }[]
@@ -128,6 +167,8 @@ export interface CourseGraphResponseAPI {
   nodes: GraphResponseAPI["nodes"]
   edges: GraphResponseAPI["edges"]
   crossLinks: GraphResponseAPI["crossLinks"]
+  /** Latest generation run; the stored graph remains visible while this advances. */
+  generation?: ArtifactRunAPI | null
 }
 
 export type ProductFeedbackCategoryAPI = ProductFeedbackCategory

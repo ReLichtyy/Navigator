@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db"
 import type { LayoutKind } from "./graph.repo"
+import type { SourceRefAPI } from "@/types/api"
 
 /**
  * Whole-course mind map, ONE row per course (JSONB payload in the exact shape
@@ -17,7 +18,10 @@ export interface CourseGraphData {
     level: number
     parent_id: string | null
     detail: string | null
-    color: string | null
+      color: string | null
+      source_refs?: SourceRefAPI[]
+      confidence?: number | null
+      generation_version?: number
   }[]
   edges: { source: string; target: string }[]
   crossLinks: { source: string; target: string; label: string }[]
@@ -31,12 +35,13 @@ export interface DbCourseGraph {
   source_doc_ids: string[]
   status: CourseGraphStatus
   error: string | null
+  preview_data?: CourseGraphData | null
 }
 
 export const CourseGraphRepository = {
   async get(courseId: string): Promise<DbCourseGraph | undefined> {
     const rows = await sql`
-      SELECT course_id, data, source_doc_ids, status, error
+      SELECT course_id, data, preview_data, source_doc_ids, status, error
       FROM course_graphs WHERE course_id = ${courseId}::uuid
     `
     return rows[0] as DbCourseGraph | undefined
@@ -53,10 +58,30 @@ export const CourseGraphRepository = {
     `
   },
 
+  /** Save a fast deterministic preview without discarding the last ready graph. */
+  async savePreview(
+    courseId: string,
+    preview: CourseGraphData,
+    sourceDocIds: string[],
+  ): Promise<void> {
+    await sql`
+      INSERT INTO course_graphs
+        (course_id, preview_data, source_doc_ids, status, error, updated_at)
+      VALUES
+        (${courseId}::uuid, ${JSON.stringify(preview)}::jsonb, ${sourceDocIds}::uuid[],
+         'processing', NULL, now())
+      ON CONFLICT (course_id) DO UPDATE
+        SET preview_data = EXCLUDED.preview_data,
+            source_doc_ids = EXCLUDED.source_doc_ids,
+            status = 'processing', error = NULL, updated_at = now()
+    `
+  },
+
   async saveData(courseId: string, data: CourseGraphData): Promise<void> {
     await sql`
       UPDATE course_graphs
       SET data = ${JSON.stringify(data)}::jsonb, status = 'ready', error = NULL, updated_at = now()
+          , preview_data = NULL
       WHERE course_id = ${courseId}::uuid
     `
   },

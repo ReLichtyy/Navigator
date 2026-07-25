@@ -68,6 +68,31 @@ export interface TopicRetrievalOptions {
   maxChars?: number
 }
 
+/** Split the context budget fairly across normalized, distinct target topics. */
+export function allocateCoverage(
+  topics: string[],
+  maxChars: number,
+): { topic: string; maxChars: number }[] {
+  const seen = new Set<string>()
+  const labels: string[] = []
+  for (const raw of topics) {
+    const topic = raw.trim()
+    const key = topic.toLocaleLowerCase()
+    if (!topic || seen.has(key)) continue
+    seen.add(key)
+    labels.push(topic)
+  }
+  if (labels.length === 0) return []
+  const budget = Math.max(0, Math.trunc(maxChars))
+  const base = Math.floor(budget / labels.length)
+  let remainder = budget - base * labels.length
+  return labels.map((topic) => {
+    const extra = remainder > 0 ? 1 : 0
+    remainder -= extra
+    return { topic, maxChars: base + extra }
+  })
+}
+
 /**
  * Build a study context by retrieving the top chunks for EACH topic (hybrid) and
  * concatenating them under topic headers, deduped across topics. Returns null when
@@ -81,23 +106,34 @@ export async function buildContextByTopics(
 ): Promise<string | null> {
   const perTopic = opts.perTopic ?? 6
   const maxChars = opts.maxChars ?? 24_000
-  const labels = topics.map((t) => t.trim()).filter(Boolean)
-  if (labels.length === 0) return null
+  const allocations = allocateCoverage(topics, maxChars)
+  if (allocations.length === 0) return null
 
   try {
+    const results = await Promise.all(
+      allocations.map(async ({ topic, maxChars: topicChars }) => {
+        const queryEmbedding = await embedText(topic)
+        const fused = (
+          await denseAndLexical(scope, topic, queryEmbedding, perTopic * 3)
+        ).slice(0, perTopic)
+        return { topic, topicChars, fused }
+      }),
+    )
     const seen = new Set<string>()
     const sections: string[] = []
-    for (const label of labels) {
-      const q = await embedText(label)
-      const fused = (await denseAndLexical(scope, label, q, perTopic * 3)).slice(0, perTopic)
+    for (const { topic, topicChars, fused } of results) {
       const fresh = fused.filter((c) => !seen.has(c.id))
       fresh.forEach((c) => seen.add(c.id))
       if (fresh.length === 0) continue
-      sections.push(`## ${label}\n\n${fresh.map((c) => c.content).join("\n\n")}`)
+      sections.push(
+        `## ${topic}\n\n${fresh
+          .map((c) => c.content)
+          .join("\n\n")
+          .slice(0, topicChars)}`,
+      )
     }
     if (sections.length === 0) return null
-    const text = sections.join("\n\n")
-    return text.length > maxChars ? text.slice(0, maxChars) : text
+    return sections.join("\n\n")
   } catch (err) {
     logError("rag.retrieval.by_topics.error", {
       error: err instanceof Error ? err.message : String(err),

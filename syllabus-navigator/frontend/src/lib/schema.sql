@@ -123,6 +123,27 @@ ALTER TABLE chunks ADD COLUMN IF NOT EXISTS ts tsvector
   GENERATED ALWAYS AS (to_tsvector('spanish', content)) STORED;
 CREATE INDEX IF NOT EXISTS idx_chunks_ts ON chunks USING gin (ts);
 
+-- Canonical extracted evidence. Unlike retrieval chunks, blocks preserve source
+-- structure and locators so generated artifacts can cite the exact input unit.
+CREATE TABLE IF NOT EXISTS source_blocks (
+  id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  syllabus_id   UUID        NOT NULL REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  block_index   INT         NOT NULL,
+  block_type    TEXT        NOT NULL DEFAULT 'text',
+  content       TEXT        NOT NULL,
+  heading_path  TEXT[]      NOT NULL DEFAULT '{}',
+  page_start    INT,
+  page_end      INT,
+  char_start    INT,
+  char_end      INT,
+  metadata      JSONB       NOT NULL DEFAULT '{}',
+  content_hash  TEXT        NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (syllabus_id, block_index)
+);
+CREATE INDEX IF NOT EXISTS idx_source_blocks_syllabus
+  ON source_blocks (syllabus_id, block_index);
+
 -- ---------------------------------------------------------------------------
 -- Future schema: programs / courses / syllabi (Sprint 4)
 -- ---------------------------------------------------------------------------
@@ -211,6 +232,20 @@ CREATE TABLE IF NOT EXISTS topic_cross_links (
   UNIQUE (source_topic_id, target_topic_id)
 );
 CREATE INDEX IF NOT EXISTS idx_cross_links_syllabus ON topic_cross_links(syllabus_id);
+
+-- Evidence behind document-map topics. Course-map nodes keep the same SourceRef
+-- shape inside their JSONB payload because their nodes do not have relational ids.
+CREATE TABLE IF NOT EXISTS topic_sources (
+  topic_id        UUID        NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  source_block_id UUID        REFERENCES source_blocks(id) ON DELETE CASCADE,
+  chunk_id        UUID        REFERENCES chunks(id) ON DELETE CASCADE,
+  quote           TEXT,
+  confidence      NUMERIC(4,3) CHECK (confidence >= 0 AND confidence <= 1),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (topic_id, source_block_id),
+  CHECK (source_block_id IS NOT NULL OR chunk_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_topic_sources_topic ON topic_sources(topic_id);
 
 -- ---------------------------------------------------------------------------
 -- Schedule / cronograma — structured calendar events extracted from the syllabus
@@ -520,6 +555,37 @@ CREATE TABLE IF NOT EXISTS course_graphs (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE course_graphs ADD COLUMN IF NOT EXISTS preview_data JSONB;
+
+-- Durable, user-visible progress for expensive generated artifacts. Workflow
+-- state is mirrored here so clients never need platform credentials.
+CREATE TABLE IF NOT EXISTS artifact_runs (
+  id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id         TEXT        NOT NULL,
+  scope_kind      TEXT        NOT NULL CHECK (scope_kind IN ('doc','course')),
+  scope_id        UUID        NOT NULL,
+  artifact_type   TEXT        NOT NULL CHECK (
+    artifact_type IN ('document_inventory','document_graph','course_graph','study_kit')
+  ),
+  fingerprint     TEXT        NOT NULL,
+  status          TEXT        NOT NULL DEFAULT 'queued' CHECK (
+    status IN ('queued','running','completed','failed','cancelled')
+  ),
+  stage           TEXT        NOT NULL DEFAULT 'queued',
+  progress        SMALLINT    NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
+  request         JSONB       NOT NULL DEFAULT '{}',
+  error           TEXT,
+  retryable       BOOLEAN     NOT NULL DEFAULT TRUE,
+  workflow_run_id TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_runs_owner_scope
+  ON artifact_runs (user_id, scope_kind, scope_id, artifact_type, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_runs_active_fingerprint
+  ON artifact_runs (user_id, scope_kind, scope_id, artifact_type, fingerprint)
+  WHERE status IN ('queued','running');
 
 -- ---------------------------------------------------------------------------
 -- Study Engine — Step 1: versioned cache + persistent item bank

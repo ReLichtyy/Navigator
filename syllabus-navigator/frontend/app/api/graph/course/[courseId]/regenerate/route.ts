@@ -13,7 +13,7 @@ import { logError } from "@/lib/observability/logger"
 export const dynamic = "force-dynamic"
 // Single LLM call over the combined course text — same budget as the
 // whole-course study set (Fluid compute; drop to 60 if the plan rejects it).
-export const maxDuration = 300
+export const maxDuration = 15
 
 type RouteParams = { params: Promise<{ courseId: string }> }
 
@@ -32,8 +32,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       )
     }
 
-    const graph = await CourseGraphService.regenerate(userId, courseId, parsed.data)
-    return NextResponse.json(graph)
+    const run = await CourseGraphService.enqueueRegeneration(userId, courseId, parsed.data)
+    return NextResponse.json(run, { status: 202 })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })
