@@ -86,19 +86,21 @@ describe("UI-5 Estudio window", () => {
 
 describe("UI-6 Agenda (unified into Knowledge — AgendaPanel)", () => {
   const f = src("src/components/knowledge/agenda-panel.tsx")
-  it("imports extracted agenda-format + Badge/Button", () => {
+  it("imports extracted agenda-format + calendar/input/button primitives", () => {
     expect(f).toContain("@/lib/ui/agenda-format")
-    expect(f).toContain("@/components/ui/badge")
+    expect(f).toContain("@/components/agenda/month-calendar")
+    expect(f).toContain("@/components/ui/input")
     expect(f).toContain("@/components/ui/button")
   })
   it("does not inline TYPE_META or hand-rolled type pills", () => {
     expect(f).not.toContain("const TYPE_META")
     expect(f).not.toContain("${m.cls}")
   })
-  it("shows the next-5-days block and the quick-notes panel (calendar-first view)", () => {
-    expect(f).toContain("Próximos 5 días")
+  it("shows the month calendar and quick-notes panel without the removed next-5-days block", () => {
+    expect(f).toContain("<MonthCalendar")
     expect(f).toContain("Notas")
     expect(f).toContain("listRecentNotes")
+    expect(f).not.toContain("Próximos 5 días")
   })
   it("the old /agenda route now redirects to /knowledge", () => {
     const r = src("app/agenda/page.tsx")

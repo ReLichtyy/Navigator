@@ -9,10 +9,12 @@ const sdk = vi.hoisted(() => ({
 
 vi.mock("@notionhq/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@notionhq/client")>()
-  sdk.Client.mockImplementation(() => ({
-    dataSources: { retrieve: sdk.retrieve, query: sdk.query },
-    pages: { create: sdk.create },
-  }))
+  sdk.Client.mockImplementation(function MockNotionClient() {
+    return {
+      dataSources: { retrieve: sdk.retrieve, query: sdk.query },
+      pages: { create: sdk.create },
+    }
+  })
   return { ...actual, Client: sdk.Client }
 })
 

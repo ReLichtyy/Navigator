@@ -6,10 +6,7 @@
  */
 
 import { extractText, getDocumentProxy } from "unpdf"
-import { parseOfficeAsync } from "officeparser"
-import { tmpdir } from "os"
-import { mkdtemp, rm } from "fs/promises"
-import { join } from "path"
+import { parseOffice } from "officeparser"
 
 export interface TextChunk {
   text: string
@@ -106,20 +103,10 @@ export async function officeToChunks(
   maxLen = 1200,
   overlap = 120,
 ): Promise<TextChunk[]> {
-  // officeparser unzips to disk. The default location is relative to cwd (read-only
-  // on serverless) AND it cleans up a shared subdir after each parse, which races
-  // when two uploads run on the same instance. Give every parse its own temp dir
-  // under the OS temp (writable on Vercel: /tmp) and remove it when done.
-  const dir = await mkdtemp(join(tmpdir(), "officeparse-"))
-  try {
-    const text = await parseOfficeAsync(Buffer.from(bytes), {
-      tempFilesLocation: dir,
-      outputErrorToConsole: false,
-    })
-    return textToChunks((text ?? "").trim(), maxLen, overlap)
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {})
-  }
+  const document = await parseOffice(Buffer.from(bytes), {
+    outputErrorToConsole: false,
+  })
+  return textToChunks(document.toText().trim(), maxLen, overlap)
 }
 
 /**
