@@ -1,6 +1,7 @@
 import { DocumentRepository } from "../repositories/document.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { JobRepository } from "../repositories/job.repo"
+import { SourceBlockRepository } from "../repositories/source-block.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import {
   pdfToPageChunks,
@@ -8,7 +9,6 @@ import {
   textToChunks,
   fetchUrlText,
   meaningfulTextLength,
-  capChunks,
 } from "../rag/chunking"
 import { storePdf, delBlob, fetchPrivateBlob } from "../storage/blob"
 import { logInfo } from "@/lib/observability/logger"
@@ -17,21 +17,18 @@ import crypto from "crypto"
 
 // Vercel serverless caps the request body at ~4.5MB, so files larger than that
 // use the client→Blob direct upload path (/api/upload/blob + /api/upload/from-blob).
-// Locally the limit is the dev server's. We accept up to 25MB here; processing time is kept flat by
-// MAX_TEXT_CHARS below (we only ever embed/analyze the first N chars), so a big
-// file doesn't mean a slow upload — it just means the tail isn't indexed.
+// Locally the limit is the dev server's. We accept up to 25MB here and preserve
+// the complete extracted document for background processing.
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB
-const MAX_TEXT_CHARS = 200_000 // ~50k tokens; cap pasted text / fetched pages / extracted files
 const GUEST_TTL_HOURS = 24
 
 // Below this many non-whitespace chars a PDF is treated as a scan with no usable
-// digital text → status 'needs_ocr' (OCR is intentionally NOT run; see processUpload).
+// digital text → status 'needs_ocr'; the durable process route then runs OCR.
 const MIN_PDF_TEXT_CHARS = 200
 
 const NEEDS_OCR_MESSAGE =
-  "PDF escaneado o sin texto digital confiable. OCR automático deshabilitado para " +
-  "priorizar costo y estabilidad. El archivo quedó guardado, pendiente de OCR o de " +
-  "una versión con texto digital seleccionable."
+  "PDF escaneado o sin texto digital confiable. El archivo quedó guardado y está " +
+  "pendiente del workflow de OCR automático."
 
 export type IngestStatus = "pending" | "needs_ocr"
 
@@ -152,10 +149,7 @@ async function ingestBytes(params: {
   // Parse + chunk now (fast, no network) so the async worker never needs the raw file.
   let chunks
   try {
-    const parsed = isPdf ? await pdfToPageChunks(bytes) : await officeToChunks(bytes)
-    // Bound the indexed text so a large file doesn't blow up embedding / graph /
-    // schedule time. The full file is still stored (accounts).
-    chunks = capChunks(parsed, MAX_TEXT_CHARS)
+    chunks = isPdf ? await pdfToPageChunks(bytes) : await officeToChunks(bytes)
   } catch (err) {
     logInfo("document.upload.parse_error", {
       userId,
@@ -178,8 +172,8 @@ async function ingestBytes(params: {
     sourceType,
   })
 
-  // Scanned / image-only PDF: no reliable digital text. Persist but DON'T index.
-  // OCR is intentionally disabled here. Office files have no scan concept → reject.
+  // Scanned/image-only PDFs are persisted so the durable OCR workflow can process them.
+  // Office files have no scan fallback and are rejected when no text is extractable.
   if (meaningfulTextLength(chunks) < MIN_PDF_TEXT_CHARS) {
     if (isPdf) {
       await DocumentRepository.setStatus(upload.id, "needs_ocr", NEEDS_OCR_MESSAGE)
@@ -189,7 +183,10 @@ async function ingestBytes(params: {
     throw new ApiErrorResponse("El archivo no contiene texto legible suficiente.", 422)
   }
 
-  await ChunkRepository.replaceChunksText(upload.id, chunks)
+  await Promise.all([
+    SourceBlockRepository.replaceFromChunks(upload.id, chunks),
+    ChunkRepository.replaceChunksText(upload.id, chunks),
+  ])
   const jobId = await JobRepository.enqueue("ingest", { syllabusId: upload.id })
 
   logInfo("document.upload.phase1", {
@@ -306,7 +303,6 @@ export const DocumentService = {
       throw new ApiErrorResponse("El enlace no contiene texto legible suficiente.", 422)
     }
 
-    const clipped = text.slice(0, MAX_TEXT_CHARS)
     // Hash the URL so re-adding the same link updates in place (idempotent).
     const sourceHash = crypto.createHash("sha256").update(`link:${url}`).digest("hex")
     const isGuest = role === "guest"
@@ -317,7 +313,11 @@ export const DocumentService = {
       sourceUrl: url,
     })
 
-    await ChunkRepository.replaceChunksText(upload.id, textToChunks(clipped))
+    const chunks = textToChunks(text)
+    await Promise.all([
+      SourceBlockRepository.replaceFromChunks(upload.id, chunks),
+      ChunkRepository.replaceChunksText(upload.id, chunks),
+    ])
     const jobId = await JobRepository.enqueue("ingest", { syllabusId: upload.id })
 
     logInfo("document.link.phase1", { userId, isGuest, uploadId: upload.id, url })
@@ -339,9 +339,8 @@ export const DocumentService = {
       throw new ApiErrorResponse("El texto es demasiado corto para indexar.", 422)
     }
 
-    const clipped = clean.slice(0, MAX_TEXT_CHARS)
     // Hash the content so identical pastes dedupe per user.
-    const sourceHash = crypto.createHash("sha256").update(`text:${clipped}`).digest("hex")
+    const sourceHash = crypto.createHash("sha256").update(`text:${clean}`).digest("hex")
     const isGuest = role === "guest"
     const name = title.trim() || "Nota de texto"
 
@@ -350,7 +349,11 @@ export const DocumentService = {
       sourceType: "text",
     })
 
-    await ChunkRepository.replaceChunksText(upload.id, textToChunks(clipped))
+    const chunks = textToChunks(clean)
+    await Promise.all([
+      SourceBlockRepository.replaceFromChunks(upload.id, chunks),
+      ChunkRepository.replaceChunksText(upload.id, chunks),
+    ])
     const jobId = await JobRepository.enqueue("ingest", { syllabusId: upload.id })
 
     logInfo("document.text.phase1", { userId, isGuest, uploadId: upload.id })

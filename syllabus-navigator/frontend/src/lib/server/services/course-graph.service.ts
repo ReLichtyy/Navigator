@@ -12,6 +12,8 @@ import { StudyInvalidationService } from "./study-invalidation.service"
 import { ArtifactRunRepository } from "../repositories/artifact-run.repo"
 import { ArtifactDispatchService } from "./artifact-dispatch.service"
 import type { SourceRefAPI } from "@/types/api"
+import { InventoryRepository, type StoredInventory } from "../repositories/inventory.repo"
+import { inventoryToGroundedOutline } from "../rag/inventory-gen"
 
 const EMPTY: CourseGraphData = { layout: "radial", nodes: [], edges: [], crossLinks: [] }
 
@@ -27,9 +29,10 @@ function shape(
   generation: CourseGraphResponseAPI["generation"] = null,
 ): CourseGraphResponseAPI {
   const data = row?.data ?? row?.preview_data ?? null
+  const visibleStatus = row?.status === "failed" && row.data ? "stale" : (row?.status ?? "none")
   return {
     course_id: courseId,
-    graph_status: (row?.status ?? "none") as CourseGraphResponseAPI["graph_status"],
+    graph_status: visibleStatus as CourseGraphResponseAPI["graph_status"],
     graph_error: row?.error ?? null,
     source_doc_ids: row?.source_doc_ids ?? [],
     layout: data?.layout ?? null,
@@ -59,6 +62,7 @@ function previewFromDocumentGraphs(
       level: number
       weight_percent?: number | null
       detail?: string | null
+      source_refs?: SourceRefAPI[]
     }[]
   }[],
 ): CourseGraphData {
@@ -76,14 +80,19 @@ function previewFromDocumentGraphs(
     for (const topic of graph.topics.filter((item) => item.level === 1)) {
       const key = topic.label.trim().toLocaleLowerCase()
       if (!key) continue
-      const ref: SourceRefAPI = {
-        syllabus_id: graph.docId,
-        topic_id: topic.id,
-        quote: topic.detail ?? topic.label,
-      }
+      const topicRefs =
+        topic.source_refs && topic.source_refs.length > 0
+          ? topic.source_refs
+          : [
+              {
+                syllabus_id: graph.docId,
+                topic_id: topic.id,
+                quote: topic.detail ?? topic.label,
+              } satisfies SourceRefAPI,
+            ]
       const existing = byLabel.get(key)
       if (existing) {
-        existing.refs.push(ref)
+        existing.refs.push(...topicRefs)
         existing.weight = Math.max(existing.weight, Number(topic.weight_percent ?? 0))
       } else {
         byLabel.set(key, {
@@ -91,7 +100,7 @@ function previewFromDocumentGraphs(
           label: topic.label.trim(),
           weight: Number(topic.weight_percent ?? 0),
           detail: topic.detail ?? null,
-          refs: [ref],
+          refs: topicRefs,
         })
       }
     }
@@ -125,6 +134,40 @@ function previewFromDocumentGraphs(
   }
 }
 
+function refsForCourseNode(label: string, inventories: StoredInventory[]): SourceRefAPI[] {
+  const needle = label.trim().toLocaleLowerCase()
+  const terms = new Set(needle.split(/\s+/).filter((term) => term.length > 2))
+  const refs: SourceRefAPI[] = []
+  for (const inventory of inventories) {
+    const ranked = inventory.data.concepts
+      .map((concept) => {
+        const candidate = concept.label.trim().toLocaleLowerCase()
+        const overlap = candidate.split(/\s+/).filter((term) => terms.has(term)).length
+        const score =
+          candidate === needle
+            ? 100
+            : candidate.includes(needle) || needle.includes(candidate)
+              ? 50
+              : overlap
+        return { concept, score }
+      })
+      .sort((a, b) => b.score - a.score)
+    const selected = ranked.filter((item) => item.score > 0).slice(0, 2)
+    if (selected.length === 0 && ranked[0]) selected.push(ranked[0])
+    for (const { concept } of selected) {
+      for (const sourceBlockId of concept.source_block_ids.slice(0, 3)) {
+        refs.push({
+          syllabus_id: inventory.syllabus_id,
+          source_block_id: sourceBlockId,
+          source_name: inventory.original_filename,
+          quote: concept.summary,
+        })
+      }
+    }
+  }
+  return refs.slice(0, 6)
+}
+
 export const CourseGraphService = {
   /**
    * Read the whole-course mind map. `graph_status: "none"` means the course
@@ -146,7 +189,13 @@ export const CourseGraphService = {
   async enqueueRegeneration(
     userId: string,
     courseId: string,
-    input: { fileIds: string[]; focusTopics?: string[]; instructions?: string },
+    input: {
+      fileIds: string[]
+      focusTopics?: string[]
+      instructions?: string
+      branchId?: string
+      branchMode?: "regenerate" | "expand" | "condense"
+    },
   ) {
     const course = await CourseRepository.findByIdAndUser(courseId, userId)
     if (!course) throw new ApiErrorResponse("Course not found", 404)
@@ -156,16 +205,6 @@ export const CourseGraphService = {
         "Selecciona al menos un documento procesado del curso para generar el mapa.",
         400,
       )
-    }
-
-    const documentGraphs = await Promise.all(
-      docIds.map(async (docId) => ({ docId, ...(await GraphRepository.getGraph(docId)) })),
-    )
-    const preview = previewFromDocumentGraphs(documentGraphs)
-    if (preview.nodes.length > 0) {
-      await CourseGraphRepository.savePreview(courseId, preview, docIds)
-    } else {
-      await CourseGraphRepository.markProcessing(courseId, docIds)
     }
 
     const normalizedInput = { ...input, fileIds: docIds }
@@ -178,10 +217,24 @@ export const CourseGraphService = {
         fileIds: [...docIds].sort(),
         focusTopics: input.focusTopics ?? [],
         instructions: input.instructions ?? "",
+        branchId: input.branchId ?? "",
+        branchMode: input.branchMode ?? "",
       }),
       stage: "preview",
       request: normalizedInput,
     })
+    const documentGraphs = await Promise.all(
+      docIds.map(async (docId) => ({ docId, ...(await GraphRepository.getGraph(docId)) })),
+    )
+    const preview = previewFromDocumentGraphs(documentGraphs)
+    if (preview.nodes.length > 0) {
+      await CourseGraphRepository.savePreview(courseId, preview, docIds, run.id)
+    } else {
+      await CourseGraphRepository.markProcessing(courseId, docIds, run.id)
+    }
+    if (run.workflow_run_id && !run.workflow_run_id.startsWith("starting:")) return run
+    const claimed = await ArtifactRunRepository.claimDispatch(run.id)
+    if (!claimed) return run
     try {
       const workflowRunId = await ArtifactDispatchService.dispatchCourseGraph({
         runId: run.id,
@@ -193,8 +246,9 @@ export const CourseGraphService = {
       return run
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      await ArtifactRunRepository.releaseDispatchClaim(run.id)
       await ArtifactRunRepository.settle(run.id, "failed", message, true)
-      await CourseGraphRepository.markFailed(courseId, message)
+      await CourseGraphRepository.markFailed(courseId, message, run.id)
       throw new ApiErrorResponse("No se pudo iniciar la generación del mapa.", 502)
     }
   },
@@ -210,6 +264,7 @@ export const CourseGraphService = {
     userId: string,
     courseId: string,
     input: { fileIds: string[]; focusTopics?: string[]; instructions?: string },
+    runId?: string,
   ): Promise<CourseGraphResponseAPI> {
     const course = await CourseRepository.findByIdAndUser(courseId, userId)
     if (!course) throw new ApiErrorResponse("Course not found", 404)
@@ -223,10 +278,17 @@ export const CourseGraphService = {
       )
     }
 
-    const sourceText = await ChunkRepository.getConcatenatedTextByDocs(userId, courseId, docIds)
-    const documentGraphs = await Promise.all(
-      docIds.map((docId) => GraphRepository.getGraph(docId)),
-    )
+    const inventories = await InventoryRepository.getForDocuments(userId, courseId, docIds)
+    const sourceText =
+      inventories.length === docIds.length
+        ? inventories
+            .map(
+              (inventory) =>
+                `## ${inventory.original_filename}\n${inventoryToGroundedOutline(inventory.data)}`,
+            )
+            .join("\n\n")
+        : await ChunkRepository.getConcatenatedTextByDocs(userId, courseId, docIds)
+    const documentGraphs = await Promise.all(docIds.map((docId) => GraphRepository.getGraph(docId)))
     const curatedOutline = documentGraphs
       .flatMap((graph) => graph.topics)
       .map((topic) =>
@@ -248,7 +310,6 @@ export const CourseGraphService = {
       )
     }
 
-    await CourseGraphRepository.markProcessing(courseId, docIds)
     try {
       const g = await extractGraphFromText(text, {
         focusTopics: input.focusTopics,
@@ -257,19 +318,31 @@ export const CourseGraphService = {
       const colors = assignColors(g.topics)
       const data: CourseGraphData = {
         layout: g.layout,
-        nodes: g.topics.map((t) => ({
-          id: t.externalId,
-          label: t.label,
-          weight_percent: t.weight ?? 0,
-          level: t.level,
-          parent_id: t.parentExternalId,
-          detail: t.detail,
-          color: colors.get(t.externalId) ?? null,
-        })),
+        nodes: g.topics.map((t) => {
+          const sourceRefs = refsForCourseNode(t.label, inventories)
+          return {
+            id: t.externalId,
+            label: t.label,
+            weight_percent: t.weight ?? 0,
+            level: t.level,
+            parent_id: t.parentExternalId,
+            detail: t.detail,
+            color: colors.get(t.externalId) ?? null,
+            source_refs: sourceRefs,
+            confidence: sourceRefs.length > 0 ? 0.9 : 0,
+            generation_version: 2,
+          }
+        }),
         edges: g.prerequisites.map((p) => ({ source: p.from, target: p.to })),
         crossLinks: g.crossLinks,
       }
-      await CourseGraphRepository.saveData(courseId, data)
+      const saved = await CourseGraphRepository.saveData(courseId, data, runId)
+      if (!saved) {
+        throw new ApiErrorResponse(
+          "Esta generación fue reemplazada por una solicitud más nueva.",
+          409,
+        )
+      }
       await StudyInvalidationService.invalidateCourseGraph(courseId)
       logInfo("course_graph.regenerated", {
         courseId,
@@ -278,11 +351,118 @@ export const CourseGraphService = {
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      await CourseGraphRepository.markFailed(courseId, msg)
+      await CourseGraphRepository.markFailed(courseId, msg, runId)
       logError("course_graph.regenerate_error", { courseId, error: msg })
       throw new ApiErrorResponse("No se pudo generar el mapa del curso.", 502)
     }
 
+    return this.getCourseGraph(userId, courseId)
+  },
+
+  async refineBranch(
+    userId: string,
+    courseId: string,
+    input: {
+      fileIds: string[]
+      focusTopics?: string[]
+      instructions?: string
+      branchId?: string
+      branchMode?: "regenerate" | "expand" | "condense"
+    },
+    runId: string,
+  ): Promise<CourseGraphResponseAPI> {
+    const course = await CourseRepository.findByIdAndUser(courseId, userId)
+    if (!course) throw new ApiErrorResponse("Course not found", 404)
+    const existing = await CourseGraphRepository.get(courseId)
+    const data = existing?.data
+    const branch = data?.nodes.find((node) => node.id === input.branchId)
+    if (!data || !branch) throw new ApiErrorResponse("La rama seleccionada ya no existe.", 409)
+
+    const docIds = await processedDocIds(userId, courseId, input.fileIds)
+    const inventories = await InventoryRepository.getForDocuments(userId, courseId, docIds)
+    if (inventories.length === 0) {
+      throw new ApiErrorResponse("La rama aún no tiene un inventario verificable.", 409)
+    }
+    const evidence = inventories
+      .map(
+        (inventory) =>
+          `## ${inventory.original_filename}\n${inventoryToGroundedOutline(inventory.data)}`,
+      )
+      .join("\n\n")
+    const modeInstruction =
+      input.branchMode === "expand"
+        ? "Amplía la rama con conceptos y ejemplos adicionales respaldados."
+        : input.branchMode === "condense"
+          ? "Condensa la rama a sus conceptos esenciales, sin perder prerrequisitos."
+          : "Regenera únicamente esta rama con una jerarquía más clara."
+    const generated = await extractGraphFromText(evidence, {
+      focusTopics: [branch.label],
+      instructions: [modeInstruction, input.instructions].filter(Boolean).join(" "),
+    })
+
+    const removed = new Set<string>()
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const node of data.nodes) {
+        if (node.parent_id === branch.id || (node.parent_id && removed.has(node.parent_id))) {
+          if (!removed.has(node.id)) {
+            removed.add(node.id)
+            changed = true
+          }
+        }
+      }
+    }
+    const prefix = `ref-${runId.slice(0, 8)}-`
+    const idMap = new Map(
+      generated.topics.map((topic) => [topic.externalId, `${prefix}${topic.externalId}`]),
+    )
+    const generatedNodes = generated.topics.map((topic) => {
+      const refs = refsForCourseNode(topic.label, inventories)
+      return {
+        id: idMap.get(topic.externalId)!,
+        label: topic.label,
+        weight_percent: topic.weight ?? 0,
+        level: Math.min(4, branch.level + topic.level),
+        parent_id: topic.parentExternalId
+          ? (idMap.get(topic.parentExternalId) ?? branch.id)
+          : branch.id,
+        detail: topic.detail,
+        color: branch.color,
+        source_refs: refs,
+        confidence: refs.length > 0 ? 0.9 : 0,
+        generation_version: (branch.generation_version ?? 1) + 1,
+      }
+    })
+    const keptNodes = data.nodes
+      .filter((node) => !removed.has(node.id))
+      .map((node) =>
+        node.id === branch.id
+          ? { ...node, generation_version: (node.generation_version ?? 1) + 1 }
+          : node,
+      )
+    const next: CourseGraphData = {
+      ...data,
+      nodes: [...keptNodes, ...generatedNodes],
+      edges: [
+        ...data.edges.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)),
+        ...generated.prerequisites.map((edge) => ({
+          source: idMap.get(edge.from) ?? branch.id,
+          target: idMap.get(edge.to) ?? branch.id,
+        })),
+      ].filter((edge) => edge.source !== edge.target),
+      crossLinks: data.crossLinks.filter(
+        (link) => !removed.has(link.source) && !removed.has(link.target),
+      ),
+    }
+    const saved = await CourseGraphRepository.saveData(courseId, next, runId)
+    if (!saved) {
+      throw new ApiErrorResponse(
+        "Esta generación fue reemplazada por una solicitud más nueva.",
+        409,
+      )
+    }
+    await StudyInvalidationService.invalidateCourseGraph(courseId)
     return this.getCourseGraph(userId, courseId)
   },
 

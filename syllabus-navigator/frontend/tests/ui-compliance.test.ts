@@ -258,4 +258,21 @@ describe("App sidebar (design chrome)", () => {
     expect(nav).toContain('href: "/mapa"')
     expect(nav).toContain('href: "/knowledge"')
   })
+  it("offers a discreet delete action for recent Assistant chats", () => {
+    expect(f).toContain("deleteChat")
+    expect(f).toContain("Trash2")
+    expect(f).toContain("group-focus-within:opacity-100")
+  })
+})
+
+describe("All chats modal", () => {
+  const modal = src("src/components/navigator/chats-modal.tsx")
+  const page = src("app/page.tsx")
+
+  it("wires chat deletion without making the action permanently prominent", () => {
+    expect(modal).toContain("onDelete")
+    expect(modal).toContain("Eliminar chat")
+    expect(modal).toContain("group-focus-within:opacity-100")
+    expect(page).toContain("onDelete={ws.handleDeleteChat}")
+  })
 })

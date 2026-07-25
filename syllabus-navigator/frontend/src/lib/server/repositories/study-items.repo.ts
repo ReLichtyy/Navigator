@@ -184,6 +184,19 @@ export const StudyItemsRepository = {
     return (rows as { n: number }[])[0]?.n ?? 0
   },
 
+  async countQuizByTopic(scope: StudyScope): Promise<Map<string, number>> {
+    const rows = await sql`
+      SELECT topic_key, count(*)::int AS n
+      FROM study_items
+      WHERE scope_kind = ${scope.kind} AND scope_id = ${scope.id}::uuid
+        AND type = 'quiz' AND topic_key IS NOT NULL
+      GROUP BY topic_key
+    `
+    return new Map(
+      (rows as { topic_key: string; n: number }[]).map((row) => [row.topic_key, row.n]),
+    )
+  },
+
   /**
    * How many items of a type exist for a scope AT a difficulty. The staged quiz
    * caps per-difficulty (not globally) so a bank full of `medio` items can never

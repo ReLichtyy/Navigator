@@ -12,9 +12,24 @@
 import { embedText } from "@/lib/llm/embeddings"
 import { ChunkRepository, type RetrievedChunk } from "../../repositories/chunk.repo"
 import { logError } from "@/lib/observability/logger"
+import type { SourceRefAPI } from "@/types/api"
 
 // RRF constant. Higher = flatter weighting of rank position (standard ≈ 60).
 const RRF_K = 60
+const EMBEDDING_CACHE_TTL_MS = 10 * 60_000
+const labelEmbeddingCache = new Map<string, { value: Promise<number[]>; expiresAt: number }>()
+
+function normalizedLabelEmbedding(label: string): Promise<number[]> {
+  const key = label.trim().normalize("NFKC").toLocaleLowerCase()
+  const cached = labelEmbeddingCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+  const value = embedText(key).catch((error) => {
+    labelEmbeddingCache.delete(key)
+    throw error
+  })
+  labelEmbeddingCache.set(key, { value, expiresAt: Date.now() + EMBEDDING_CACHE_TTL_MS })
+  return value
+}
 
 /**
  * Reciprocal Rank Fusion: merge several ranked lists into one. Each chunk scores
@@ -68,6 +83,18 @@ export interface TopicRetrievalOptions {
   maxChars?: number
 }
 
+export interface CoverageManifest {
+  covered: string[]
+  insufficient: string[]
+  absent: string[]
+}
+
+export interface EvidenceContext {
+  text: string
+  sourceRefs: SourceRefAPI[]
+  coverage: CoverageManifest
+}
+
 /** Split the context budget fairly across normalized, distinct target topics. */
 export function allocateCoverage(
   topics: string[],
@@ -99,11 +126,11 @@ export function allocateCoverage(
  * nothing could be retrieved (no topics, or embeddings not ready yet) so callers
  * can fall back to the full concatenated text.
  */
-export async function buildContextByTopics(
+export async function buildEvidenceContextByTopics(
   scope: GenScope,
   topics: string[],
   opts: TopicRetrievalOptions = {},
-): Promise<string | null> {
+): Promise<EvidenceContext | null> {
   const perTopic = opts.perTopic ?? 6
   const maxChars = opts.maxChars ?? 24_000
   const allocations = allocateCoverage(topics, maxChars)
@@ -112,19 +139,38 @@ export async function buildContextByTopics(
   try {
     const results = await Promise.all(
       allocations.map(async ({ topic, maxChars: topicChars }) => {
-        const queryEmbedding = await embedText(topic)
-        const fused = (
-          await denseAndLexical(scope, topic, queryEmbedding, perTopic * 3)
-        ).slice(0, perTopic)
+        const queryEmbedding = await normalizedLabelEmbedding(topic)
+        const fused = (await denseAndLexical(scope, topic, queryEmbedding, perTopic * 3)).slice(
+          0,
+          perTopic,
+        )
         return { topic, topicChars, fused }
       }),
     )
     const seen = new Set<string>()
+    const seenWindows = new Set<string>()
     const sections: string[] = []
+    const selected: RetrievedChunk[] = []
+    const coverage: CoverageManifest = { covered: [], insufficient: [], absent: [] }
     for (const { topic, topicChars, fused } of results) {
-      const fresh = fused.filter((c) => !seen.has(c.id))
-      fresh.forEach((c) => seen.add(c.id))
-      if (fresh.length === 0) continue
+      const fresh = fused.filter((chunk) => {
+        const windowKey = chunk.content
+          .normalize("NFKC")
+          .toLocaleLowerCase()
+          .replace(/\s+/g, " ")
+          .slice(0, 240)
+        if (seen.has(chunk.id) || seenWindows.has(windowKey)) return false
+        seen.add(chunk.id)
+        seenWindows.add(windowKey)
+        return true
+      })
+      if (fresh.length === 0) {
+        coverage.absent.push(topic)
+        continue
+      }
+      selected.push(...fresh)
+      if (fresh.length >= Math.min(3, perTopic)) coverage.covered.push(topic)
+      else coverage.insufficient.push(topic)
       sections.push(
         `## ${topic}\n\n${fresh
           .map((c) => c.content)
@@ -133,11 +179,33 @@ export async function buildContextByTopics(
       )
     }
     if (sections.length === 0) return null
-    return sections.join("\n\n")
+    return {
+      text: sections.join("\n\n"),
+      coverage,
+      sourceRefs: selected.map((chunk) => ({
+        syllabus_id: chunk.syllabus_id ?? scope.id,
+        chunk_id: chunk.id,
+        source_name: chunk.source_name,
+        source_type: chunk.source_type as SourceRefAPI["source_type"],
+        page_start: chunk.page_start,
+        page_end: chunk.page_end,
+        char_start: chunk.char_start,
+        char_end: chunk.char_end,
+        quote: chunk.content.slice(0, 280),
+      })),
+    }
   } catch (err) {
     logError("rag.retrieval.by_topics.error", {
       error: err instanceof Error ? err.message : String(err),
     })
     return null // fall back to concatenated text
   }
+}
+
+export async function buildContextByTopics(
+  scope: GenScope,
+  topics: string[],
+  opts: TopicRetrievalOptions = {},
+): Promise<string | null> {
+  return (await buildEvidenceContextByTopics(scope, topics, opts))?.text ?? null
 }

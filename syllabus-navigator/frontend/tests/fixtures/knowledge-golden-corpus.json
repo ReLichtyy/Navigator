@@ -1,0 +1,29 @@
+[
+  {
+    "id": "syllabus-short-es",
+    "kind": "pdf",
+    "expected": ["objetivos", "evaluación", "cronograma"]
+  },
+  {
+    "id": "syllabus-short-en",
+    "kind": "pdf",
+    "expected": ["objectives", "assessment", "schedule"]
+  },
+  { "id": "textbook-long", "kind": "pdf", "expected": ["chapter", "definition", "example"] },
+  { "id": "slides-course", "kind": "pptx", "expected": ["module", "diagram", "summary"] },
+  { "id": "worksheet-tables", "kind": "xlsx", "expected": ["table", "formula", "result"] },
+  { "id": "scanned-syllabus", "kind": "scanned_pdf", "expected": ["course", "exam", "week"] },
+  { "id": "bilingual-course", "kind": "pdf", "expected": ["objetivo", "objective", "assessment"] },
+  { "id": "formula-heavy", "kind": "pdf", "expected": ["formula", "variable", "example"] },
+  { "id": "diagram-heavy", "kind": "pdf", "expected": ["component", "relationship", "flow"] },
+  { "id": "legal-reading", "kind": "docx", "expected": ["principle", "exception", "case"] },
+  { "id": "lab-manual", "kind": "pdf", "expected": ["procedure", "safety", "measurement"] },
+  {
+    "id": "course-multidoc",
+    "kind": "course",
+    "expected": ["foundation", "application", "assessment"]
+  },
+  { "id": "duplicate-slides", "kind": "pptx", "expected": ["concept", "example", "review"] },
+  { "id": "sparse-scan", "kind": "scanned_pdf", "expected": ["title", "diagram", "caption"] },
+  { "id": "mixed-web-text", "kind": "course", "expected": ["source", "concept", "relationship"] }
+]

@@ -1,9 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { MessageSquare, Plus, Search } from "lucide-react"
+import { MessageSquare, Plus, Search, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import type { Chat } from "@/components/navigator/types"
 
 /** Navigator v2 "Tus chats" modal: full chat list with search, opened from the
@@ -15,6 +16,7 @@ export function ChatsModal({
   activeId,
   onSelect,
   onNewChat,
+  onDelete,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -22,8 +24,10 @@ export function ChatsModal({
   activeId: string
   onSelect: (id: string) => void
   onNewChat: () => void
+  onDelete: (id: string) => Promise<boolean>
 }) {
   const [query, setQuery] = useState("")
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -32,6 +36,15 @@ export function ChatsModal({
       (c) => c.title.toLowerCase().includes(q) || (c.syllabusName ?? "").toLowerCase().includes(q),
     )
   }, [chats, query])
+
+  const handleDelete = async (id: string) => {
+    setDeletingId(id)
+    try {
+      await onDelete(id)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -81,38 +94,56 @@ export function ChatsModal({
             </p>
           ) : (
             filtered.map((chat) => (
-              <button
+              <div
                 key={chat.id}
-                type="button"
-                onClick={() => {
-                  onSelect(chat.id)
-                  onOpenChange(false)
-                }}
                 className={cn(
-                  "flex w-full items-start gap-3 rounded-[13px] border px-3.5 py-3 text-left transition-colors hover:border-accent/35 hover:bg-accent/5",
+                  "group flex w-full items-center rounded-[13px] border pr-2 transition-colors hover:border-accent/35 hover:bg-accent/5",
                   activeId === chat.id ? "border-accent/35 bg-accent/5" : "border-border/60",
                 )}
               >
-                <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-accent/10">
-                  <MessageSquare className="h-4 w-4 text-accent-bright" strokeWidth={1.8} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="truncate text-sm font-bold text-foreground">{chat.title}</span>
-                    {chat.syllabusName && (
-                      <span className="shrink-0 rounded-[5px] border border-accent/20 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-bright">
-                        {chat.syllabusName}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelect(chat.id)
+                    onOpenChange(false)
+                  }}
+                  className="flex min-w-0 flex-1 items-start gap-3 px-3.5 py-3 text-left"
+                >
+                  <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-accent/10">
+                    <MessageSquare className="h-4 w-4 text-accent-bright" strokeWidth={1.8} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-sm font-bold text-foreground">
+                        {chat.title}
                       </span>
-                    )}
+                      {chat.syllabusName && (
+                        <span className="shrink-0 rounded-[5px] border border-accent/20 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-accent-bright">
+                          {chat.syllabusName}
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1 block text-[11px] text-muted-foreground/70">
+                      {chat.timestamp}
+                      {chat.messageCount != null && chat.messageCount > 0
+                        ? ` · ${chat.messageCount} mensajes`
+                        : ""}
+                    </span>
                   </span>
-                  <span className="mt-1 block text-[11px] text-muted-foreground/70">
-                    {chat.timestamp}
-                    {chat.messageCount != null && chat.messageCount > 0
-                      ? ` · ${chat.messageCount} mensajes`
-                      : ""}
-                  </span>
-                </span>
-              </button>
+                </button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={deletingId === chat.id}
+                  onClick={() => void handleDelete(chat.id)}
+                  aria-label={`Eliminar chat: ${chat.title}`}
+                  title="Eliminar chat"
+                  className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
             ))
           )}
         </div>

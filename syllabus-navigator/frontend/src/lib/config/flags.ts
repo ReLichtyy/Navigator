@@ -88,6 +88,12 @@ export interface FeatureFlags {
    * "es"); planned to become a per-user preference that overrides this.
    */
   studyLanguage: string
+  /** Durable ingestion/inventory/artifact orchestration. */
+  knowledgePipelineV2: boolean
+  /** Progressive mind maps with a ready preview and background enrichment. */
+  graphPipelineV2: boolean
+  /** Persistent study kits selected without inline generation. */
+  studyPipelineV2: boolean
 }
 
 export const flags: FeatureFlags = {
@@ -97,6 +103,9 @@ export const flags: FeatureFlags = {
   ragEnabled: resolveBool(process.env.RAG_ENABLED, true),
   toolsEnabled: resolveBool(process.env.TOOLS_ENABLED, false),
   studyLanguage: resolveLanguage(process.env.STUDY_LANGUAGE, "es"),
+  knowledgePipelineV2: resolveBool(process.env.KNOWLEDGE_PIPELINE_V2, true),
+  graphPipelineV2: resolveBool(process.env.GRAPH_PIPELINE_V2, true),
+  studyPipelineV2: resolveBool(process.env.STUDY_PIPELINE_V2, false),
 }
 
 // Exported for tests so resolution logic can be exercised without mutating env.

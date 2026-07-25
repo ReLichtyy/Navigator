@@ -34,6 +34,8 @@ type Props = {
     fileIds: string[]
     focusTopics: string[]
     instructions: string
+    branchId?: string
+    branchMode?: "regenerate" | "expand" | "condense"
   }) => void
   onSaved?: (graph: GraphResponseAPI | CourseGraphResponseAPI) => void
   /** Title shown in the central node (usually the course name). */
@@ -42,6 +44,7 @@ type Props = {
   courses?: { key: string; name: string; color?: string | null; count?: number }[]
   selectedCourseKey?: string | null
   onSelectCourse?: (key: string) => void
+  regenerating?: boolean
 }
 
 /**
@@ -70,6 +73,7 @@ export default function GraphCanvas({
   courses,
   selectedCourseKey,
   onSelectCourse,
+  regenerating = false,
 }: Props) {
   const { queryTopicInChat } = useSyllabus()
 
@@ -118,7 +122,9 @@ export default function GraphCanvas({
     }
   }, [syllabusId, courseId, runLoad])
 
-  const loading = selfLoading || graphStatus === "processing" || graphStatus === "pending"
+  const loading =
+    selfLoading ||
+    ((graphStatus === "processing" || graphStatus === "pending") && nodes.length === 0)
 
   // Recursion-aware tree edits (rename / cascade-delete / add-child / sibling
   // reorder at any depth) → PATCH the full replacement graph. The server re-keys
@@ -188,6 +194,8 @@ export default function GraphCanvas({
       layout={layout ?? "radial"}
       centerTitle={center}
       loading={loading}
+      scopeKey={courseId ?? syllabusId ?? `${center}:${nodes[0]?.id ?? "empty"}`}
+      regenerating={regenerating}
       onTopicDouble={(label) => queryTopicInChat(label)}
       onSaveTree={editable && (syllabusId || courseId) ? saveTree : undefined}
       onRegenerate={
@@ -203,7 +211,7 @@ export default function GraphCanvas({
       onRegenerateAI={
         editable && onRegenerateAI
           ? (payload) => {
-              runLoad()
+              if (nodes.length === 0) runLoad()
               onRegenerateAI(payload)
             }
           : undefined

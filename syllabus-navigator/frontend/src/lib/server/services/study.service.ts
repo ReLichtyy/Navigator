@@ -19,6 +19,7 @@ import { StudyRepository } from "../repositories/study.repo"
 import { StudyStatsRepository } from "../repositories/study-stats.repo"
 import { GraphRepository } from "../repositories/graph.repo"
 import { CourseRepository } from "../repositories/course.repo"
+import { CourseGraphRepository } from "../repositories/course-graph.repo"
 import { MasteryRepository, topicKey } from "../repositories/mastery.repo"
 import {
   StudyItemsRepository,
@@ -30,7 +31,7 @@ import { QuizSeenRepository } from "../repositories/quiz-seen.repo"
 import { ApiErrorResponse } from "../utils/auth-helpers"
 import { assertScopeOwned } from "../utils/scope"
 import { getUserPrefs } from "../utils/user-prefs"
-import { buildContextByTopics } from "../rag/retrieval/hybrid"
+import { buildEvidenceContextByTopics } from "../rag/retrieval/hybrid"
 import { webSearchContext, appendWebContext } from "../rag/web-search"
 import { orchestrateStudySet } from "../rag/orchestrator/runner"
 import { buildEvidence, StudyBankService } from "./study-bank.service"
@@ -47,6 +48,7 @@ import {
   type QuizQuestion,
 } from "../rag/study-gen"
 import { composeStageWithQuota } from "./study-stage-compose"
+import { flags } from "@/lib/config/flags"
 
 // ── Configuración → Study Engine mappings (the UI stores Spanish labels) ─────
 // "Adaptativa" maps to no default: difficulty stays automatic.
@@ -438,9 +440,11 @@ export const StudyService = {
     // syllabus is covered, not just the first 24k chars. A focus topic, if given,
     // leads the retrieval. Falls back to the full concatenated text.
     const labels = topic ? [topic, ...ordered] : ordered
-    let text =
-      (await buildContextByTopics({ kind: "doc", id: syllabusId }, labels)) ??
-      (await ChunkRepository.getConcatenatedText(syllabusId))
+    const evidenceContext = await buildEvidenceContextByTopics(
+      { kind: "doc", id: syllabusId },
+      labels,
+    )
+    let text = evidenceContext?.text ?? (await ChunkRepository.getConcatenatedText(syllabusId))
     if (!text || text.trim().length < 80) {
       throw new ApiErrorResponse(
         "This course doesn't have enough indexed material yet. Try again once processing finishes.",
@@ -459,13 +463,33 @@ export const StudyService = {
     // Step 3+4: specialized agents (flashcard/inquisitor/synth) + answer-
     // correctness gate, instead of one mega-call.
     const excludeSeen = await seenTexts(scope)
-    const set = await orchestrateStudySet(
+    const generatedSet = await orchestrateStudySet(
       text,
       { difficulty, topic, weightedTopics, excludeSeen, language, cardFormat },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
-    if (!set) {
+    if (!generatedSet) {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
+    }
+    const sourceRefs =
+      evidenceContext?.sourceRefs ?? topics.flatMap((item) => item.source_refs ?? [])
+    const set: StudySet = {
+      ...generatedSet,
+      flashcards: generatedSet.flashcards.map((card) => ({
+        ...card,
+        source_refs: card.source_refs?.length ? card.source_refs : sourceRefs.slice(0, 8),
+      })),
+      quiz: generatedSet.quiz.map((question) => ({
+        ...question,
+        source_refs: question.source_refs?.length ? question.source_refs : sourceRefs.slice(0, 8),
+      })),
+    }
+    if (
+      flags.studyPipelineV2 &&
+      !opts.web &&
+      set.flashcards.some((card) => (card.source_refs?.length ?? 0) === 0)
+    ) {
+      throw new ApiErrorResponse("El kit quedó pendiente de evidencia verificable.", 409)
     }
 
     if ((await ChunkRepository.contentFingerprint(syllabusId)) !== fingerprint) {
@@ -527,8 +551,12 @@ export const StudyService = {
     const plan = await buildStudyPlan(userId, scope, weightedTopics, difficulty)
     const planLabels = orderLabelsByPlan(plan)
     const focusLabels = topic ? [topic, ...planLabels] : planLabels
+    const evidenceContext = await buildEvidenceContextByTopics(
+      { kind: "course", id: courseId, userId },
+      focusLabels,
+    )
     let text =
-      (await buildContextByTopics({ kind: "course", id: courseId, userId }, focusLabels)) ??
+      evidenceContext?.text ??
       evidence?.text ??
       (await ChunkRepository.getConcatenatedTextByCourse(userId, courseId))
     if (!text || text.trim().length < 80) {
@@ -545,13 +573,32 @@ export const StudyService = {
     }
 
     const excludeSeen = await seenTexts(scope)
-    const set = await orchestrateStudySet(
+    const generatedSet = await orchestrateStudySet(
       text,
       { difficulty, topic, weightedTopics, excludeSeen, language, cardFormat },
       { quiz: false }, // quiz is served by the staged endpoint, not the menu set
     )
-    if (!set) {
+    if (!generatedSet) {
       throw new ApiErrorResponse("Could not generate study material from this course.", 409)
+    }
+    const sourceRefs = evidenceContext?.sourceRefs ?? evidence?.sourceRefs ?? []
+    const set: StudySet = {
+      ...generatedSet,
+      flashcards: generatedSet.flashcards.map((card) => ({
+        ...card,
+        source_refs: card.source_refs?.length ? card.source_refs : sourceRefs.slice(0, 8),
+      })),
+      quiz: generatedSet.quiz.map((question) => ({
+        ...question,
+        source_refs: question.source_refs?.length ? question.source_refs : sourceRefs.slice(0, 8),
+      })),
+    }
+    if (
+      flags.studyPipelineV2 &&
+      !opts.web &&
+      set.flashcards.some((card) => (card.source_refs?.length ?? 0) === 0)
+    ) {
+      throw new ApiErrorResponse("El kit quedó pendiente de evidencia verificable.", 409)
     }
 
     if ((await ChunkRepository.contentFingerprintByCourse(userId, courseId)) !== fingerprint) {
@@ -584,7 +631,13 @@ export const StudyService = {
   async getStudyStatus(
     userId: string,
     scope: StudyScope,
-  ): Promise<{ cached: boolean; flashcards: number; quiz: number }> {
+  ): Promise<{
+    cached: boolean
+    flashcards: number
+    quiz: number
+    availability: { summary: boolean; flashcards: boolean; quiz: boolean }
+    coverage: { covered: string[]; insufficient: string[]; absent: string[] }
+  }> {
     const s = await assertScopeOwned(userId, scope)
     const cachedSet =
       s.kind === "doc"
@@ -598,11 +651,35 @@ export const StudyService = {
             await ChunkRepository.contentFingerprintByCourse(userId, s.id),
             STUDY_SCHEMA_VERSION,
           )
-    const [flashcards, quiz] = await Promise.all([
+    const [flashcards, quiz, byTopic, labels] = await Promise.all([
       StudyItemsRepository.countByType(s, "flashcard"),
       StudyItemsRepository.countByType(s, "quiz"),
+      StudyItemsRepository.countQuizByTopic(s),
+      s.kind === "doc"
+        ? GraphRepository.getGraph(s.id).then((graph) => graph.topics.map((topic) => topic.label))
+        : CourseGraphRepository.get(s.id).then((graph) =>
+            (graph?.data?.nodes ?? []).map((node) => node.label),
+          ),
     ])
-    return { cached: cachedSet !== undefined, flashcards, quiz }
+    const coverage = {
+      covered: [] as string[],
+      insufficient: [] as string[],
+      absent: [] as string[],
+    }
+    for (const label of labels) {
+      const count = byTopic.get(topicKey(label)) ?? 0
+      if (count >= 3) coverage.covered.push(label)
+      else if (count > 0) coverage.insufficient.push(label)
+      else coverage.absent.push(label)
+    }
+    const cached = cachedSet !== undefined
+    return {
+      cached,
+      flashcards,
+      quiz,
+      availability: { summary: cached, flashcards: flashcards > 0, quiz: quiz > 0 },
+      coverage,
+    }
   },
 
   /**

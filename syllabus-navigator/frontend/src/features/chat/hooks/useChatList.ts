@@ -1,17 +1,12 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import type { Chat } from "@/types/models"
-import {
-  listChats,
-  newChat as apiNewChat,
-  deleteChat as apiDeleteChat,
-  updateChat as apiUpdateChat,
-  ApiError,
-} from "@/lib/api"
+import { listChats, newChat as apiNewChat, updateChat as apiUpdateChat, ApiError } from "@/lib/api"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
+import { useChatNav } from "@/context/ChatNavContext"
 
 export function relativeTime(isoString: string): string {
   const date = new Date(isoString)
@@ -44,12 +39,15 @@ function mapApiChat(c: any): Chat {
 export function useChatList() {
   const { userId, ready: userReady, status: userStatus } = useUser()
   const { openAuthModal } = useAuthModal()
+  const { deletedChat } = useChatNav()
 
   const [chats, setChats] = useState<Chat[]>([])
   const [chatsLoading, setChatsLoading] = useState(true)
   const [chatsError, setChatsError] = useState<string | null>(null)
+  const fetchVersionRef = useRef(0)
 
   const fetchChatList = useCallback(async () => {
+    const requestVersion = ++fetchVersionRef.current
     if (!userReady || !userId) {
       if (userReady) setChatsLoading(false)
       return
@@ -60,22 +58,27 @@ export function useChatList() {
     try {
       setChatsLoading(true)
       const data = await listChats()
+      if (requestVersion !== fetchVersionRef.current) return
       setChats(data.chats.map(mapApiChat))
       setChatsError(null)
     } catch (err) {
+      if (requestVersion !== fetchVersionRef.current) return
       console.error("[useChatList] Load error:", err)
       setChatsError(err instanceof Error ? err.message : "Failed to load chats")
       if (userStatus !== "guest") {
         setChats([])
       }
     } finally {
-      setChatsLoading(false)
+      if (requestVersion === fetchVersionRef.current) setChatsLoading(false)
     }
   }, [userId, userReady, userStatus])
 
   useEffect(() => {
+    if (deletedChat) {
+      setChats((current) => current.filter((chat) => chat.id !== deletedChat.id))
+    }
     fetchChatList()
-  }, [fetchChatList])
+  }, [fetchChatList, deletedChat])
 
   const createChat = useCallback(
     async (activeModel?: string, syllabusId?: string | null, courseId?: string | null) => {
@@ -103,19 +106,6 @@ export function useChatList() {
     [userReady, userStatus, openAuthModal],
   )
 
-  const deleteChat = useCallback(async (id: string) => {
-    if (!confirm("¿Seguro que quieres eliminar este chat?")) return false
-    try {
-      await apiDeleteChat(id)
-      setChats((prev) => prev.filter((c) => c.id !== id))
-      toast.success("Chat eliminado")
-      return true
-    } catch (err) {
-      toast.error("No se pudo eliminar el chat")
-      return false
-    }
-  }, [])
-
   const renameChat = useCallback(async (id: string, title: string) => {
     try {
       await apiUpdateChat(id, { title })
@@ -131,7 +121,6 @@ export function useChatList() {
     chatsLoading,
     chatsError,
     createChat,
-    deleteChat,
     renameChat,
     refreshChats: fetchChatList,
   }

@@ -27,8 +27,12 @@ vi.mock("@/lib/server/repositories/chunk.repo", () => ({
 vi.mock("@/lib/server/repositories/job.repo", () => ({
   JobRepository: { enqueue: vi.fn(), claimNext: vi.fn(), complete: vi.fn(), fail: vi.fn() },
 }))
-vi.mock("@/lib/server/repositories/mastery.repo", () => ({ topicKey: (s: string) => s.toLowerCase() }))
-vi.mock("@/lib/server/rag/retrieval/hybrid", () => ({ buildContextByTopics: vi.fn() }))
+vi.mock("@/lib/server/repositories/mastery.repo", () => ({
+  topicKey: (s: string) => s.toLowerCase(),
+}))
+vi.mock("@/lib/server/rag/retrieval/hybrid", () => ({
+  buildEvidenceContextByTopics: vi.fn(),
+}))
 vi.mock("@/lib/server/rag/agents/inquisitor", () => ({ inquisitorAgent: vi.fn() }))
 vi.mock("@/lib/server/rag/eval/gates", () => ({ gateQuiz: vi.fn() }))
 vi.mock("@/lib/llm/embeddings", () => ({ embedTexts: vi.fn() }))
@@ -38,7 +42,7 @@ import { GraphRepository } from "@/lib/server/repositories/graph.repo"
 import { CourseGraphRepository } from "@/lib/server/repositories/course-graph.repo"
 import { JobRepository } from "@/lib/server/repositories/job.repo"
 import { ChunkRepository } from "@/lib/server/repositories/chunk.repo"
-import { buildContextByTopics } from "@/lib/server/rag/retrieval/hybrid"
+import { buildEvidenceContextByTopics } from "@/lib/server/rag/retrieval/hybrid"
 import { inquisitorAgent } from "@/lib/server/rag/agents/inquisitor"
 import { gateQuiz } from "@/lib/server/rag/eval/gates"
 import { embedTexts } from "@/lib/llm/embeddings"
@@ -77,7 +81,11 @@ const job = () => ({
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(GraphRepository.getGraph).mockResolvedValue({ topics: [], edges: [] } as any)
-  vi.mocked(buildContextByTopics).mockResolvedValue("x".repeat(200))
+  vi.mocked(buildEvidenceContextByTopics).mockResolvedValue({
+    text: "x".repeat(200),
+    sourceRefs: [],
+    coverage: { covered: [], insufficient: [], absent: [] },
+  })
   vi.mocked(StudyItemsRepository.listDedupeTexts).mockResolvedValue([])
   // Alt kinds already at their floor by default → ensure/drain behave as before.
   vi.mocked(StudyItemsRepository.countByKinds).mockResolvedValue(8)

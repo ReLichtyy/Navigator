@@ -122,6 +122,9 @@ CREATE INDEX IF NOT EXISTS idx_chunks_embedding
 ALTER TABLE chunks ADD COLUMN IF NOT EXISTS ts tsvector
   GENERATED ALWAYS AS (to_tsvector('spanish', content)) STORED;
 CREATE INDEX IF NOT EXISTS idx_chunks_ts ON chunks USING gin (ts);
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS ts_simple tsvector
+  GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED;
+CREATE INDEX IF NOT EXISTS idx_chunks_ts_simple ON chunks USING gin (ts_simple);
 
 -- Canonical extracted evidence. Unlike retrieval chunks, blocks preserve source
 -- structure and locators so generated artifacts can cite the exact input unit.
@@ -143,6 +146,17 @@ CREATE TABLE IF NOT EXISTS source_blocks (
 );
 CREATE INDEX IF NOT EXISTS idx_source_blocks_syllabus
   ON source_blocks (syllabus_id, block_index);
+
+CREATE TABLE IF NOT EXISTS document_inventories (
+  syllabus_id UUID        PRIMARY KEY REFERENCES syllabus_uploads(id) ON DELETE CASCADE,
+  fingerprint TEXT        NOT NULL,
+  version      INT         NOT NULL DEFAULT 1,
+  status       TEXT        NOT NULL DEFAULT 'ready' CHECK (status IN ('processing','ready','failed')),
+  data         JSONB       NOT NULL DEFAULT '{}',
+  error        TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- ---------------------------------------------------------------------------
 -- Future schema: programs / courses / syllabi (Sprint 4)
@@ -556,6 +570,7 @@ CREATE TABLE IF NOT EXISTS course_graphs (
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE course_graphs ADD COLUMN IF NOT EXISTS preview_data JSONB;
+ALTER TABLE course_graphs ADD COLUMN IF NOT EXISTS active_run_id UUID;
 
 -- Durable, user-visible progress for expensive generated artifacts. Workflow
 -- state is mirrored here so clients never need platform credentials.
@@ -581,11 +596,32 @@ CREATE TABLE IF NOT EXISTS artifact_runs (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   completed_at    TIMESTAMPTZ
 );
+ALTER TABLE artifact_runs
+  ADD COLUMN IF NOT EXISTS dispatch_claimed_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_artifact_runs_owner_scope
   ON artifact_runs (user_id, scope_kind, scope_id, artifact_type, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_runs_active_fingerprint
   ON artifact_runs (user_id, scope_kind, scope_id, artifact_type, fingerprint)
   WHERE status IN ('queued','running');
+
+CREATE TABLE IF NOT EXISTS artifact_run_steps (
+  id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+  run_id        UUID        NOT NULL REFERENCES artifact_runs(id) ON DELETE CASCADE,
+  step          TEXT        NOT NULL,
+  status        TEXT        NOT NULL CHECK (status IN ('completed','failed')),
+  model         TEXT,
+  latency_ms    INT         NOT NULL DEFAULT 0,
+  input_tokens  INT,
+  output_tokens INT,
+  cost_usd      NUMERIC(12,6),
+  evidence_size INT,
+  coverage      JSONB,
+  cache_hit     BOOLEAN,
+  discarded     INT         NOT NULL DEFAULT 0,
+  failure_reason TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_run_steps_run ON artifact_run_steps(run_id, created_at);
 
 -- ---------------------------------------------------------------------------
 -- Study Engine — Step 1: versioned cache + persistent item bank

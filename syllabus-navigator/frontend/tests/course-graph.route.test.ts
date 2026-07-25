@@ -33,6 +33,7 @@ vi.mock("@/lib/server/repositories/course.repo", () => ({
 vi.mock("@/lib/server/repositories/course-graph.repo", () => ({
   CourseGraphRepository: {
     get: vi.fn(),
+    savePreview: vi.fn(),
     markProcessing: vi.fn(),
     saveData: vi.fn(),
     markFailed: vi.fn(),
@@ -50,6 +51,19 @@ vi.mock("@/lib/server/repositories/graph.repo", () => ({
 vi.mock("@/lib/server/services/study-invalidation.service", () => ({
   StudyInvalidationService: { invalidateCourseGraph: vi.fn() },
 }))
+vi.mock("@/lib/server/repositories/artifact-run.repo", () => ({
+  ArtifactRunRepository: {
+    create: vi.fn(),
+    claimDispatch: vi.fn(),
+    attachWorkflowRun: vi.fn(),
+    releaseDispatchClaim: vi.fn(),
+    latestForScope: vi.fn(),
+    settle: vi.fn(),
+  },
+}))
+vi.mock("@/lib/server/services/artifact-dispatch.service", () => ({
+  ArtifactDispatchService: { dispatchCourseGraph: vi.fn() },
+}))
 vi.mock("@/lib/server/rag/graph-gen", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/server/rag/graph-gen")>()
   return { ...real, extractGraphFromText: vi.fn() }
@@ -62,6 +76,8 @@ import { ChunkRepository } from "@/lib/server/repositories/chunk.repo"
 import { GraphRepository } from "@/lib/server/repositories/graph.repo"
 import { StudyInvalidationService } from "@/lib/server/services/study-invalidation.service"
 import { extractGraphFromText } from "@/lib/server/rag/graph-gen"
+import { ArtifactRunRepository } from "@/lib/server/repositories/artifact-run.repo"
+import { ArtifactDispatchService } from "@/lib/server/services/artifact-dispatch.service"
 import { sql } from "@/lib/db"
 import { GET, PATCH } from "../app/api/graph/course/[courseId]/route"
 import { POST } from "../app/api/graph/course/[courseId]/regenerate/route"
@@ -99,6 +115,8 @@ const ROW = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(ArtifactRunRepository.latestForScope).mockResolvedValue(undefined)
+  vi.mocked(ArtifactRunRepository.claimDispatch).mockResolvedValue(true)
 })
 
 describe("GET /api/graph/course/[courseId]", () => {
@@ -166,80 +184,100 @@ describe("POST /api/graph/course/[courseId]/regenerate", () => {
     expect(CourseGraphRepository.markProcessing).not.toHaveBeenCalled()
   })
 
-  it("generates from the selected docs, persists selection, returns the graph", async () => {
+  it("creates a preview, queues durable generation and returns 202", async () => {
     asUser()
     vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue(COURSE as any)
     vi.mocked(sql).mockResolvedValue([{ id: DOC_A }, { id: DOC_B }] as any)
-    vi.mocked(ChunkRepository.getConcatenatedTextByDocs).mockResolvedValue("x".repeat(200))
     vi.mocked(GraphRepository.getGraph).mockResolvedValue({
-      topics: [{ external_id: "edited", label: "Tema editado", level: 1 }],
+      topics: [{ id: "t1", external_id: "edited", label: "Tema editado", level: 1 }],
       edges: [],
       crossLinks: [],
     } as any)
-    vi.mocked(extractGraphFromText).mockResolvedValue({
-      layout: "radial",
-      topics: [
-        {
-          externalId: "n1",
-          label: "Matrices",
-          level: 1,
-          parentExternalId: null,
-          weight: 60,
-          detail: null,
-        },
-        {
-          externalId: "n2",
-          label: "Determinantes",
-          level: 2,
-          parentExternalId: "n1",
-          weight: null,
-          detail: null,
-        },
-      ],
-      prerequisites: [{ from: "n1", to: "n2" }],
-      crossLinks: [],
-    })
-    vi.mocked(CourseGraphRepository.get).mockResolvedValue({
-      ...ROW,
-      source_doc_ids: [DOC_A, DOC_B],
+    vi.mocked(ArtifactRunRepository.create).mockResolvedValue({
+      id: "run-1",
+      status: "queued",
+      stage: "preview",
+      progress: 5,
     } as any)
+    vi.mocked(ArtifactDispatchService.dispatchCourseGraph).mockResolvedValue("workflow-1")
 
     const res = await POST(
       req({ fileIds: [DOC_A, DOC_B], focusTopics: ["Matrices"], instructions: "sencillo" }),
       params("c1"),
     )
-    expect(res.status).toBe(200)
-    expect(CourseGraphRepository.markProcessing).toHaveBeenCalledWith("c1", [DOC_A, DOC_B])
-    expect(extractGraphFromText).toHaveBeenCalledWith(expect.any(String), {
-      focusTopics: ["Matrices"],
-      instructions: "sencillo",
-    })
-    expect(vi.mocked(extractGraphFromText).mock.calls[0][0]).toContain("Tema editado")
-    const saved = vi.mocked(CourseGraphRepository.saveData).mock.calls[0][1]
-    expect(saved.nodes).toHaveLength(2)
-    expect(saved.nodes[0].color).toBeTruthy() // palette assigned server-side
-    expect(saved.edges).toEqual([{ source: "n1", target: "n2" }])
-    expect(StudyInvalidationService.invalidateCourseGraph).toHaveBeenCalledWith("c1")
+    expect(res.status).toBe(202)
+    expect(await res.json()).toMatchObject({ id: "run-1", status: "queued" })
+    expect(CourseGraphRepository.savePreview).toHaveBeenCalled()
+    expect(ArtifactDispatchService.dispatchCourseGraph).toHaveBeenCalled()
+    expect(extractGraphFromText).not.toHaveBeenCalled()
   })
 
-  it("marks the row failed and returns 502 when generation throws", async () => {
+  it("queues a selected branch refinement without rebuilding it in the request", async () => {
     asUser()
     vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue(COURSE as any)
     vi.mocked(sql).mockResolvedValue([{ id: DOC_A }] as any)
-    vi.mocked(ChunkRepository.getConcatenatedTextByDocs).mockResolvedValue("x".repeat(200))
-    vi.mocked(extractGraphFromText).mockRejectedValue(new Error("boom"))
+    vi.mocked(GraphRepository.getGraph).mockResolvedValue({
+      topics: [{ id: "t1", external_id: "n1", label: "Matrices", level: 1 }],
+      edges: [],
+      crossLinks: [],
+    } as any)
+    vi.mocked(ArtifactRunRepository.create).mockResolvedValue({
+      id: "run-branch",
+      status: "queued",
+    } as any)
+    vi.mocked(ArtifactDispatchService.dispatchCourseGraph).mockResolvedValue("workflow-branch")
+
+    const res = await POST(
+      req({ fileIds: [DOC_A], branchId: "n1", branchMode: "expand" }),
+      params("c1"),
+    )
+
+    expect(res.status).toBe(202)
+    expect(ArtifactDispatchService.dispatchCourseGraph).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ branchId: "n1", branchMode: "expand" }),
+      }),
+    )
+    expect(extractGraphFromText).not.toHaveBeenCalled()
+  })
+
+  it("marks the run recoverable and returns 502 when dispatch fails", async () => {
+    asUser()
+    vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue(COURSE as any)
+    vi.mocked(sql).mockResolvedValue([{ id: DOC_A }] as any)
+    vi.mocked(GraphRepository.getGraph).mockResolvedValue({
+      topics: [{ id: "t1", external_id: "n1", label: "Tema", level: 1 }],
+      edges: [],
+      crossLinks: [],
+    } as any)
+    vi.mocked(ArtifactRunRepository.create).mockResolvedValue({
+      id: "run-1",
+      status: "queued",
+    } as any)
+    vi.mocked(ArtifactDispatchService.dispatchCourseGraph).mockRejectedValue(new Error("boom"))
     const res = await POST(req({ fileIds: [DOC_A] }), params("c1"))
     expect(res.status).toBe(502)
-    expect(CourseGraphRepository.markFailed).toHaveBeenCalledWith("c1", "boom")
+    expect(CourseGraphRepository.markFailed).toHaveBeenCalledWith("c1", "boom", "run-1")
+    expect(ArtifactRunRepository.settle).toHaveBeenCalledWith("run-1", "failed", "boom", true)
   })
 
-  it("409 when the selected docs have no indexed text", async () => {
+  it("queues even when a processed document has no prior graph preview", async () => {
     asUser()
     vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue(COURSE as any)
     vi.mocked(sql).mockResolvedValue([{ id: DOC_A }] as any)
-    vi.mocked(ChunkRepository.getConcatenatedTextByDocs).mockResolvedValue("")
+    vi.mocked(GraphRepository.getGraph).mockResolvedValue({
+      topics: [],
+      edges: [],
+      crossLinks: [],
+    } as any)
+    vi.mocked(ArtifactRunRepository.create).mockResolvedValue({
+      id: "run-1",
+      status: "queued",
+    } as any)
+    vi.mocked(ArtifactDispatchService.dispatchCourseGraph).mockResolvedValue("workflow-1")
     const res = await POST(req({ fileIds: [DOC_A] }), params("c1"))
-    expect(res.status).toBe(409)
+    expect(res.status).toBe(202)
+    expect(CourseGraphRepository.markProcessing).toHaveBeenCalledWith("c1", [DOC_A], "run-1")
   })
 })
 

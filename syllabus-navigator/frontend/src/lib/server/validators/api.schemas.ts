@@ -46,13 +46,15 @@ export const UploadFromBlobSchema = z.object({
   contentType: z.string().max(255).optional(),
 })
 
-export const CreateChatSchema = z.object({
-  syllabus_id: z.string().uuid("Invalid syllabus ID").optional(),
-  course_id: z.string().uuid("Invalid course ID").optional(),
-  active_model: z.string().optional(),
-}).refine((value) => !(value.syllabus_id && value.course_id), {
-  message: "Choose either a syllabus or a course scope",
-})
+export const CreateChatSchema = z
+  .object({
+    syllabus_id: z.string().uuid("Invalid syllabus ID").optional(),
+    course_id: z.string().uuid("Invalid course ID").optional(),
+    active_model: z.string().optional(),
+  })
+  .refine((value) => !(value.syllabus_id && value.course_id), {
+    message: "Choose either a syllabus or a course scope",
+  })
 
 export const ProductFeedbackSchema = z
   .object({
@@ -116,6 +118,8 @@ export const CourseGraphRegenerateSchema = z.object({
     .max(40),
   focusTopics: z.array(z.string().trim().min(1).max(120)).max(10).optional(),
   instructions: z.string().trim().max(600).optional(),
+  branchId: z.string().trim().min(1).max(100).optional(),
+  branchMode: z.enum(["regenerate", "expand", "condense"]).optional(),
 })
 
 export type CourseGraphRegenerateInput = z.infer<typeof CourseGraphRegenerateSchema>
@@ -249,9 +253,7 @@ export type UpdatePreferencesInput = z.infer<typeof UpdatePreferencesSchema>
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const NoteTitleSchema = z.string().trim().min(1, "Title is required").max(120, "Title is too long")
-const NoteColorSchema = z
-  .string()
-  .regex(/^#[0-9a-fA-F]{6}$/, "Invalid note color")
+const NoteColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Invalid note color")
 
 export const CreateNoteSchema = z.object({
   note_date: z.string().regex(ISO_DATE, "Invalid date (expected YYYY-MM-DD)"),

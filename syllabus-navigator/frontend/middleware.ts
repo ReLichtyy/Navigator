@@ -33,8 +33,9 @@ export default clerkMiddleware(async (auth, req) => {
 
 export const config = {
   matcher: [
-    // Skip Next internals and static assets, run on everything else.
-    "/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)",
+    // Workflow's internal callback must bypass Clerk so the durable runtime can
+    // resume signed workflow steps without a browser session.
+    "/((?!.well-known/workflow|_next/static|_next/image|favicon.ico|.*\\..*).*)",
     "/(api|trpc)(.*)",
   ],
 }

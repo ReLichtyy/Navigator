@@ -13,6 +13,7 @@ import {
   Plus,
   Flame,
   Settings,
+  Trash2,
   User as UserIcon,
 } from "lucide-react"
 import { SettingsModal } from "@/components/settings/settings-modal"
@@ -39,13 +40,14 @@ export function AppSidebar() {
   const t = useTranslations("sidebar")
   const { displayName, status, resetIdentity, avatarUrl } = useUser()
   const { openAuthModal } = useAuthModal()
-  const { requestChat, requestNewChat, setAllChatsOpen } = useChatNav()
+  const { requestChat, requestNewChat, setAllChatsOpen, deleteChat, deletedChat } = useChatNav()
   const { openBienvenida } = useBienvenida()
   const [collapsed, setCollapsed] = useState(false)
   const [stats, setStats] = useState<StudyStatsAPI | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [recentChats, setRecentChats] = useState<{ id: string; title: string }[]>([])
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
 
   // Honor the retired /settings route's redirect: open the modal once on mount.
   useEffect(() => {
@@ -57,6 +59,9 @@ export function AppSidebar() {
       setStats(null)
       setRecentChats([])
       return
+    }
+    if (deletedChat) {
+      setRecentChats((current) => current.filter((chat) => chat.id !== deletedChat.id))
     }
     let alive = true
     fetchStudyStats()
@@ -71,7 +76,7 @@ export function AppSidebar() {
     return () => {
       alive = false
     }
-  }, [status, pathname])
+  }, [status, pathname, deletedChat])
 
   // Hide the app chrome on Clerk auth screens.
   if (["/sign-in", "/sign-up"].some((r) => pathname.startsWith(r))) {
@@ -79,6 +84,15 @@ export function AppSidebar() {
   }
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href))
+
+  const handleDeleteChat = async (id: string) => {
+    setDeletingChatId(id)
+    try {
+      await deleteChat(id)
+    } finally {
+      setDeletingChatId(null)
+    }
+  }
 
   const assistantItem = MAIN_NAV[0]
   const AssistantIcon = assistantItem.icon
@@ -214,18 +228,34 @@ export function AppSidebar() {
                     {t("newChat")}
                   </button>
                   {recentChats.map((c) => (
-                    <button
+                    <div
                       key={c.id}
-                      type="button"
-                      onClick={() => {
-                        requestChat(c.id)
-                        if (pathname !== "/") router.push("/")
-                      }}
-                      className="group flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                      className="group flex items-center rounded-md text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
                     >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40 transition-colors group-hover:bg-accent" />
-                      <span className="truncate">{c.title}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          requestChat(c.id)
+                          if (pathname !== "/") router.push("/")
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left"
+                      >
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40 transition-colors group-hover:bg-accent" />
+                        <span className="truncate">{c.title}</span>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={deletingChatId === c.id}
+                        onClick={() => void handleDeleteChat(c.id)}
+                        aria-label={`Eliminar chat: ${c.title}`}
+                        title="Eliminar chat"
+                        className="mr-1 h-6 w-6 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 group-focus-within:opacity-100"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
                   ))}
                   <button
                     type="button"

@@ -65,6 +65,8 @@ type Props = {
    * these layouts don't all have a natural single center point). */
   centerTitle?: string
   loading?: boolean
+  scopeKey?: string
+  regenerating?: boolean
   onTopicDouble?: (label: string) => void
   /** Structural tree editing. Resolve on saved; reject with an Error to show its message. */
   onSaveTree?: (nodes: TreeNodeDTO[], crossLinks: CrossLinkDTO[]) => Promise<void>
@@ -83,6 +85,8 @@ type Props = {
     fileIds: string[]
     focusTopics: string[]
     instructions: string
+    branchId?: string
+    branchMode?: "regenerate" | "expand" | "condense"
   }) => void
   /**
    * Course folders shown in the "Curso del mapa" picker inside the Editar drawer
@@ -119,6 +123,8 @@ export function RichMindMapCanvas({
   layout,
   centerTitle,
   loading = false,
+  scopeKey,
+  regenerating = false,
   onTopicDouble,
   onSaveTree,
   onRegenerate,
@@ -198,7 +204,7 @@ export function RichMindMapCanvas({
     return node.color ?? FALLBACK_COLOR
   }
 
-  // Reset navigation + skins when the underlying document changes.
+  // Reset local view preferences only when the selected document/course changes.
   useEffect(() => {
     setCollapsed(new Set())
     setFocusId(null)
@@ -209,6 +215,14 @@ export function RichMindMapCanvas({
     setAskOpen(false)
     setAskTxt("")
     setAskQ("")
+  }, [scopeKey])
+
+  // Progressive updates preserve interaction state; only discard references to
+  // nodes that no longer exist in the final graph.
+  useEffect(() => {
+    const ids = new Set(nodes.map((node) => node.id))
+    setCollapsed((current) => new Set([...current].filter((id) => ids.has(id))))
+    setFocusId((current) => (current && ids.has(current) ? current : null))
   }, [nodes])
 
   // Apply a default expansion depth: collapse every node at/below that level.
@@ -239,7 +253,10 @@ export function RichMindMapCanvas({
     return set
   }, [focusId, allFlat])
 
-  const fitZoom = Math.min(1, Math.max(0.3, (viewW - 40) / result.width, (viewH - 100) / result.height))
+  const fitZoom = Math.min(
+    1,
+    Math.max(0.3, (viewW - 40) / result.width, (viewH - 100) / result.height),
+  )
   const [zoom, setZoom] = useState(fitZoom)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [drag, setDrag] = useState<{ x: number; y: number; px: number; py: number } | null>(null)
@@ -566,6 +583,19 @@ export function RichMindMapCanvas({
     })
   }
 
+  const fireBranchAI = (branchMode: "regenerate" | "expand" | "condense") => {
+    if (!onRegenerateAI || !focusId || fileSel.size === 0) return
+    const focused = allFlat.find((node) => node.id === focusId)
+    setEditOpen(false)
+    onRegenerateAI({
+      fileIds: [...fileSel],
+      focusTopics: focused ? [focused.label] : [],
+      instructions: instructions.trim(),
+      branchId: focusId,
+      branchMode,
+    })
+  }
+
   // --- inline "ask about this map" (question bar) ---
   const [ask, setAsk] = useState("")
   const [askQ, setAskQ] = useState("")
@@ -715,6 +745,10 @@ export function RichMindMapCanvas({
             return (
               <div
                 key={node.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isFocus}
+                aria-label={`${node.label}. Enter para seleccionar; Mayús más Enter para consultar.`}
                 onClick={(e) => {
                   e.stopPropagation()
                   if (movedRef.current) return
@@ -723,6 +757,13 @@ export function RichMindMapCanvas({
                 onDoubleClick={(e) => {
                   e.stopPropagation()
                   onNodeDouble(node.id, node.label)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (e.shiftKey && e.key === "Enter") onNodeDouble(node.id, node.label)
+                  else if (!onNodeToolClick(node.id)) focusNode(node.id)
                 }}
                 title={title}
                 style={{
@@ -947,7 +988,10 @@ export function RichMindMapCanvas({
                 <div className="mt-2 flex flex-col gap-1">
                   {BRANCH_PALETTES.map((pl, i) => {
                     const on = branchIdx === i
-                    const swatches = pl.colors.length > 0 ? pl.colors.slice(0, 4) : ["#5BE39A", "#5BC8E3", "#E0C27C", "#E0745F"]
+                    const swatches =
+                      pl.colors.length > 0
+                        ? pl.colors.slice(0, 4)
+                        : ["#5BE39A", "#5BC8E3", "#E0C27C", "#E0745F"]
                     return (
                       <button
                         key={pl.name}
@@ -1294,9 +1338,40 @@ export function RichMindMapCanvas({
                     />
                   </div>
 
+                  {focusId && (
+                    <div>
+                      <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
+                        Rama seleccionada
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(
+                          [
+                            ["expand", "Ampliar"],
+                            ["condense", "Condensar"],
+                            ["regenerate", "Regenerar"],
+                          ] as const
+                        ).map(([mode, label]) => (
+                          <button
+                            key={mode}
+                            onClick={() => fireBranchAI(mode)}
+                            disabled={fileSel.size === 0 || regenerating}
+                            className="rounded-[9px] px-2 py-2 text-[11px] font-semibold text-[#C9D2CD] disabled:opacity-50"
+                            style={{
+                              border: "1px solid rgba(63,191,132,0.3)",
+                              background: "rgba(63,191,132,0.07)",
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <button
                     onClick={fireRegenerateAI}
-                    disabled={fileSel.size === 0}
+                    disabled={fileSel.size === 0 || regenerating}
+                    aria-busy={regenerating}
                     className="flex w-full items-center justify-center gap-2 rounded-xl py-[12px] text-[13.5px] font-bold disabled:opacity-50"
                     style={{
                       background: "linear-gradient(135deg,#3FBF84,#2c9a66)",
@@ -1304,13 +1379,20 @@ export function RichMindMapCanvas({
                       boxShadow: "0 6px 20px rgba(63,191,132,0.25)",
                     }}
                   >
-                    <RotateCcw className="h-4 w-4" />
-                    Regenerar mapa
+                    {regenerating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-4 w-4" />
+                    )}
+                    <span aria-live="polite">
+                      {regenerating ? "Regenerando mapa…" : "Regenerar mapa"}
+                    </span>
                   </button>
 
                   {onSaveTree && (
                     <button
                       onClick={() => setManualOpen((o) => !o)}
+                      disabled={regenerating}
                       className="flex items-center justify-between rounded-[10px] px-3 py-2 text-[11.5px] font-bold text-[#9AA39E]"
                       style={{ border: "1px solid rgba(255,255,255,0.08)" }}
                     >
@@ -1324,7 +1406,7 @@ export function RichMindMapCanvas({
                 </>
               )}
 
-              {(!onRegenerateAI || manualOpen) && onSaveTree && (
+              {(!onRegenerateAI || manualOpen) && onSaveTree && !regenerating && (
                 <div>
                   <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.08em] text-[#6FCB9A]">
                     Temas del mapa
@@ -1444,11 +1526,17 @@ export function RichMindMapCanvas({
                       setEditOpen(false)
                       onRegenerate()
                     }}
+                    disabled={regenerating}
+                    aria-busy={regenerating}
                     className="flex w-full items-center justify-center gap-2 rounded-xl py-[10px] text-[12.5px] font-bold text-[#C9D2CD]"
                     style={{ border: "1px solid rgba(255,255,255,0.1)" }}
                   >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    Regenerar desde cero
+                    {regenerating ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    )}
+                    {regenerating ? "Regenerando…" : "Regenerar desde cero"}
                   </button>
                 </div>
               )}
@@ -1457,7 +1545,7 @@ export function RichMindMapCanvas({
         )}
 
         {/* right-center vertical toolbar (design v3: select / add / connect / delete) */}
-        {onSaveTree && (
+        {onSaveTree && !regenerating && (
           <div
             className="absolute right-4 top-1/2 z-[19] flex -translate-y-1/2 flex-col items-center gap-1.5 rounded-2xl p-2"
             onMouseDown={(e) => e.stopPropagation()}
@@ -1734,8 +1822,18 @@ export function RichMindMapCanvas({
 
             {askOpen && (
               <div className="flex flex-wrap justify-center gap-1.5">
-                <AskChip icon={AlignLeft} label="Más conciso" disabled={!canRefine} onClick={() => runAsk({ refine: "concise", previousAnswer: askTxt })} />
-                <AskChip icon={AlignJustify} label="Añadir detalles" disabled={!canRefine} onClick={() => runAsk({ refine: "detail", previousAnswer: askTxt })} />
+                <AskChip
+                  icon={AlignLeft}
+                  label="Más conciso"
+                  disabled={!canRefine}
+                  onClick={() => runAsk({ refine: "concise", previousAnswer: askTxt })}
+                />
+                <AskChip
+                  icon={AlignJustify}
+                  label="Añadir detalles"
+                  disabled={!canRefine}
+                  onClick={() => runAsk({ refine: "detail", previousAnswer: askTxt })}
+                />
                 <div className="relative">
                   <AskChip
                     icon={Languages}
@@ -1757,7 +1855,9 @@ export function RichMindMapCanvas({
                       {LANGS.map((lg) => (
                         <button
                           key={lg}
-                          onClick={() => runAsk({ refine: "translate", previousAnswer: askTxt, lang: lg })}
+                          onClick={() =>
+                            runAsk({ refine: "translate", previousAnswer: askTxt, lang: lg })
+                          }
                           className="rounded-lg px-2.5 py-2 text-left text-[12.5px] font-semibold text-[#C9D2CD] hover:bg-white/5 hover:text-[#F2F6F4]"
                         >
                           {lg}
@@ -1802,7 +1902,11 @@ export function RichMindMapCanvas({
                   boxShadow: "0 4px 14px rgba(63,191,132,0.22)",
                 }}
               >
-                {askBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {askBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
               </button>
             </div>
           </div>

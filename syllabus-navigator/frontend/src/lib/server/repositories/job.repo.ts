@@ -43,6 +43,15 @@ export const JobRepository = {
       `
       if (existing.length > 0) {
         const job = existing[0] as { id: string; status: string }
+        if (payload.artifactRunId) {
+          await sql`
+            UPDATE jobs
+            SET payload = payload || ${JSON.stringify({
+              artifactRunId: payload.artifactRunId,
+            })}::jsonb
+            WHERE id = ${job.id}::uuid
+          `
+        }
         if (opts?.kickIfPending && job.status === "pending") {
           await sql`UPDATE jobs SET scheduled_at = now() WHERE id = ${job.id}::uuid`
         }

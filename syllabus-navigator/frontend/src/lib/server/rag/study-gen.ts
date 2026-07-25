@@ -8,12 +8,14 @@
 
 import { z } from "zod"
 import { flags } from "@/lib/config/flags"
+import type { SourceRefAPI } from "@/types/api"
 
 // ---------- public shape (what the UI consumes) ----------
 
 export interface Flashcard {
   front: string
   back: string
+  source_refs?: SourceRefAPI[]
 }
 
 /** Exercise format. `mc` is generated today; the rest are wired for later phases. */
@@ -47,6 +49,8 @@ export interface QuizQuestion {
   fillText?: string
   /** `fill` accepted answers (normalized comparison; first one shown as the model answer). */
   fillAnswers?: string[]
+  /** Exact chunks/blocks supporting the prompt, answer and explanation. */
+  source_refs?: SourceRefAPI[]
 }
 
 export interface SummaryConcept {
@@ -75,7 +79,7 @@ export interface StudyGuideSection {
  * The versioned cache reuses a stored set only when its schema_version matches,
  * so a bump invalidates every cached set after deploy.
  */
-export const STUDY_SCHEMA_VERSION = 6
+export const STUDY_SCHEMA_VERSION = 7
 
 export interface StudySet {
   flashcards: Flashcard[]

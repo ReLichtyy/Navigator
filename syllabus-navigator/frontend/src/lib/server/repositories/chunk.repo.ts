@@ -230,14 +230,9 @@ export const ChunkRepository = {
       course_graph_ts: "",
       course_graph_status: "",
     }
-    return [
-      r.n,
-      r.chunk_ts,
-      r.doc_graph_ts,
-      r.docs,
-      r.course_graph_ts,
-      r.course_graph_status,
-    ].join(":")
+    return [r.n, r.chunk_ts, r.doc_graph_ts, r.docs, r.course_graph_ts, r.course_graph_status].join(
+      ":",
+    )
   },
 
   /** Retrieval: nearest chunks to a query embedding, scoped to one syllabus. */
@@ -278,8 +273,14 @@ export const ChunkRepository = {
       FROM chunks c
       JOIN syllabus_uploads su ON su.id = c.syllabus_id
       WHERE c.syllabus_id = ${syllabusId}::uuid
-        AND c.ts @@ plainto_tsquery('spanish', ${query})
-      ORDER BY ts_rank(c.ts, plainto_tsquery('spanish', ${query})) DESC
+        AND (
+          c.ts @@ plainto_tsquery('spanish', ${query})
+          OR c.ts_simple @@ plainto_tsquery('simple', ${query})
+        )
+      ORDER BY GREATEST(
+        ts_rank(c.ts, plainto_tsquery('spanish', ${query})),
+        ts_rank(c.ts_simple, plainto_tsquery('simple', ${query}))
+      ) DESC
       LIMIT ${limit}
     `
     return rows as RetrievedChunk[]
@@ -326,8 +327,14 @@ export const ChunkRepository = {
       FROM chunks c
       JOIN syllabus_uploads su ON su.id = c.syllabus_id
       WHERE su.course_id = ${courseId}::uuid AND su.user_id = ${userId}
-        AND c.ts @@ plainto_tsquery('spanish', ${query})
-      ORDER BY ts_rank(c.ts, plainto_tsquery('spanish', ${query})) DESC
+        AND (
+          c.ts @@ plainto_tsquery('spanish', ${query})
+          OR c.ts_simple @@ plainto_tsquery('simple', ${query})
+        )
+      ORDER BY GREATEST(
+        ts_rank(c.ts, plainto_tsquery('spanish', ${query})),
+        ts_rank(c.ts_simple, plainto_tsquery('simple', ${query}))
+      ) DESC
       LIMIT ${limit}
     `
     return rows as RetrievedChunk[]

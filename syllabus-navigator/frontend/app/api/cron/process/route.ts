@@ -12,6 +12,7 @@ import { NextResponse } from "next/server"
 import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { StudyBankService } from "@/lib/server/services/study-bank.service"
 import { drainProductFeedbackSyncQueue } from "@/lib/server/services/product-feedback.service"
+import { ArtifactQueueService } from "@/lib/server/services/artifact-queue.service"
 import { logError } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
@@ -37,6 +38,10 @@ async function handle(request: Request) {
       return { processed: 0, failed: 1, retried: 0, deferred: false }
     })
     const result = await IngestionService.drainQueue()
+    const artifacts = await ArtifactQueueService.drainCourseGraphs(2).catch((err) => {
+      logError("cron.process.artifact_drain_error", { error: String(err) })
+      return { processed: 0, failed: 1, retried: 0 }
+    })
     // Also fill any pending study-bank jobs (staged-quiz question banks). NOTE:
     // on the Hobby plan this cron only runs ONCE A DAY, so it's a safety net, not
     // the mechanism — the client's fire-and-forget POST /api/study/warm is what
@@ -47,7 +52,7 @@ async function handle(request: Request) {
       return { processed: 0, failed: 0 }
     })
     return NextResponse.json(
-      { message: "Queue drained", ...result, productFeedback, study },
+      { message: "Queue drained", ...result, productFeedback, artifacts, study },
       { status: 200 },
     )
   } catch (error) {

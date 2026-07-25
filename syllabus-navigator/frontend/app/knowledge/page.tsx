@@ -89,6 +89,14 @@ import {
 import { useConfirm } from "@/components/ui/confirm-dialog"
 import { getDocStatus, isChatReady, NEEDS_OCR_HINT } from "@/lib/ui/doc-status"
 import { groupByRealCourse, type RealCourse } from "@/lib/ui/course-group"
+import {
+  MAX_FILES_PER_UPLOAD,
+  appendFilesToQueue,
+  fileQueueKey,
+  filesRemainingAfterUpload,
+  formatFileSize,
+  getUploadFileValidationError,
+} from "@/lib/ui/upload-file-queue"
 import { TopicsArchive } from "@/components/knowledge/topics-archive"
 import { AgendaPanel } from "@/components/knowledge/agenda-panel"
 
@@ -179,11 +187,15 @@ export default function KnowledgeBasePage() {
   const [textTitle, setTextTitle] = useState("")
   const [textBody, setTextBody] = useState("")
   const [isAdding, setIsAdding] = useState(false)
+  const [queuedFiles, setQueuedFiles] = useState<File[]>([])
+  const [activeUploadKey, setActiveUploadKey] = useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 })
   // When set, sources added via the dialog go straight into this course (no
   // inference/suggestion step). null = header button → unassigned.
   const [addCourseId, setAddCourseId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadInFlightRef = useRef(false)
   // BUG FIX #4: Use ref for interval to prevent stale closure race condition
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const isMountedRef = useRef(true)
@@ -272,6 +284,34 @@ export default function KnowledgeBasePage() {
 
   const handleUploadClick = () => fileInputRef.current?.click()
 
+  const queueFiles = (incoming: File[]) => {
+    if (incoming.length === 0 || isUploading) return
+
+    const validFiles = incoming.filter((file) => {
+      const validationError = getUploadFileValidationError(file)
+      if (validationError) toast.error(validationError)
+      return validationError === null
+    })
+    const result = appendFilesToQueue(queuedFiles, validFiles)
+    setQueuedFiles(result.files)
+
+    if (result.duplicates.length > 0) {
+      toast.info(
+        result.duplicates.length === 1
+          ? `${result.duplicates[0].name} ya está en la selección.`
+          : `${result.duplicates.length} archivos ya estaban en la selección.`,
+      )
+    }
+    if (result.excess.length > 0) {
+      toast.error(`Puedes subir un máximo de ${MAX_FILES_PER_UPLOAD} archivos cada vez.`)
+    }
+  }
+
+  const removeQueuedFile = (key: string) => {
+    if (isUploading) return
+    setQueuedFiles((current) => current.filter((file) => fileQueueKey(file) !== key))
+  }
+
   // Assign a freshly-created source to a course, skipping the inference flow.
   // No-op when courseId is null (header upload → stays unassigned).
   const assignToCourse = async (syllabusId: string, courseId: string | null) => {
@@ -286,29 +326,22 @@ export default function KnowledgeBasePage() {
   // Shared upload path for both the file picker and drag-and-drop. Validates
   // each file client-side, shows an optimistic row, uploads sequentially.
   const uploadFiles = async (files: File[], targetCourseId: string | null) => {
-    if (files.length === 0) return
+    const completedKeys = new Set<string>()
+    if (files.length === 0) return completedKeys
 
-    const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB — must match document.service.ts
-    const ACCEPTED_EXT = /\.(pdf|docx|pptx|xlsx)$/i
-
+    const existingNames = new Set(uploads.map((u) => u.original_filename.toLowerCase()))
     setIsUploading(true)
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      if (!ACCEPTED_EXT.test(file.name)) {
-        toast.error(`${file.name}: solo PDF, Word, PowerPoint o Excel.`)
-        continue
-      }
-      if (file.size === 0) {
-        toast.error(`${file.name} está vacío.`)
-        continue
-      }
-      if (file.size > MAX_FILE_SIZE) {
-        toast.error(`${file.name} supera el límite de 25MB.`)
+      setActiveUploadKey(fileQueueKey(file))
+      setUploadProgress({ current: i + 1, total: files.length })
+      const validationError = getUploadFileValidationError(file)
+      if (validationError) {
+        toast.error(validationError)
         continue
       }
 
       // Duplicate filename check — UX guard (backend handles hash-based dedup).
-      const existingNames = new Set(uploads.map((u) => u.original_filename.toLowerCase()))
       if (existingNames.has(file.name.toLowerCase())) {
         const ok = await confirm({
           title: "Documento duplicado",
@@ -342,6 +375,8 @@ export default function KnowledgeBasePage() {
         // Fire the slow enrichment (graph/schedule/inference) without blocking;
         // the row is already chat-ready and polling fills in the graph when done.
         processDocument(res.syllabus_id).catch(() => {})
+        completedKeys.add(fileQueueKey(file))
+        existingNames.add(file.name.toLowerCase())
         toast.success(`${file.name} subido correctamente.`, { id: toastId })
       } catch (err: any) {
         toast.error(err?.message ?? `No se pudo subir ${file.name}.`, { id: toastId })
@@ -351,24 +386,21 @@ export default function KnowledgeBasePage() {
       }
     }
 
-    setIsUploading(false)
     await fetchUploads(true)
+    setIsUploading(false)
+    setActiveUploadKey(null)
+    setUploadProgress({ current: 0, total: 0 })
+    return completedKeys
   }
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
-    if (files.length === 0) return
     if (fileInputRef.current) fileInputRef.current.value = ""
-
-    // Snapshot the target now; reset so later header uploads stay unassigned.
-    const targetCourseId = addCourseId
-    setAddCourseId(null)
-
-    await uploadFiles(files, targetCourseId)
+    queueFiles(files)
   }
 
   // Drag-and-drop from the OS file explorer onto the "Añadir fuente" dropzone.
-  const handleFileDrop = async (e: React.DragEvent) => {
+  const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setFileDragActive(false)
@@ -377,11 +409,36 @@ export default function KnowledgeBasePage() {
     const files = Array.from(e.dataTransfer.files ?? [])
     if (files.length === 0) return
 
-    const targetCourseId = addCourseId
-    setAddCourseId(null)
-    setAddOpen(false)
+    queueFiles(files)
+  }
 
-    await uploadFiles(files, targetCourseId)
+  const handleQueuedUpload = async () => {
+    if (queuedFiles.length === 0 || isUploading || uploadInFlightRef.current) return
+
+    uploadInFlightRef.current = true
+    const files = [...queuedFiles]
+    const targetCourseId = addCourseId
+    try {
+      const completedKeys = await uploadFiles(files, targetCourseId)
+      const remainingFiles = filesRemainingAfterUpload(files, completedKeys)
+      setQueuedFiles(remainingFiles)
+
+      if (remainingFiles.length === 0) {
+        setAddCourseId(null)
+        setAddOpen(false)
+      } else {
+        toast.info(
+          `${remainingFiles.length} ${
+            remainingFiles.length === 1 ? "archivo quedó pendiente" : "archivos quedaron pendientes"
+          }. Puedes volver a intentar.`,
+        )
+      }
+    } finally {
+      uploadInFlightRef.current = false
+      setIsUploading(false)
+      setActiveUploadKey(null)
+      setUploadProgress({ current: 0, total: 0 })
+    }
   }
 
   const handleAddLink = async () => {
@@ -396,6 +453,7 @@ export default function KnowledgeBasePage() {
       processDocument(res.syllabus_id).catch(() => {})
       toast.success("Enlace añadido.", { id: toastId })
       setLinkUrl("")
+      setQueuedFiles([])
       setAddCourseId(null)
       setAddOpen(false)
       await fetchUploads(true)
@@ -419,6 +477,7 @@ export default function KnowledgeBasePage() {
       toast.success("Texto añadido.", { id: toastId })
       setTextTitle("")
       setTextBody("")
+      setQueuedFiles([])
       setAddCourseId(null)
       setAddOpen(false)
       await fetchUploads(true)
@@ -929,8 +988,8 @@ export default function KnowledgeBasePage() {
                       {firstReady && (
                         <Button asChild size="sm" variant="secondary" className="h-8 gap-1.5">
                           {/* Deep-link the COURSE (estudio picks the best scope: last
-                              used, else its default). Only the "Sin curso" bucket
-                              (no id) falls back to the first ready document. */}
+                            used, else its default). Only the "Sin curso" bucket
+                            (no id) falls back to the first ready document. */}
                           <Link href={`/estudio?course=${course.id ?? firstReady.id}`}>
                             <GraduationCap className="h-3.5 w-3.5 text-accent" />
                             <span className="hidden sm:inline">Estudiar</span>
@@ -1002,7 +1061,8 @@ export default function KnowledgeBasePage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                            Color del curso — se usa en esta carpeta y en el calendario de la Agenda
+                            Color del curso — se usa en esta carpeta y en el calendario de la
+                            Agenda
                           </span>
                           <CourseColorPicker
                             value={folderColor!}
@@ -1141,7 +1201,8 @@ export default function KnowledgeBasePage() {
                           </span>
                           <span className="block truncate text-xs text-muted-foreground">
                             {course.docs.length}{" "}
-                            {course.docs.length === 1 ? "documento" : "documentos"} · clic para ver
+                            {course.docs.length === 1 ? "documento" : "documentos"} · clic para
+                            ver
                           </span>
                         </div>
                       </AccordionTrigger>
@@ -1236,7 +1297,11 @@ export default function KnowledgeBasePage() {
                                   <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
                                     {new Date(doc.created_at).toLocaleDateString()}
                                   </span>
-                                  <Badge variant={sv.tone} title={sv.tooltip} className="shrink-0">
+                                  <Badge
+                                    variant={sv.tone}
+                                    title={sv.tooltip}
+                                    className="shrink-0"
+                                  >
                                     {(sv.tone === "error" || sv.tone === "warn") && (
                                       <AlertTriangle className="h-3 w-3" />
                                     )}
@@ -1427,8 +1492,12 @@ export default function KnowledgeBasePage() {
       <Dialog
         open={addOpen}
         onOpenChange={(open) => {
-          if (isAdding) return
-          if (!open) setFileDragActive(false)
+          if (isAdding || isUploading) return
+          if (!open) {
+            setFileDragActive(false)
+            setQueuedFiles([])
+            setAddCourseId(null)
+          }
           setAddOpen(open)
         }}
       >
@@ -1455,6 +1524,7 @@ export default function KnowledgeBasePage() {
               <button
                 key={t.id}
                 onClick={() => setAddTab(t.id)}
+                disabled={isAdding || isUploading}
                 className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
                   addTab === t.id
                     ? "bg-accent/15 text-accent"
@@ -1480,27 +1550,117 @@ export default function KnowledgeBasePage() {
                 setFileDragActive(false)
               }}
               onDrop={handleFileDrop}
-              className={`flex flex-col items-center gap-3 rounded-lg border border-dashed p-6 text-center transition-colors ${
+              aria-busy={isUploading}
+              className={`flex flex-col gap-3 rounded-lg border border-dashed p-4 transition-colors ${
                 fileDragActive ? "border-accent bg-accent/10" : "border-border/70"
               }`}
             >
-              <FileIcon
-                className={`h-8 w-8 ${fileDragActive ? "text-accent" : "text-muted-foreground/40"}`}
-              />
-              <p className="text-sm text-muted-foreground">
-                Arrastra aquí tus archivos o selecciónalos. PDF, Word, PowerPoint o Excel (máx. 25MB
-                cada uno).
-              </p>
-              <Button
-                variant="accent"
-                size="sm"
-                onClick={() => {
-                  setAddOpen(false)
-                  handleUploadClick()
-                }}
-              >
-                <Plus className="h-4 w-4" /> Elegir archivo
-              </Button>
+              {queuedFiles.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 px-2 py-3 text-center">
+                  <FileIcon
+                    className={`h-8 w-8 ${
+                      fileDragActive ? "text-accent" : "text-muted-foreground/40"
+                    }`}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Arrastra aquí tus archivos o selecciónalos. PDF, Word, PowerPoint o Excel (máx.
+                    25MB cada uno).
+                  </p>
+                  <Button variant="accent" size="sm" onClick={handleUploadClick}>
+                    <Plus className="h-4 w-4" /> Elegir archivos
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground">
+                    Hasta {MAX_FILES_PER_UPLOAD} archivos por subida
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-semibold text-foreground">Archivos seleccionados</p>
+                    <span className="text-[11px] text-muted-foreground">
+                      {queuedFiles.length}/{MAX_FILES_PER_UPLOAD}
+                    </span>
+                  </div>
+
+                  <ul
+                    className="max-h-56 space-y-2 overflow-y-auto"
+                    aria-label="Archivos seleccionados"
+                  >
+                    {queuedFiles.map((file) => {
+                      const key = fileQueueKey(file)
+                      const isActive = isUploading && activeUploadKey === key
+                      return (
+                        <li
+                          key={key}
+                          className="flex items-center gap-3 rounded-md border border-border/60 bg-background px-3 py-2 text-left"
+                        >
+                          {isActive ? (
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
+                          ) : (
+                            <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium text-foreground">
+                              {file.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {isActive ? "Subiendo…" : formatFileSize(file.size)}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => removeQueuedFile(key)}
+                            disabled={isUploading}
+                            aria-label={`Quitar ${file.name}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+
+                  {queuedFiles.length < MAX_FILES_PER_UPLOAD && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleUploadClick}
+                      disabled={isUploading}
+                      className="w-full border-dashed"
+                    >
+                      <Plus className="h-4 w-4" /> Agregar más archivos
+                    </Button>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+                    <p
+                      className="text-[11px] text-muted-foreground"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {isUploading
+                        ? `Subiendo ${uploadProgress.current} de ${uploadProgress.total}`
+                        : "Se subirán cuando confirmes."}
+                    </p>
+                    <Button
+                      variant="accent"
+                      size="sm"
+                      onClick={handleQueuedUpload}
+                      disabled={isUploading}
+                    >
+                      {isUploading && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {isUploading
+                        ? "Subiendo…"
+                        : `Subir ${queuedFiles.length} ${
+                            queuedFiles.length === 1 ? "archivo" : "archivos"
+                          }`}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db"
+import type { SourceRefAPI } from "@/types/api"
 
 export type LayoutKind = "radial" | "tree_horizontal" | "tree_vertical" | "columns_report"
 
@@ -34,6 +35,12 @@ export interface ReplaceGraphInput {
   layout: LayoutKind
 }
 
+export interface TopicEvidenceInput {
+  label: string
+  sourceBlockIds: string[]
+  confidence?: number
+}
+
 export interface GraphTopic {
   id: string
   external_id: string
@@ -43,6 +50,7 @@ export interface GraphTopic {
   parent_topic_id: string | null
   color: string | null
   detail: string | null
+  source_refs?: SourceRefAPI[]
 }
 
 export interface GraphEdge {
@@ -95,6 +103,37 @@ export function assignColors(topics: GraphNodeInput[]): Map<string, string> {
 }
 
 export const GraphRepository = {
+  async replaceTopicSources(syllabusId: string, evidence: TopicEvidenceInput[]): Promise<void> {
+    await sql`
+      DELETE FROM topic_sources ts
+      USING topics t
+      WHERE ts.topic_id = t.id AND t.syllabus_id = ${syllabusId}::uuid
+    `
+    const rows = evidence.flatMap((item) =>
+      item.sourceBlockIds.map((sourceBlockId) => ({
+        label: item.label.trim().toLocaleLowerCase(),
+        sourceBlockId,
+        confidence: item.confidence ?? 0.85,
+      })),
+    )
+    if (rows.length === 0) return
+    await sql`
+      INSERT INTO topic_sources (topic_id, source_block_id, quote, confidence)
+      SELECT DISTINCT ON (t.id, sb.id)
+        t.id, sb.id, left(sb.content, 280), x.confidence
+      FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb)
+        AS x(label text, "sourceBlockId" uuid, confidence numeric)
+      JOIN topics t
+        ON t.syllabus_id = ${syllabusId}::uuid
+       AND lower(trim(t.label)) = x.label
+      JOIN source_blocks sb
+        ON sb.id = x."sourceBlockId" AND sb.syllabus_id = ${syllabusId}::uuid
+      ON CONFLICT (topic_id, source_block_id) DO UPDATE SET
+        quote = EXCLUDED.quote,
+        confidence = EXCLUDED.confidence
+    `
+  },
+
   /** Replace the whole graph (tree + prerequisites + cross-links + layout) for a syllabus. */
   async replaceGraph(syllabusId: string, input: ReplaceGraphInput): Promise<void> {
     // topic_dependencies and topic_cross_links cascade-delete when topics are removed.
@@ -240,7 +279,12 @@ export const GraphRepository = {
   async listUserTopicsByCourse(
     userId: string,
   ): Promise<
-    { course_id: string | null; course_name: string | null; course_color: string | null; label: string }[]
+    {
+      course_id: string | null
+      course_name: string | null
+      course_color: string | null
+      label: string
+    }[]
   > {
     const rows = await sql`
       SELECT DISTINCT c.id AS course_id, c.name AS course_name, c.color AS course_color, t.label
@@ -262,10 +306,32 @@ export const GraphRepository = {
     syllabusId: string,
   ): Promise<{ topics: GraphTopic[]; edges: GraphEdge[]; crossLinks: GraphCrossLink[] }> {
     const topics = (await sql`
-      SELECT id, external_id, label, weight_percent, level, parent_topic_id, color,
-             description AS detail
-      FROM topics WHERE syllabus_id = ${syllabusId}::uuid
-      ORDER BY level ASC, sort_order ASC, created_at ASC
+      SELECT t.id, t.external_id, t.label, t.weight_percent, t.level, t.parent_topic_id, t.color,
+             t.description AS detail,
+             COALESCE(
+               jsonb_agg(
+                 jsonb_build_object(
+                   'syllabus_id', t.syllabus_id,
+                   'source_block_id', sb.id,
+                   'chunk_id', ts.chunk_id,
+                   'source_name', su.original_filename,
+                   'source_type', su.source_type,
+                   'page_start', sb.page_start,
+                   'page_end', sb.page_end,
+                   'char_start', sb.char_start,
+                   'char_end', sb.char_end,
+                   'quote', COALESCE(ts.quote, left(sb.content, 280))
+                 )
+               ) FILTER (WHERE ts.source_block_id IS NOT NULL OR ts.chunk_id IS NOT NULL),
+               '[]'::jsonb
+             ) AS source_refs
+      FROM topics t
+      JOIN syllabus_uploads su ON su.id = t.syllabus_id
+      LEFT JOIN topic_sources ts ON ts.topic_id = t.id
+      LEFT JOIN source_blocks sb ON sb.id = ts.source_block_id
+      WHERE t.syllabus_id = ${syllabusId}::uuid
+      GROUP BY t.id, su.original_filename, su.source_type
+      ORDER BY t.level ASC, t.sort_order ASC, t.created_at ASC
     `) as GraphTopic[]
     const edges = (await sql`
       SELECT prerequisite_topic_id, target_topic_id, relation_type, confidence

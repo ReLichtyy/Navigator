@@ -6,6 +6,7 @@ import type { AttachedFile, Chat, Message } from "@/types/models"
 import { useSyllabus, type PendingAsk } from "@/context/SyllabusContext"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
+import { useChatNav } from "@/context/ChatNavContext"
 import { useChatList } from "../hooks/useChatList"
 import { useChatSession } from "../hooks/useChatSession"
 import { useChatOrchestrator } from "../hooks/useChatOrchestrator"
@@ -40,9 +41,12 @@ export interface ChatWorkspaceState {
   // Actions
   selectChat: (id: string) => void
   handleNewChat: () => void
-  handleDeleteChat: (id: string) => void
+  handleDeleteChat: (id: string) => Promise<boolean>
   handleRenameChat: (id: string, title: string) => void
-  sendMessage: (text: string, opts?: { syllabusId?: string | null; web?: boolean }) => Promise<boolean>
+  sendMessage: (
+    text: string,
+    opts?: { syllabusId?: string | null; web?: boolean },
+  ) => Promise<boolean>
   handleModelChange: (model: string) => void
 
   // Attachments & Knowledge
@@ -103,6 +107,7 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     setPendingQuery,
   } = useSyllabus()
   const { openAuthModal } = useAuthModal()
+  const { deleteChat, deletedChat } = useChatNav()
 
   // Navigator v2: recent chats live in the app sidebar, so the full history
   // panel starts hidden ("Ver todos los chats" / the header toggle opens it).
@@ -120,8 +125,9 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
   activeChatIdRef.current = activeChatId
 
   // --- Domain Hooks ---
-  const { chats, setChats, chatsLoading, chatsError, createChat, deleteChat, renameChat } =
-    useChatList()
+  const { chats, setChats, chatsLoading, chatsError, createChat, renameChat } = useChatList()
+  const chatsRef = useRef(chats)
+  chatsRef.current = chats
   const { activeChat, setActiveChat, initializeSession, updateMessage, messagesLoading } =
     useChatSession(activeChatId)
 
@@ -143,6 +149,8 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     activeChatIdRef,
     setTransitionKey,
   })
+  const handleNewChatRef = useRef(handleNewChat)
+  handleNewChatRef.current = handleNewChat
 
   // --- Bootstrapping ---
   useEffect(() => {
@@ -166,20 +174,29 @@ export function ChatWorkspaceProvider({ children }: { children: React.ReactNode 
     [chats, setActiveSyllabusId],
   )
 
-  const handleDeleteChat = useCallback(
-    async (id: string) => {
-      const success = await deleteChat(id)
-      if (success && id === activeChatId) {
-        const remaining = chats.filter((c) => c.id !== id)
-        if (remaining.length > 0) {
-          setActiveChatId(remaining[0].id)
-        } else {
-          handleNewChat()
-        }
-      }
-    },
-    [deleteChat, activeChatId, chats, handleNewChat],
-  )
+  const handleDeleteChat = useCallback((id: string) => deleteChat(id), [deleteChat])
+
+  // Deletions can originate in the app shell, which lives outside this
+  // workspace. Reconcile the local list and active conversation for both entry
+  // points without issuing the DELETE request twice.
+  useEffect(() => {
+    if (!deletedChat) return
+    const remaining = chatsRef.current.filter((chat) => chat.id !== deletedChat.id)
+    setChats(remaining)
+
+    if (activeChatIdRef.current !== deletedChat.id) return
+    abortRef.current?.abort()
+    if (remaining.length > 0) {
+      setActiveChatId(remaining[0].id)
+      setActiveSyllabusId(remaining[0].syllabusId ?? null)
+    } else {
+      setActiveSyllabusId(null)
+      handleNewChatRef.current()
+      setActiveChat((current) =>
+        current?.id === "draft" ? { ...current, syllabusId: null } : current,
+      )
+    }
+  }, [deletedChat, setChats, setActiveChat, setActiveSyllabusId])
 
   const handleRenameChat = useCallback(
     async (id: string, title: string) => {

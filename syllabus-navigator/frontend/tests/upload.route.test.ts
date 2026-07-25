@@ -25,11 +25,15 @@ vi.mock("@/lib/server/services/ingestion.service", () => ({
 vi.mock("@/lib/server/services/document.service", () => ({
   DocumentService: { processUpload: vi.fn() },
 }))
+vi.mock("@/lib/server/services/knowledge-pipeline.service", () => ({
+  KnowledgePipelineService: { enqueueDocument: vi.fn() },
+}))
 
 import { requireAuth, getAuthedUser, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { DocumentService } from "@/lib/server/services/document.service"
 import { IngestionService } from "@/lib/server/services/ingestion.service"
+import { KnowledgePipelineService } from "@/lib/server/services/knowledge-pipeline.service"
 import { POST } from "../app/api/upload/route"
 
 const asUser = (id = "u1", role = "free") => (
@@ -60,6 +64,10 @@ const emptyReq = () =>
 beforeEach(() => {
   vi.clearAllMocks()
   okRate()
+  vi.mocked(KnowledgePipelineService.enqueueDocument).mockResolvedValue({
+    id: "run-1",
+    workflow_run_id: "wf-1",
+  } as never)
 })
 
 describe("POST /api/upload", () => {
@@ -82,7 +90,7 @@ describe("POST /api/upload", () => {
     expect(res.status).toBe(400)
   })
 
-  it("201 on success; embeds inline so the doc is chat-ready", async () => {
+  it("201 on success and starts durable processing from the server", async () => {
     asUser()
     vi.mocked(DocumentService.processUpload).mockResolvedValue({
       id: "up1",
@@ -90,13 +98,14 @@ describe("POST /api/upload", () => {
       jobId: "j1",
       status: "pending",
     } as any)
-    vi.mocked(IngestionService.embedOnly).mockResolvedValue({ embedded: 3 })
     const res = await POST(fileReq())
     expect(res.status).toBe(201)
     expect(DocumentService.processUpload).toHaveBeenCalled()
-    expect(IngestionService.embedOnly).toHaveBeenCalledWith("up1")
+    expect(IngestionService.embedOnly).not.toHaveBeenCalled()
+    expect(KnowledgePipelineService.enqueueDocument).toHaveBeenCalledWith("u1", "up1")
     const body = await res.json()
     expect(body.syllabus_id).toBe("up1")
+    expect(body.status).toBe("pending")
   })
 
   it("propagates ApiErrorResponse from the service (e.g. non-PDF → 400)", async () => {

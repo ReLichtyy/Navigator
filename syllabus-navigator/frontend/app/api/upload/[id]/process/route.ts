@@ -1,24 +1,13 @@
-/**
- * POST /api/upload/[id]/process — run the slow enrichment for a just-uploaded doc.
- *
- * The upload routes only embed inline (fast) so they return quickly and the file
- * shows up + becomes chat-ready immediately. The heavy generators (course
- * inference, graph, schedule — each a multi-second gpt-5.4 call) run here, fired
- * by the client AFTER the upload resolves and NOT awaited by the UI, which polls
- * graph_status to fill the result in. This keeps the upload request well under the
- * serverless time cap (previously the inline graph/schedule could time out and the
- * new row would vanish). The daily Vercel Cron on /api/cron/process is the backstop
- * if the client never fires this (e.g. tab closed).
- */
+/** POST /api/upload/[id]/process — enqueue durable document enrichment. */
 
 import { NextResponse } from "next/server"
 import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
-import { triggerIngestionWorker } from "@/lib/server/services/worker-trigger"
+import { KnowledgePipelineService } from "@/lib/server/services/knowledge-pipeline.service"
 import { invalidatePrefix } from "@/lib/cache"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // graph + schedule + inference (gpt-5.4) run inline here
+export const maxDuration = 60
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -27,13 +16,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const { userId } = await requireAuth()
     const { id } = await params
 
-    // Drains the pending ingest job(s): embeddings are already done, so this runs
-    // the graph/schedule/inference enrichment and completes the job.
-    await triggerIngestionWorker()
+    const run = await KnowledgePipelineService.enqueueDocument(userId, id)
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.process", { userId, uploadId: id })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json(run, { status: 202 })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })

@@ -94,6 +94,7 @@ function PageContent() {
         activeId={ws.activeChat?.id ?? ""}
         onSelect={ws.selectChat}
         onNewChat={ws.handleNewChat}
+        onDelete={ws.handleDeleteChat}
       />
 
       <div className="flex h-full min-w-0 flex-1 flex-col border-l border-border/60 transition-[border-color] duration-300">

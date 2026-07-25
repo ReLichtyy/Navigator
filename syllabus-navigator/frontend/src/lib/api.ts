@@ -57,6 +57,7 @@ async function request<T>(path: string, init: RequestInit & { json?: boolean } =
 
 import type {
   CitationAPI,
+  SourceRefAPI,
   SuggestedPromptAPI,
   ChatOutAPI,
   ChatDetailAPI,
@@ -64,6 +65,7 @@ import type {
   SyllabusUploadAPI,
   GraphResponseAPI,
   CourseGraphResponseAPI,
+  ArtifactRunAPI,
   CourseAPI,
   ProductFeedbackCategoryAPI,
   ProductFeedbackSubmissionAPI,
@@ -72,6 +74,7 @@ import type {
 
 export type {
   CitationAPI,
+  SourceRefAPI,
   SuggestedPromptAPI,
   ChatOutAPI,
   ChatDetailAPI,
@@ -79,6 +82,7 @@ export type {
   SyllabusUploadAPI,
   GraphResponseAPI,
   CourseGraphResponseAPI,
+  ArtifactRunAPI,
   CourseAPI,
   ProductFeedbackCategoryAPI,
   ProductFeedbackSubmissionAPI,
@@ -496,8 +500,12 @@ export async function submitProductFeedback(input: ProductFeedbackSubmissionAPI)
 // Graph
 // ============================================================================
 
-export async function fetchGraph(syllabusId: string) {
-  return request<GraphResponseAPI>(`/graph/${syllabusId}`, { method: "GET", json: false })
+export async function fetchGraph(syllabusId: string, signal?: AbortSignal) {
+  return request<GraphResponseAPI>(`/graph/${syllabusId}`, {
+    method: "GET",
+    json: false,
+    signal,
+  })
 }
 
 export interface GraphUpdatePayload {
@@ -533,10 +541,11 @@ export async function reprocessGraph(syllabusId: string) {
 }
 
 /** Whole-course mind map. graph_status "none" = never generated yet. */
-export async function fetchCourseGraph(courseId: string) {
+export async function fetchCourseGraph(courseId: string, signal?: AbortSignal) {
   return request<CourseGraphResponseAPI>(`/graph/course/${courseId}`, {
     method: "GET",
     json: false,
+    signal,
   })
 }
 
@@ -545,16 +554,27 @@ export interface CourseGraphRegeneratePayload {
   fileIds: string[]
   focusTopics?: string[]
   instructions?: string
+  branchId?: string
+  branchMode?: "regenerate" | "expand" | "condense"
 }
 
-/** (Re)generate the course map from the selected documents. Synchronous. */
+/** Queue durable course-map generation. The stored/preview map remains readable. */
 export async function regenerateCourseGraph(
   courseId: string,
   payload: CourseGraphRegeneratePayload,
 ) {
-  return request<CourseGraphResponseAPI>(`/graph/course/${courseId}/regenerate`, {
+  return request<ArtifactRunAPI>(`/graph/course/${courseId}/regenerate`, {
     method: "POST",
     body: JSON.stringify(payload),
+  })
+}
+
+/** Read user-visible progress for any durable generated artifact. */
+export async function fetchArtifactRun(runId: string, signal?: AbortSignal) {
+  return request<ArtifactRunAPI>(`/artifacts/runs/${runId}`, {
+    method: "GET",
+    json: false,
+    signal,
   })
 }
 
@@ -698,6 +718,7 @@ export async function fetchRecommendations() {
 export interface FlashcardAPI {
   front: string
   back: string
+  source_refs?: SourceRefAPI[]
 }
 
 /**
@@ -737,6 +758,7 @@ export interface QuizQuestionAPI {
   fillText?: string
   /** `fill` accepted answers (normalized comparison; first one shown as the model answer). */
   fillAnswers?: string[]
+  source_refs?: SourceRefAPI[]
 }
 
 export interface StudyGuideSectionAPI {
@@ -820,6 +842,8 @@ export interface StudyStatusAPI {
   /** Bank item counts for the scope. */
   flashcards: number
   quiz: number
+  availability?: { summary: boolean; flashcards: boolean; quiz: boolean }
+  coverage?: { covered: string[]; insufficient: string[]; absent: string[] }
 }
 
 /**

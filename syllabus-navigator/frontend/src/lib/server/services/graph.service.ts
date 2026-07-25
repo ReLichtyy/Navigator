@@ -36,6 +36,9 @@ export const GraphService = {
         parent_id: t.parent_topic_id,
         detail: t.detail,
         color: t.color,
+        source_refs: t.source_refs ?? [],
+        confidence: t.source_refs?.length ? 0.85 : 0,
+        generation_version: 2,
       })),
       edges: edges.map((e) => ({
         source: e.prerequisite_topic_id,

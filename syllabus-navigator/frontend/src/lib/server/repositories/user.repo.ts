@@ -114,6 +114,7 @@ export async function deleteUser(userId: string): Promise<{ fileUrls: string[] }
   const avatar = await getUserImage(userId)
 
   await sql`DELETE FROM chats WHERE user_id = ${userId}`
+  await sql`DELETE FROM artifact_runs WHERE user_id = ${userId}`
   await sql`DELETE FROM syllabus_uploads WHERE user_id = ${userId}`
   await sql`DELETE FROM users WHERE id = ${userId}::uuid`
 

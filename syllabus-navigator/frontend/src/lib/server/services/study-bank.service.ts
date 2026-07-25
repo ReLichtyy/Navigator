@@ -38,7 +38,7 @@ import { CourseGraphRepository } from "../repositories/course-graph.repo"
 import { ChunkRepository } from "../repositories/chunk.repo"
 import { JobRepository, type DbJob } from "../repositories/job.repo"
 import { topicKey } from "../repositories/mastery.repo"
-import { buildContextByTopics } from "../rag/retrieval/hybrid"
+import { buildEvidenceContextByTopics } from "../rag/retrieval/hybrid"
 import { inquisitorAgent } from "../rag/agents/inquisitor"
 import { matchingAgent } from "../rag/agents/matching"
 import { verafalsoAgent } from "../rag/agents/verafalso"
@@ -48,6 +48,8 @@ import { gateQuiz } from "../rag/eval/gates"
 import { embedTexts } from "@/lib/llm/embeddings"
 import { logError, logInfo } from "@/lib/observability/logger"
 import type { Difficulty, QuizQuestion } from "../rag/study-gen"
+import type { SourceRefAPI } from "@/types/api"
+import { flags } from "@/lib/config/flags"
 
 export const JOB_TYPE_STUDY = "study-bank"
 
@@ -112,17 +114,23 @@ async function currentFingerprint(scope: StudyScope, ownerId?: string): Promise<
 export async function buildEvidence(
   scope: StudyScope,
   ownerId: string | undefined,
-): Promise<{ text: string; weightedTopics: { label: string; weight: number }[] } | null> {
+): Promise<{
+  text: string
+  weightedTopics: { label: string; weight: number }[]
+  sourceRefs: SourceRefAPI[]
+  coverage?: { covered: string[]; insufficient: string[]; absent: string[] }
+} | null> {
   if (scope.kind === "doc") {
     const graph = await GraphRepository.getGraph(scope.id)
     const topicLabels = graph.topics.map((t) => t.label.trim()).filter(Boolean)
     const weightedTopics = graph.topics
       .filter((t) => (t.weight_percent ?? 0) > 0)
       .map((t) => ({ label: t.label, weight: Number(t.weight_percent) }))
-    const text =
-      (await buildContextByTopics({ kind: "doc", id: scope.id }, topicLabels)) ??
-      (await ChunkRepository.getConcatenatedText(scope.id))
-    return text ? { text, weightedTopics } : null
+    const retrieved = await buildEvidenceContextByTopics({ kind: "doc", id: scope.id }, topicLabels)
+    const text = retrieved?.text ?? (await ChunkRepository.getConcatenatedText(scope.id))
+    const sourceRefs =
+      retrieved?.sourceRefs ?? graph.topics.flatMap((topic) => topic.source_refs ?? [])
+    return text ? { text, weightedTopics, sourceRefs, coverage: retrieved?.coverage } : null
   }
   if (!ownerId) return null
   const [text, courseGraph] = await Promise.all([
@@ -135,7 +143,8 @@ export async function buildEvidence(
           .filter((node) => node.label.trim() && node.weight_percent > 0)
           .map((node) => ({ label: node.label, weight: Number(node.weight_percent) }))
       : []
-  return text ? { text, weightedTopics } : null
+  const sourceRefs = courseGraph?.data?.nodes.flatMap((node) => node.source_refs ?? []) ?? []
+  return text ? { text, weightedTopics, sourceRefs } : null
 }
 
 /**
@@ -174,7 +183,13 @@ async function generateQuizBatch(
     orderingAgent(ev.text, genOpts, ORDER_PER_BATCH).catch(() => [] as QuizQuestion[]),
     fillblankAgent(ev.text, genOpts, FILL_PER_BATCH).catch(() => [] as QuizQuestion[]),
   ])
+  const refs = (ev.sourceRefs as SourceRefAPI[] | undefined)?.slice(0, 8) ?? []
   const all = [...mcBatches.flat(), ...conex, ...vf, ...order, ...fill]
+    .map((question) => ({
+      ...question,
+      source_refs: question.source_refs?.length ? question.source_refs : refs,
+    }))
+    .filter((question) => !flags.studyPipelineV2 || (question.source_refs?.length ?? 0) > 0)
   if (all.length === 0) return { added: 0, stale: false }
 
   const embeddings = await embedTexts(all.map((q) => q.question))
@@ -234,11 +249,7 @@ export const StudyBankService = {
   },
 
   /** Is a fill job still pending/processing for (scope, difficulty)? Drives the UI's "generando" flag. */
-  async hasPending(
-    scope: StudyScope,
-    difficulty: Difficulty,
-    ownerId?: string,
-  ): Promise<boolean> {
+  async hasPending(scope: StudyScope, difficulty: Difficulty, ownerId?: string): Promise<boolean> {
     const fingerprint = await currentFingerprint(scope, ownerId)
     return JobRepository.hasPending(JOB_TYPE_STUDY, dedupeKeyFor(scope, difficulty, fingerprint))
   },

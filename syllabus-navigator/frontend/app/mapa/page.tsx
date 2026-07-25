@@ -11,6 +11,7 @@ import {
   reprocessGraph,
   fetchCourseGraph,
   regenerateCourseGraph,
+  fetchArtifactRun,
   type SyllabusUploadAPI,
   type CourseAPI,
   type GraphResponseAPI,
@@ -28,10 +29,7 @@ import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
 import { SelectionAsk } from "@/components/SelectionAsk"
 import { useAskInChat } from "@/hooks/use-ask-in-chat"
-import {
-  GenerationProgress,
-  useGenerationProgress,
-} from "@/components/estudio/generation-progress"
+import { GenerationProgress, useGenerationProgress } from "@/components/estudio/generation-progress"
 import GraphCanvas from "@/components/GraphCanvas"
 
 function isReady(d: SyllabusUploadAPI): boolean {
@@ -40,6 +38,18 @@ function isReady(d: SyllabusUploadAPI): boolean {
 
 const folderKey = (g: RealCourseGroup) => g.id ?? "__none__"
 const cleanName = (f: string) => f.replace(/\.(pdf|docx|pptx|xlsx)$/i, "")
+
+function waitForPoll(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer)
+      signal.removeEventListener("abort", finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, ms)
+    signal.addEventListener("abort", finish, { once: true })
+  })
+}
 
 function MapaContent() {
   const { status, ready } = useUser()
@@ -140,23 +150,63 @@ function MapaContent() {
   }, [groups])
 
   // Regenerate the course map (initial generation or from the AI drawer).
-  // Synchronous POST — the canvas shows "Procesando mapa…" while it runs.
   const regenSeq = useRef(0)
-  const regenerate = useCallback(async (cid: string, payload: CourseGraphRegeneratePayload) => {
-    const seq = ++regenSeq.current
-    setRegenerating(true)
-    setError(null)
-    try {
-      const g = await regenerateCourseGraph(cid, payload)
-      if (seq === regenSeq.current) setCourseGraph(g)
-    } catch (e) {
-      if (seq === regenSeq.current) {
-        setError(e instanceof Error ? e.message : "No se pudo generar el mapa del curso.")
+  const coursePollAbort = useRef<AbortController | null>(null)
+  const pollCourseRun = useCallback(
+    async (
+      cid: string,
+      initialRun: NonNullable<CourseGraphResponseAPI["generation"]>,
+      seq: number,
+      controller: AbortController,
+    ) => {
+      let current = initialRun
+      const deadline = Date.now() + 10 * 60 * 1000
+      while (current.status === "queued" || current.status === "running") {
+        if (Date.now() >= deadline) {
+          throw new Error("La generación sigue en curso. Puedes volver más tarde para ver el mapa.")
+        }
+        await waitForPoll(2000, controller.signal)
+        if (seq !== regenSeq.current || controller.signal.aborted) return
+        current = await fetchArtifactRun(initialRun.id, controller.signal)
+        const graph = await fetchCourseGraph(cid, controller.signal)
+        if (seq !== regenSeq.current || controller.signal.aborted) return
+        setCourseGraph(graph)
       }
-    } finally {
-      if (seq === regenSeq.current) setRegenerating(false)
-    }
-  }, [])
+
+      const finalGraph = await fetchCourseGraph(cid, controller.signal)
+      if (seq !== regenSeq.current || controller.signal.aborted) return
+      setCourseGraph(finalGraph)
+      if (current.status === "failed" && finalGraph.nodes.length === 0) {
+        setError(current.error ?? "No se pudo generar el mapa del curso.")
+      }
+    },
+    [],
+  )
+
+  const regenerate = useCallback(
+    async (cid: string, payload: CourseGraphRegeneratePayload) => {
+      const seq = ++regenSeq.current
+      coursePollAbort.current?.abort()
+      const controller = new AbortController()
+      coursePollAbort.current = controller
+      setRegenerating(true)
+      setError(null)
+      try {
+        const run = await regenerateCourseGraph(cid, payload)
+        const preview = await fetchCourseGraph(cid, controller.signal)
+        if (seq !== regenSeq.current || controller.signal.aborted) return
+        setCourseGraph(preview)
+        await pollCourseRun(cid, run, seq, controller)
+      } catch (e) {
+        if (seq === regenSeq.current && !controller.signal.aborted) {
+          setError(e instanceof Error ? e.message : "No se pudo generar el mapa del curso.")
+        }
+      } finally {
+        if (seq === regenSeq.current) setRegenerating(false)
+      }
+    },
+    [pollCourseRun],
+  )
 
   // Load the map whenever the selected folder changes. Course folders read the
   // course map; "sin curso" folders keep the per-document graph. A first visit
@@ -166,6 +216,8 @@ function MapaContent() {
   const loadSeq = useRef(0)
   const loadGraph = useCallback(async () => {
     const seq = ++loadSeq.current
+    const courseSeq = ++regenSeq.current
+    coursePollAbort.current?.abort()
     setGraphLoading(true)
     setError(null)
     setCourseGraph(null)
@@ -175,6 +227,20 @@ function MapaContent() {
         const g = await fetchCourseGraph(courseId)
         if (seq !== loadSeq.current) return
         setCourseGraph(g)
+        if (g.generation?.status === "queued" || g.generation?.status === "running") {
+          const controller = new AbortController()
+          coursePollAbort.current = controller
+          setRegenerating(true)
+          void pollCourseRun(courseId, g.generation, courseSeq, controller)
+            .catch((e) => {
+              if (!controller.signal.aborted && courseSeq === regenSeq.current) {
+                setError(e instanceof Error ? e.message : "No se pudo seguir la generación.")
+              }
+            })
+            .finally(() => {
+              if (courseSeq === regenSeq.current) setRegenerating(false)
+            })
+        }
       } else if (fallbackDocId) {
         const g = await fetchGraph(fallbackDocId)
         if (seq !== loadSeq.current) return
@@ -187,7 +253,7 @@ function MapaContent() {
     } finally {
       if (seq === loadSeq.current) setGraphLoading(false)
     }
-  }, [courseId, fallbackDocId])
+  }, [courseId, fallbackDocId, pollCourseRun])
 
   useEffect(() => {
     if (courseId || fallbackDocId) void loadGraph()
@@ -202,17 +268,19 @@ function MapaContent() {
   }, [selectedKey])
 
   // Per-doc fallback reprocess: re-enqueue generation, then poll until it settles.
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const docPollAbort = useRef<AbortController | null>(null)
+  const docPollSeq = useRef(0)
   const stopPoll = () => {
-    if (pollRef.current) clearInterval(pollRef.current)
-    pollRef.current = null
+    docPollSeq.current++
+    docPollAbort.current?.abort()
+    docPollAbort.current = null
   }
   useEffect(() => stopPoll, [])
   useEffect(() => {
     // Ignore a regeneration/poll that belonged to the previously selected folder.
-    regenSeq.current++
     stopPoll()
   }, [selectedKey])
+  useEffect(() => () => coursePollAbort.current?.abort(), [])
 
   // ── % progress after the preview's "Generar" (same ramp as /estudio) ──
   // Active while the confirmed generation runs: course mode = the synchronous
@@ -221,8 +289,7 @@ function MapaContent() {
   // canvas overlay so the editing context never disappears.
   const [fromPreview, setFromPreview] = useState(false)
   const docProcessingNow =
-    !courseId &&
-    (docGraph?.graph_status === "pending" || docGraph?.graph_status === "processing")
+    !courseId && (docGraph?.graph_status === "pending" || docGraph?.graph_status === "processing")
   const mapProgress = useGenerationProgress(fromPreview && (regenerating || docProcessingNow))
   // Clear the flag once the progress screen actually showed and finished, so a
   // later drawer regeneration doesn't hijack the full-screen progress view.
@@ -238,23 +305,30 @@ function MapaContent() {
 
   const handleReprocessDoc = useCallback(async () => {
     if (!fallbackDocId) return
+    stopPoll()
+    const seq = docPollSeq.current
+    const controller = new AbortController()
+    docPollAbort.current = controller
     try {
       const pending = await reprocessGraph(fallbackDocId)
+      if (seq !== docPollSeq.current || controller.signal.aborted) return
       setDocGraph(pending)
-      stopPoll()
-      pollRef.current = setInterval(async () => {
-        try {
-          const g = await fetchGraph(fallbackDocId)
-          if (g.graph_status !== "pending" && g.graph_status !== "processing") {
-            setDocGraph(g)
-            stopPoll()
-          }
-        } catch {
-          stopPoll()
+      const deadline = Date.now() + 10 * 60 * 1000
+      let graph = pending
+      while (graph.graph_status === "pending" || graph.graph_status === "processing") {
+        if (Date.now() >= deadline) {
+          throw new Error("El mapa sigue procesándose. Puedes volver más tarde.")
         }
-      }, 3000)
+        await waitForPoll(3000, controller.signal)
+        if (seq !== docPollSeq.current || controller.signal.aborted) return
+        graph = await fetchGraph(fallbackDocId, controller.signal)
+        if (seq !== docPollSeq.current || controller.signal.aborted) return
+        setDocGraph(graph)
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo reprocesar el mapa.")
+      if (seq === docPollSeq.current && !controller.signal.aborted) {
+        setError(e instanceof Error ? e.message : "No se pudo reprocesar el mapa.")
+      }
     }
   }, [fallbackDocId])
 
@@ -320,11 +394,7 @@ function MapaContent() {
   // this page is awaiting it — an abandoned run leaves the row stuck and used to
   // greet every visit with an eternal "Procesando mapa…". Offer the preview.
   const staleCourseStatus =
-    isCourseMode &&
-    (courseGraph?.graph_status === "none" ||
-      courseGraph?.graph_status === "processing" ||
-      courseGraph?.graph_status === "pending" ||
-      courseGraph?.graph_status === "stale")
+    isCourseMode && (courseGraph?.graph_status === "none" || courseGraph?.graph_status === "stale")
   const showPreview =
     !!selectedGroup &&
     !pending &&
@@ -420,7 +490,7 @@ function MapaContent() {
           <CenterFill>
             <CenterSpinner label="Cargando mapa mental…" />
           </CenterFill>
-        ) : error ? (
+        ) : error && !(nodes && nodes.length > 0) ? (
           <CenterFill>
             <ErrorBox
               message={error}
@@ -437,7 +507,9 @@ function MapaContent() {
               }}
             />
           </CenterFill>
-        ) : fromPreview && (regenerating || docProcessingNow || mapProgress.visible) ? (
+        ) : fromPreview &&
+          (regenerating || docProcessingNow || mapProgress.visible) &&
+          !(nodes && nodes.length > 0) ? (
           <CenterFill>
             <GenerationProgress pct={mapProgress.pct} label="Generando mapa mental…" />
           </CenterFill>
@@ -454,59 +526,70 @@ function MapaContent() {
             />
           </CenterFill>
         ) : hasGraph && selectedGroup ? (
-          <SelectionAsk onAsk={ask} className="h-full">
-            <GraphCanvas
-              nodes={nodes}
-              edges={edges}
-              crossLinks={crossLinks}
-              layout={layout}
-              graphStatus={graphStatus}
-              graphError={graphError}
-              centerTitle={
-                selectedGroup.id
-                  ? selectedGroup.name
-                  : fallbackDocId
-                    ? cleanName(
-                        readyDocs.find((d) => d.id === fallbackDocId)?.original_filename ??
-                          selectedGroup.name,
-                      )
-                    : selectedGroup.name
-              }
-              editable
-              // Course mode: edits + AI regeneration on the course map.
-              courseId={courseId ?? undefined}
-              courseFiles={
-                courseId
-                  ? readyDocs.map((d) => ({ id: d.id, name: d.original_filename }))
-                  : undefined
-              }
-              sourceDocIds={courseId ? courseGraph?.source_doc_ids : undefined}
-              onRegenerateAI={
-                courseId ? (payload) => void regenerate(courseId, payload) : undefined
-              }
-              // "Sin curso" fallback: per-document map with its reprocess.
-              syllabusId={fallbackDocId ?? undefined}
-              onReprocess={
-                courseId
-                  ? () => {
-                      const src =
-                        courseGraph && courseGraph.source_doc_ids.length > 0
-                          ? courseGraph.source_doc_ids
-                          : readyDocs.map((d) => d.id)
-                      void regenerate(courseId, { fileIds: src })
-                    }
-                  : handleReprocessDoc
-              }
-              onSaved={(g) => {
-                if ("course_id" in g) setCourseGraph(g)
-                else setDocGraph(g)
-              }}
-              // Course selection now lives in the Editar drawer (design v3).
-              courses={courseOptions}
-              selectedCourseKey={selectedKey}
-              onSelectCourse={setSelectedKey}
-            />
-          </SelectionAsk>
+          <>
+            {error && (
+              <div
+                role="alert"
+                className="absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-amber-500/30 bg-background/90 px-4 py-2 text-xs text-amber-600 shadow-sm backdrop-blur"
+              >
+                {error}
+              </div>
+            )}
+            <SelectionAsk onAsk={ask} className="h-full">
+              <GraphCanvas
+                nodes={nodes}
+                edges={edges}
+                crossLinks={crossLinks}
+                layout={layout}
+                graphStatus={graphStatus}
+                graphError={graphError}
+                regenerating={regenerating || docProcessingNow}
+                centerTitle={
+                  selectedGroup.id
+                    ? selectedGroup.name
+                    : fallbackDocId
+                      ? cleanName(
+                          readyDocs.find((d) => d.id === fallbackDocId)?.original_filename ??
+                            selectedGroup.name,
+                        )
+                      : selectedGroup.name
+                }
+                editable
+                // Course mode: edits + AI regeneration on the course map.
+                courseId={courseId ?? undefined}
+                courseFiles={
+                  courseId
+                    ? readyDocs.map((d) => ({ id: d.id, name: d.original_filename }))
+                    : undefined
+                }
+                sourceDocIds={courseId ? courseGraph?.source_doc_ids : undefined}
+                onRegenerateAI={
+                  courseId ? (payload) => void regenerate(courseId, payload) : undefined
+                }
+                // "Sin curso" fallback: per-document map with its reprocess.
+                syllabusId={fallbackDocId ?? undefined}
+                onReprocess={
+                  courseId
+                    ? () => {
+                        const src =
+                          courseGraph && courseGraph.source_doc_ids.length > 0
+                            ? courseGraph.source_doc_ids
+                            : readyDocs.map((d) => d.id)
+                        void regenerate(courseId, { fileIds: src })
+                      }
+                    : handleReprocessDoc
+                }
+                onSaved={(g) => {
+                  if ("course_id" in g) setCourseGraph(g)
+                  else setDocGraph(g)
+                }}
+                // Course selection now lives in the Editar drawer (design v3).
+                courses={courseOptions}
+                selectedCourseKey={selectedKey}
+                onSelectCourse={setSelectedKey}
+              />
+            </SelectionAsk>
+          </>
         ) : null}
       </div>
     </main>
@@ -577,9 +660,7 @@ function MindMapPreview({
                     active ? "border-accent bg-accent" : "border-border"
                   }`}
                 >
-                  {active && (
-                    <Check className="h-3 w-3 text-accent-foreground" strokeWidth={3.2} />
-                  )}
+                  {active && <Check className="h-3 w-3 text-accent-foreground" strokeWidth={3.2} />}
                 </span>
                 <FileText className="h-4 w-4 shrink-0 text-accent/70" />
                 <span

@@ -21,6 +21,14 @@ import { CourseService } from "./course.service"
 import { StudyBankService } from "./study-bank.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { StudyInvalidationService } from "./study-invalidation.service"
+import { SourceBlockRepository } from "../repositories/source-block.repo"
+import { InventoryRepository } from "../repositories/inventory.repo"
+import {
+  generateAcademicInventory,
+  inventoryToGroundedOutline,
+  type AcademicInventory,
+} from "../rag/inventory-gen"
+import { flags } from "@/lib/config/flags"
 
 const JOB_TYPE = "ingest"
 
@@ -62,11 +70,33 @@ export const IngestionService = {
 
     // Concatenated text is reused by graph, schedule and course inference.
     const text = await ChunkRepository.getConcatenatedText(syllabusId)
+    let inventory: AcademicInventory | null = null
+
+    // --- Canonical academic inventory (map-reduce over every source block) ---
+    try {
+      const blocks = await SourceBlockRepository.list(syllabusId)
+      if (blocks.length > 0) {
+        const fingerprint = await SourceBlockRepository.fingerprint(syllabusId)
+        inventory = await generateAcademicInventory(blocks)
+        await InventoryRepository.save(syllabusId, fingerprint, inventory)
+        logInfo("ingestion.inventory_ready", {
+          syllabusId,
+          blocks: blocks.length,
+          concepts: inventory.concepts.length,
+        })
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      const fingerprint = await SourceBlockRepository.fingerprint(syllabusId).catch(() => "")
+      await InventoryRepository.markFailed(syllabusId, fingerprint, message).catch(() => undefined)
+      logError("ingestion.inventory_failed", { syllabusId, error: message })
+    }
+    const knowledgeText = inventory ? inventoryToGroundedOutline(inventory) : text
 
     // --- Course inference (best-effort; accounts only, skips guests internally) ---
     // Runs before graph/schedule so a slow LLM there can't starve the suggestion.
     try {
-      await CourseService.inferForDocument(syllabusId, text)
+      await CourseService.inferForDocument(syllabusId, knowledgeText)
     } catch (err) {
       logError("ingestion.course_infer_failed", {
         syllabusId,
@@ -82,8 +112,18 @@ export const IngestionService = {
     // --- Graph generation (best-effort: a failure here doesn't fail the upload) ---
     try {
       await DocumentRepository.setGraphStatus(syllabusId, "processing")
-      const extracted = await extractGraphFromText(text)
+      const extracted = await extractGraphFromText(knowledgeText)
       await GraphRepository.replaceGraph(syllabusId, extracted)
+      if (inventory) {
+        await GraphRepository.replaceTopicSources(
+          syllabusId,
+          inventory.concepts.map((concept) => ({
+            label: concept.label,
+            sourceBlockIds: concept.source_block_ids,
+            confidence: concept.importance,
+          })),
+        )
+      }
       await DocumentRepository.setGraphStatus(syllabusId, "ready")
       topics = extracted.topics.length
       logInfo("ingestion.graph_ready", { syllabusId, topics, layout: extracted.layout })
@@ -91,8 +131,7 @@ export const IngestionService = {
       // must not relabel a successfully persisted graph as `failed`.
       try {
         const owner = await DocumentRepository.findById(syllabusId)
-        if (owner)
-          await StudyInvalidationService.invalidateDocumentGraph(owner.user_id, syllabusId)
+        if (owner) await StudyInvalidationService.invalidateDocumentGraph(owner.user_id, syllabusId)
       } catch (invalidateError) {
         logError("ingestion.study_invalidation_failed", {
           syllabusId,
@@ -127,6 +166,23 @@ export const IngestionService = {
       const scope = { kind: "doc" as const, id: syllabusId }
       await StudyBankService.ensure(scope, "facil")
       await StudyBankService.ensure(scope, "medio")
+      if (flags.studyPipelineV2) {
+        const owner = await DocumentRepository.findById(syllabusId)
+        if (owner) {
+          const { StudyService } = await import("./study.service")
+          await StudyService.getStudySet(owner.user_id, syllabusId, { refresh: true })
+          await StudyBankService.drain(1, {
+            scope,
+            difficulty: "facil",
+            ownerId: owner.user_id,
+          })
+          await StudyBankService.drain(1, {
+            scope,
+            difficulty: "medio",
+            ownerId: owner.user_id,
+          })
+        }
+      }
     } catch (err) {
       logError("ingestion.bank_enqueue_failed", {
         syllabusId,
@@ -216,7 +272,8 @@ async function processClaimedJob(
   job: { id: string; payload: Record<string, unknown> },
   tally: { processed: number; failed: number; retried: number },
 ): Promise<void> {
-  const syllabusId = (job.payload as { syllabusId?: string }).syllabusId
+  const payload = job.payload as { syllabusId?: string; artifactRunId?: string }
+  const syllabusId = payload.syllabusId
   if (!syllabusId) {
     // Unrecoverable payload error — don't waste retries on it.
     await JobRepository.fail(job.id, "Missing syllabusId in payload", true)
@@ -225,14 +282,31 @@ async function processClaimedJob(
   }
 
   try {
+    if (payload.artifactRunId) {
+      const { ArtifactRunRepository } = await import("../repositories/artifact-run.repo")
+      await ArtifactRunRepository.setProgress(payload.artifactRunId, "inventory", 35)
+    }
     const result = await IngestionService.runIngestJob(syllabusId)
     await JobRepository.complete(job.id, result)
+    if (payload.artifactRunId) {
+      const { ArtifactRunRepository } = await import("../repositories/artifact-run.repo")
+      await ArtifactRunRepository.settle(payload.artifactRunId, "completed")
+    }
     tally.processed++
   } catch (err) {
     const { retried: willRetry } = await JobRepository.fail(
       job.id,
       err instanceof Error ? err.message : String(err),
     )
+    if (!willRetry && payload.artifactRunId) {
+      const { ArtifactRunRepository } = await import("../repositories/artifact-run.repo")
+      await ArtifactRunRepository.settle(
+        payload.artifactRunId,
+        "failed",
+        err instanceof Error ? err.message : String(err),
+        true,
+      )
+    }
     if (willRetry) tally.retried++
     else tally.failed++
   }

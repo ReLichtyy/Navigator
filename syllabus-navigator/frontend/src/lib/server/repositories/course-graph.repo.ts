@@ -18,10 +18,10 @@ export interface CourseGraphData {
     level: number
     parent_id: string | null
     detail: string | null
-      color: string | null
-      source_refs?: SourceRefAPI[]
-      confidence?: number | null
-      generation_version?: number
+    color: string | null
+    source_refs?: SourceRefAPI[]
+    confidence?: number | null
+    generation_version?: number
   }[]
   edges: { source: string; target: string }[]
   crossLinks: { source: string; target: string; label: string }[]
@@ -36,24 +36,29 @@ export interface DbCourseGraph {
   status: CourseGraphStatus
   error: string | null
   preview_data?: CourseGraphData | null
+  active_run_id?: string | null
 }
 
 export const CourseGraphRepository = {
   async get(courseId: string): Promise<DbCourseGraph | undefined> {
     const rows = await sql`
-      SELECT course_id, data, preview_data, source_doc_ids, status, error
+      SELECT course_id, data, preview_data, source_doc_ids, status, error, active_run_id
       FROM course_graphs WHERE course_id = ${courseId}::uuid
     `
     return rows[0] as DbCourseGraph | undefined
   },
 
   /** Mark a (re)generation in flight, persisting the doc selection immediately. */
-  async markProcessing(courseId: string, sourceDocIds: string[]): Promise<void> {
+  async markProcessing(courseId: string, sourceDocIds: string[], runId?: string): Promise<void> {
     await sql`
-      INSERT INTO course_graphs (course_id, source_doc_ids, status, error, updated_at)
-      VALUES (${courseId}::uuid, ${sourceDocIds}::uuid[], 'processing', NULL, now())
+      INSERT INTO course_graphs
+        (course_id, source_doc_ids, active_run_id, status, error, updated_at)
+      VALUES
+        (${courseId}::uuid, ${sourceDocIds}::uuid[], ${runId ?? null}::uuid,
+         'processing', NULL, now())
       ON CONFLICT (course_id) DO UPDATE
         SET source_doc_ids = EXCLUDED.source_doc_ids,
+            active_run_id = COALESCE(EXCLUDED.active_run_id, course_graphs.active_run_id),
             status = 'processing', error = NULL, updated_at = now()
     `
   },
@@ -63,34 +68,41 @@ export const CourseGraphRepository = {
     courseId: string,
     preview: CourseGraphData,
     sourceDocIds: string[],
+    runId: string,
   ): Promise<void> {
     await sql`
       INSERT INTO course_graphs
-        (course_id, preview_data, source_doc_ids, status, error, updated_at)
+        (course_id, preview_data, source_doc_ids, active_run_id, status, error, updated_at)
       VALUES
         (${courseId}::uuid, ${JSON.stringify(preview)}::jsonb, ${sourceDocIds}::uuid[],
+         ${runId}::uuid,
          'processing', NULL, now())
       ON CONFLICT (course_id) DO UPDATE
         SET preview_data = EXCLUDED.preview_data,
             source_doc_ids = EXCLUDED.source_doc_ids,
+            active_run_id = EXCLUDED.active_run_id,
             status = 'processing', error = NULL, updated_at = now()
     `
   },
 
-  async saveData(courseId: string, data: CourseGraphData): Promise<void> {
-    await sql`
+  async saveData(courseId: string, data: CourseGraphData, runId?: string): Promise<boolean> {
+    const rows = await sql`
       UPDATE course_graphs
       SET data = ${JSON.stringify(data)}::jsonb, status = 'ready', error = NULL, updated_at = now()
           , preview_data = NULL
       WHERE course_id = ${courseId}::uuid
+        AND (${runId ?? null}::uuid IS NULL OR active_run_id = ${runId ?? null}::uuid)
+      RETURNING course_id
     `
+    return rows.length > 0
   },
 
-  async markFailed(courseId: string, error: string): Promise<void> {
+  async markFailed(courseId: string, error: string, runId?: string): Promise<void> {
     await sql`
       UPDATE course_graphs
       SET status = 'failed', error = ${error.slice(0, 500)}, updated_at = now()
       WHERE course_id = ${courseId}::uuid
+        AND (${runId ?? null}::uuid IS NULL OR active_run_id = ${runId ?? null}::uuid)
     `
   },
 
@@ -99,7 +111,7 @@ export const CourseGraphRepository = {
     await sql`
       UPDATE course_graphs
       SET status = CASE WHEN data IS NULL THEN 'pending' ELSE 'stale' END,
-          error = NULL, updated_at = now()
+          error = NULL, active_run_id = NULL, updated_at = now()
       WHERE course_id = ${courseId}::uuid
     `
   },
@@ -110,7 +122,8 @@ export const CourseGraphRepository = {
       INSERT INTO course_graphs (course_id, data, status, error, updated_at)
       VALUES (${courseId}::uuid, ${JSON.stringify(data)}::jsonb, 'ready', NULL, now())
       ON CONFLICT (course_id) DO UPDATE
-        SET data = EXCLUDED.data, status = 'ready', error = NULL, updated_at = now()
+        SET data = EXCLUDED.data, status = 'ready', error = NULL,
+            active_run_id = NULL, updated_at = now()
     `
   },
 }

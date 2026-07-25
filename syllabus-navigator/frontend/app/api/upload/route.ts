@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server"
 import { requireAuth, requireRateLimit, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { DocumentService } from "@/lib/server/services/document.service"
-import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 import { invalidatePrefix } from "@/lib/cache"
+import { KnowledgePipelineService } from "@/lib/server/services/knowledge-pipeline.service"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // embeddings run inline (graph/schedule via /process)
+export const maxDuration = 60
 
 export async function POST(request: Request) {
   try {
@@ -26,8 +26,17 @@ export async function POST(request: Request) {
     }
 
     const upload = await DocumentService.processUpload(userId, role, file)
+    const generation =
+      upload.status !== "needs_ocr" || role !== "guest"
+        ? await KnowledgePipelineService.enqueueDocument(userId, upload.id).catch((error) => {
+            logError("api.upload.workflow_start_error", {
+              uploadId: upload.id,
+              error: error instanceof Error ? error.message : String(error),
+            })
+            return null
+          })
+        : null
 
-    // Scanned PDF (no digital text): persisted but not indexed. Skip the worker.
     if (upload.status === "needs_ocr") {
       await invalidatePrefix(`uploads:list:${userId}`)
       logInfo("api.upload.needs_ocr", { userId, uploadId: upload.id })
@@ -35,19 +44,16 @@ export async function POST(request: Request) {
         {
           syllabus_id: upload.id,
           status: "needs_ocr",
+          generation,
           message:
-            "No pudimos indexar este PDF porque parece ser un documento escaneado o sin " +
-            "texto digital seleccionable. El OCR automático no está habilitado. El archivo " +
-            "sí quedó guardado, pero está pendiente de OCR o de una versión con texto digital.",
+            role === "guest"
+              ? "Este PDF necesita OCR. Inicia sesión para conservar el archivo y procesarlo."
+              : "Este PDF parece escaneado. El OCR automático ya quedó en cola.",
         },
         { status: 200 },
       )
     }
 
-    // Embed inline (fast) so the file is chat-ready immediately and the request
-    // returns well under the serverless cap; the slow graph/schedule/inference run
-    // via the client-fired /process call afterwards (the UI polls graph_status).
-    await IngestionService.embedOnly(upload.id)
     await invalidatePrefix(`uploads:list:${userId}`)
 
     logInfo("api.upload.success", {
@@ -59,8 +65,9 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         syllabus_id: upload.id,
-        status: "processed",
-        message: "File uploaded and processed.",
+        status: "pending",
+        generation,
+        message: "File uploaded; processing started.",
       },
       { status: 201 },
     )

@@ -115,8 +115,22 @@ vi.mock("@/lib/server/storage/blob", () => ({
 vi.mock("@/lib/server/rag/graph-gen", () => ({
   extractGraphFromText: vi.fn(async () => ({
     topics: [
-      { externalId: "t1", label: "Recursión", level: 1, parentExternalId: null, weight: 50, detail: null },
-      { externalId: "t2", label: "Derivadas", level: 1, parentExternalId: null, weight: 50, detail: null },
+      {
+        externalId: "t1",
+        label: "Recursión",
+        level: 1,
+        parentExternalId: null,
+        weight: 50,
+        detail: null,
+      },
+      {
+        externalId: "t2",
+        label: "Derivadas",
+        level: 1,
+        parentExternalId: null,
+        weight: 50,
+        detail: null,
+      },
     ],
     prerequisites: [{ from: "t1", to: "t2" }],
     crossLinks: [],
@@ -216,6 +230,14 @@ vi.mock("@/lib/server/repositories/chunk.repo", () => ({
         .sort((a, b) => a.distance - b.distance)
         .slice(0, limit),
     ),
+  },
+}))
+
+vi.mock("@/lib/server/repositories/source-block.repo", () => ({
+  SourceBlockRepository: {
+    replaceFromChunks: vi.fn(async () => undefined),
+    list: vi.fn(async () => []),
+    fingerprint: vi.fn(async () => "source-rev-1"),
   },
 }))
 

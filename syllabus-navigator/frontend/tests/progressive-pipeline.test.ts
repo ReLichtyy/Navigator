@@ -24,7 +24,9 @@ vi.mock("@/lib/server/repositories/graph.repo", () => ({
 vi.mock("@/lib/server/repositories/artifact-run.repo", () => ({
   ArtifactRunRepository: {
     create: vi.fn(),
+    claimDispatch: vi.fn(),
     attachWorkflowRun: vi.fn(),
+    releaseDispatchClaim: vi.fn(),
     getByIdAndUser: vi.fn(),
   },
 }))
@@ -97,6 +99,7 @@ describe("progressive course-map pipeline", () => {
       updated_at: "2026-07-24T00:00:00.000Z",
       completed_at: null,
     })
+    vi.mocked(ArtifactRunRepository.claimDispatch).mockResolvedValue(true)
     vi.mocked(ArtifactDispatchService.dispatchCourseGraph).mockResolvedValue("wf-1")
 
     const run = await CourseGraphService.enqueueRegeneration("u1", "c1", {
@@ -111,13 +114,12 @@ describe("progressive course-map pipeline", () => {
         nodes: expect.arrayContaining([
           expect.objectContaining({
             label: "Matrices",
-            source_refs: [
-              expect.objectContaining({ syllabus_id: DOC_A, topic_id: "topic-a" }),
-            ],
+            source_refs: [expect.objectContaining({ syllabus_id: DOC_A, topic_id: "topic-a" })],
           }),
         ]),
       }),
       [DOC_A, DOC_B],
+      "run-1",
     )
     expect(ArtifactDispatchService.dispatchCourseGraph).toHaveBeenCalledWith({
       runId: "run-1",
@@ -143,4 +145,3 @@ describe("progressive course-map pipeline", () => {
     expect(ArtifactDispatchService.dispatchCourseGraph).not.toHaveBeenCalled()
   })
 })
-
