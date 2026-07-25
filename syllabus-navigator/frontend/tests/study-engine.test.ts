@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { rrfFuse } from "@/lib/server/rag/retrieval/hybrid"
+import { allocateCoverage, rrfFuse } from "@/lib/server/rag/retrieval/hybrid"
 import { scoreTargets } from "@/lib/server/rag/orchestrator/router"
 import type { RetrievedChunk } from "@/lib/server/repositories/chunk.repo"
 
@@ -30,6 +30,23 @@ describe("rrfFuse (Reciprocal Rank Fusion)", () => {
   it("preserves order of a single list", () => {
     const fused = rrfFuse([[chunk("a"), chunk("b"), chunk("c")]])
     expect(fused.map((c) => c.id)).toEqual(["a", "b", "c"])
+  })
+})
+
+describe("allocateCoverage", () => {
+  it("reserves context for every topic instead of letting the first topic consume the cap", () => {
+    expect(allocateCoverage(["A", "B", "C"], 24_000)).toEqual([
+      { topic: "A", maxChars: 8_000 },
+      { topic: "B", maxChars: 8_000 },
+      { topic: "C", maxChars: 8_000 },
+    ])
+  })
+
+  it("deduplicates normalized topic labels and ignores blanks", () => {
+    expect(allocateCoverage([" Matrices ", "matrices", "", "Vectores"], 10_000)).toEqual([
+      { topic: "Matrices", maxChars: 5_000 },
+      { topic: "Vectores", maxChars: 5_000 },
+    ])
   })
 })
 
