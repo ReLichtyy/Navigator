@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const sdk = vi.hoisted(() => ({
   retrieveDatabase: vi.fn(),
   retrieve: vi.fn(),
+  update: vi.fn(),
   query: vi.fn(),
   create: vi.fn(),
   Client: vi.fn(),
@@ -13,7 +14,7 @@ vi.mock("@notionhq/client", async (importOriginal) => {
   sdk.Client.mockImplementation(function MockNotionClient() {
     return {
       databases: { retrieve: sdk.retrieveDatabase },
-      dataSources: { retrieve: sdk.retrieve, query: sdk.query },
+      dataSources: { retrieve: sdk.retrieve, update: sdk.update, query: sdk.query },
       pages: { create: sdk.create },
     }
   })
@@ -44,6 +45,7 @@ const databaseEnv = {
 beforeEach(() => {
   sdk.retrieveDatabase.mockReset()
   sdk.retrieve.mockReset()
+  sdk.update.mockReset()
   sdk.query.mockReset()
   sdk.create.mockReset()
 })
@@ -186,6 +188,104 @@ describe("Notion product feedback reconciliation", () => {
         logger: expect.any(Function),
       }),
     )
+  })
+
+  it("configures a new Notion table automatically before consuming jobs", async () => {
+    sdk.retrieve
+      .mockResolvedValueOnce({
+        properties: {
+          Name: { id: "title-property", type: "title" },
+        },
+      })
+      .mockResolvedValueOnce({
+        properties: {
+          ID: { id: "title-property", type: "title" },
+          "Nombre de Persona": { type: "rich_text" },
+          Fecha: { type: "date" },
+          Categoria: {
+            type: "select",
+            select: {
+              options: ["Error", "Sugerencia", "Usabilidad", "Contenido", "Otro"].map(
+                (name) => ({ name }),
+              ),
+            },
+          },
+          Descripcion: { type: "rich_text" },
+        },
+      })
+    sdk.update.mockResolvedValue({})
+
+    await expect(checkNotionFeedbackReadiness(env)).resolves.toEqual({ ready: true })
+    expect(sdk.update).toHaveBeenCalledWith({
+      data_source_id: "feedback-source",
+      properties: {
+        "title-property": { name: "ID" },
+        "Nombre de Persona": { rich_text: {} },
+        Fecha: { date: {} },
+        Categoria: {
+          select: {
+            options: ["Error", "Sugerencia", "Usabilidad", "Contenido", "Otro"].map(
+              (name) => ({ name }),
+            ),
+          },
+        },
+        Descripcion: { rich_text: {} },
+      },
+    })
+    expect(sdk.retrieve).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves existing select options while adding missing feedback categories", async () => {
+    sdk.retrieve
+      .mockResolvedValueOnce({
+        properties: {
+          ID: { type: "title" },
+          "Nombre de Persona": { type: "rich_text" },
+          Fecha: { type: "date" },
+          Categoria: {
+            type: "select",
+            select: { options: [{ id: "custom-id", name: "Interno", color: "gray" }] },
+          },
+          Descripcion: { type: "rich_text" },
+        },
+      })
+      .mockResolvedValueOnce({
+        properties: {
+          ID: { type: "title" },
+          "Nombre de Persona": { type: "rich_text" },
+          Fecha: { type: "date" },
+          Categoria: {
+            type: "select",
+            select: {
+              options: [
+                { name: "Interno" },
+                ...["Error", "Sugerencia", "Usabilidad", "Contenido", "Otro"].map((name) => ({
+                  name,
+                })),
+              ],
+            },
+          },
+          Descripcion: { type: "rich_text" },
+        },
+      })
+    sdk.update.mockResolvedValue({})
+
+    await expect(checkNotionFeedbackReadiness(env)).resolves.toEqual({ ready: true })
+    expect(sdk.update).toHaveBeenCalledWith({
+      data_source_id: "feedback-source",
+      properties: {
+        Categoria: {
+          select: {
+            options: [
+              { id: "custom-id", name: "Interno", color: "gray" },
+              ...["Error", "Sugerencia", "Usabilidad", "Contenido", "Otro"].map((name) => ({
+                name,
+              })),
+            ],
+          },
+        },
+      },
+    })
   })
 
   it("defers the queue when a required Notion property has the wrong type", async () => {
