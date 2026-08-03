@@ -105,10 +105,10 @@ Definición de terminado:
 
 Responsabilidad compartida con el owner de Notion:
 
-1. Crear/confirmar el data source y sus cinco propiedades.
+1. Crear/confirmar el data source; la aplicación prepara automáticamente sus cinco propiedades.
 2. Añadir la conexión interna con `Insert content` y `Read content`.
 3. Configurar valores reales en `.env.local` y Vercel sin compartirlos en chat/Git.
-4. Ejecutar la verificación read-only del esquema.
+4. Ejecutar la preparación y verificación segura del esquema.
 5. Aplicar la migración Neon.
 6. Ejecutar un envío controlado y comprobar la fila en Notion.
 

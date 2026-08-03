@@ -179,9 +179,11 @@ Las opciones definitivas deben existir con exactamente los mismos nombres en el 
 Una página normal de Notion no admite estas cinco propiedades. Dentro de la página de destino debe
 existir una **base de datos/data source**.
 
-### 4.1 Crear o preparar el data source
+### 4.1 Preparación automática del data source
 
-Crear estas propiedades con nombres y tipos exactos:
+La aplicación prepara automáticamente una tabla nueva antes del primer envío. Renombra la columna
+principal existente a `ID`, crea las propiedades faltantes y crea `Categoria` con todas las
+opciones requeridas:
 
 | Nombre exacto       | Tipo en Notion | Configuración                      |
 | ------------------- | -------------- | ---------------------------------- |
@@ -194,14 +196,23 @@ Crear estas propiedades con nombres y tipos exactos:
 `Nombre de Persona` no debe ser tipo People porque los usuarios de Navigator no necesariamente
 son miembros del workspace de Notion.
 
+Si ya existe una propiedad con uno de estos nombres pero con un tipo incompatible, la aplicación
+no intenta convertirla para evitar pérdida de datos: deja el reporte pendiente y devuelve
+`schema_mismatch` al proceso interno.
+
+Por la misma protección, si `Categoria` ya existe pero le faltan opciones, la aplicación no
+reescribe automáticamente su lista completa: la API de Notion eliminaría cualquier opción omitida
+y una actualización concurrente podría causar pérdida de datos.
+
 ### 4.2 Crear la conexión interna
 
 1. Un owner del workspace crea una conexión interna en Notion.
 2. Otorga `Insert content` para crear los registros.
 3. Otorga `Read content` para verificar el esquema y reconciliar un ID antes de un reintento.
-4. En la base de datos de feedback, usar **Add connections** y compartirla con esa conexión. Una
+4. Otorga `Update content` para que la aplicación pueda preparar las columnas y categorías.
+5. En la base de datos de feedback, usar **Add connections** y compartirla con esa conexión. Una
    conexión nueva no recibe acceso automáticamente.
-5. Guardar el access token directamente en `.env.local` y en los secretos de Vercel. No pegarlo
+6. Guardar el access token directamente en `.env.local` y en los secretos de Vercel. No pegarlo
    en documentación, commits, logs ni mensajes.
 
 ### 4.3 Obtener el identificador correcto
@@ -246,6 +257,7 @@ produzca un error controlado al usar la integración, no un fallo durante el imp
 Referencias oficiales:
 
 - [Crear una página](https://developers.notion.com/reference/post-page)
+- [Actualizar propiedades de un data source](https://developers.notion.com/reference/update-data-source-properties)
 - [Trabajar con databases y data sources](https://developers.notion.com/guides/data-apis/working-with-databases)
 - [SDK oficial de JavaScript](https://github.com/makenotion/notion-sdk-js)
 - [Upgrade a la API 2026-03-11](https://developers.notion.com/guides/get-started/upgrade-guide-2026-03-11)

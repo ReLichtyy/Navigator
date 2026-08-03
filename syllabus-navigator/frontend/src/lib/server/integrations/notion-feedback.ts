@@ -4,6 +4,8 @@ import {
   ClientErrorCode,
   isNotionClientError,
   type CreatePageParameters,
+  type GetDataSourceResponse,
+  type UpdateDataSourceParameters,
 } from "@notionhq/client"
 import {
   PRODUCT_FEEDBACK_CATEGORIES,
@@ -170,17 +172,87 @@ function classifyNotionError(error: unknown): { reason: string; retryable: boole
   return { reason: error.code, retryable: RETRYABLE_CODES.has(error.code) }
 }
 
-const REQUIRED_PROPERTY_TYPES = {
-  ID: "title",
-  "Nombre de Persona": "rich_text",
-  Fecha: "date",
-  Categoria: "select",
-  Descripcion: "rich_text",
-} as const
+type NotionDataSourceProperties = GetDataSourceResponse["properties"]
+type NotionDataSourcePropertyUpdates = NonNullable<UpdateDataSourceParameters["properties"]>
+
+type NotionFeedbackSchemaPlan =
+  | { ready: true; updates: NotionDataSourcePropertyUpdates }
+  | { ready: false; reason: "schema_mismatch" }
+
+function planNotionFeedbackSchema(
+  properties: NotionDataSourceProperties,
+): NotionFeedbackSchemaPlan {
+  const updates: NotionDataSourcePropertyUpdates = {}
+  const idProperty = properties.ID
+
+  if (idProperty) {
+    if (idProperty.type !== "title") return { ready: false, reason: "schema_mismatch" }
+  } else {
+    const titleEntry = Object.entries(properties).find(([, property]) => property.type === "title")
+    if (!titleEntry) return { ready: false, reason: "schema_mismatch" }
+    const [titleName, titleProperty] = titleEntry
+    updates[titleProperty.id || titleName] = { name: "ID" }
+  }
+
+  const simpleProperties = {
+    "Nombre de Persona": { type: "rich_text", create: { rich_text: {} } },
+    Fecha: { type: "date", create: { date: {} } },
+    Descripcion: { type: "rich_text", create: { rich_text: {} } },
+  } as const
+
+  for (const [name, expected] of Object.entries(simpleProperties)) {
+    const property = properties[name]
+    if (!property) {
+      updates[name] = expected.create
+    } else if (property.type !== expected.type) {
+      return { ready: false, reason: "schema_mismatch" }
+    }
+  }
+
+  const category = properties.Categoria
+  if (!category) {
+    updates.Categoria = {
+      select: { options: PRODUCT_FEEDBACK_CATEGORIES.map((name) => ({ name })) },
+    }
+  } else {
+    if (category.type !== "select") return { ready: false, reason: "schema_mismatch" }
+    const existingNames = new Set(category.select.options.map((option) => option.name))
+    if (PRODUCT_FEEDBACK_CATEGORIES.some((name) => !existingNames.has(name))) {
+      // Updating an existing Select replaces its complete option list. Refuse
+      // to rewrite it from a stale snapshot because that could delete an option
+      // added concurrently in Notion.
+      return { ready: false, reason: "schema_mismatch" }
+    }
+  }
+
+  return { ready: true, updates }
+}
+
+async function ensureNotionFeedbackSchema(
+  notion: Client,
+  dataSourceId: string,
+): Promise<NotionFeedbackReadiness> {
+  const current = await notion.dataSources.retrieve({ data_source_id: dataSourceId })
+  const plan = planNotionFeedbackSchema(current.properties)
+  if (!plan.ready) return plan
+  if (Object.keys(plan.updates).length === 0) return { ready: true }
+
+  await notion.dataSources.update({
+    data_source_id: dataSourceId,
+    properties: plan.updates,
+  })
+
+  const updated = await notion.dataSources.retrieve({ data_source_id: dataSourceId })
+  const verification = planNotionFeedbackSchema(updated.properties)
+  if (!verification.ready || Object.keys(verification.updates).length > 0) {
+    return { ready: false, reason: "schema_mismatch" }
+  }
+  return { ready: true }
+}
 
 /**
- * Read-only preflight used before a queue worker claims a job. Configuration,
- * access, or schema problems remain deferred and therefore consume no attempts.
+ * Preflight used before a queue worker claims a job. It safely adds missing
+ * schema fields/options; access or incompatible-schema problems remain deferred.
  */
 export async function checkNotionFeedbackReadiness(
   env: NotionFeedbackEnvironment = process.env,
@@ -191,21 +263,7 @@ export async function checkNotionFeedbackReadiness(
   try {
     const notion = getNotionClient(config)
     const dataSourceId = await resolveDataSourceId(notion, config)
-    const dataSource = await notion.dataSources.retrieve({ data_source_id: dataSourceId })
-    for (const [name, type] of Object.entries(REQUIRED_PROPERTY_TYPES)) {
-      if (dataSource.properties[name]?.type !== type) {
-        return { ready: false, reason: "schema_mismatch" }
-      }
-    }
-
-    const category = dataSource.properties.Categoria
-    if (category.type !== "select") return { ready: false, reason: "schema_mismatch" }
-    const options = new Set(category.select.options.map((option) => option.name))
-    if (PRODUCT_FEEDBACK_CATEGORIES.some((name) => !options.has(name))) {
-      return { ready: false, reason: "schema_mismatch" }
-    }
-
-    return { ready: true }
+    return await ensureNotionFeedbackSchema(notion, dataSourceId)
   } catch (error) {
     return { ready: false, reason: classifyNotionError(error).reason }
   }
@@ -225,6 +283,10 @@ export async function syncProductFeedbackToNotion(
   const notion = getNotionClient(config)
   try {
     const dataSourceId = await resolveDataSourceId(notion, config)
+    const readiness = await ensureNotionFeedbackSchema(notion, dataSourceId)
+    if (!readiness.ready) {
+      return { status: "pending", reason: readiness.reason, retryable: false }
+    }
     const existing = await notion.dataSources.query({
       data_source_id: dataSourceId,
       filter: { property: "ID", title: { equals: feedback.id } },

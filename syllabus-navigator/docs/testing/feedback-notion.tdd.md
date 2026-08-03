@@ -76,6 +76,46 @@ No existe un provider de coverage instalado (`@vitest/coverage-v8` o
 garantía queda respaldada por tests unitarios/de integración focales y la suite completa del
 feature.
 
+## Ciclo adicional — preparación automática del esquema de Notion
+
+Garantía: una tabla nueva con únicamente su columna principal se configura automáticamente antes
+del primer sync. La columna principal se renombra a `ID`, se crean los campos faltantes y se crea
+el Select con todas las categorías requeridas. Los tipos incompatibles y los Select existentes
+incompletos se rechazan sin reescribir datos.
+
+RED:
+
+```text
+npm.cmd test -- product-feedback-notion-sync.test.ts
+Test Files  1 failed (1)
+Tests       2 failed | 8 passed (10)
+```
+
+GREEN focal:
+
+```text
+npm.cmd test -- product-feedback-notion-sync.test.ts
+Test Files  1 passed (1)
+Tests       10 passed (10)
+
+npx.cmd tsc --noEmit
+PASS
+```
+
+Verificación de regresión:
+
+```text
+npm.cmd test -- product-feedback
+Test Files  10 passed (10)
+Tests       54 passed (54)
+
+npm.cmd run lint
+PASS — sin warnings ni errores ESLint
+
+npm.cmd run build
+PASS — build de producción completado con advertencias preexistentes de dependencias
+```
+
 ## Verificación final pendiente
 
 Antes de cerrar Task 5A se registrarán aquí la suite focal completa, la suite global, lint,
