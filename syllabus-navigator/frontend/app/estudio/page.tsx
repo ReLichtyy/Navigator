@@ -31,6 +31,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { pickWeekTopics } from "@/lib/ui/week-topics"
 import { writeMindMapSelection } from "@/lib/ui/mind-map-selection"
 import { defaultCourseScope } from "@/lib/ui/study-selection"
+import {
+  readLastCourseSelection,
+  resolveInitialCourseSelection,
+  writeLastCourseSelection,
+} from "@/lib/ui/last-course-selection"
 import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
 import {
   GraduationCap,
@@ -260,13 +265,10 @@ function EstudioContent() {
       setSelectedCourseKey(folderKey(linked))
       return
     }
-    const stored = readLastSelection()
-    const storedKey = stored?.key ?? stored?.keys?.[0]
-    if (storedKey && groups.some((g) => folderKey(g) === storedKey)) {
-      setSelectedCourseKey(storedKey)
-      return
-    }
-    setSelectedCourseKey(folderKey(groups[0]))
+    const legacyStored = readLastSelection()
+    const storedKey =
+      readLastCourseSelection() ?? legacyStored?.key ?? legacyStored?.keys?.[0] ?? null
+    setSelectedCourseKey(resolveInitialCourseSelection(groups.map(folderKey), null, storedKey))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
 
@@ -294,6 +296,7 @@ function EstudioContent() {
   // Remember the selected course; its material still defaults to the whole course.
   useEffect(() => {
     if (!selectedCourseKey) return
+    writeLastCourseSelection(selectedCourseKey)
     writeLastSelection({ key: selectedCourseKey, scope })
   }, [selectedCourseKey, scope])
 

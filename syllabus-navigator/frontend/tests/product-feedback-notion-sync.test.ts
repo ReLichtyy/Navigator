@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const sdk = vi.hoisted(() => ({
+  retrieveDatabase: vi.fn(),
   retrieve: vi.fn(),
   query: vi.fn(),
   create: vi.fn(),
@@ -11,6 +12,7 @@ vi.mock("@notionhq/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@notionhq/client")>()
   sdk.Client.mockImplementation(function MockNotionClient() {
     return {
+      databases: { retrieve: sdk.retrieveDatabase },
       dataSources: { retrieve: sdk.retrieve, query: sdk.query },
       pages: { create: sdk.create },
     }
@@ -34,8 +36,13 @@ const env = {
   NOTION_ACCESS_TOKEN: "test-token",
   NOTION_FEEDBACK_DATA_SOURCE_ID: "feedback-source",
 }
+const databaseEnv = {
+  NOTION_ACCESS_TOKEN: "database-test-token",
+  NOTION_FEEDBACK_DATABASE_ID: "database-id-from-link",
+}
 
 beforeEach(() => {
+  sdk.retrieveDatabase.mockReset()
   sdk.retrieve.mockReset()
   sdk.query.mockReset()
   sdk.create.mockReset()
@@ -90,6 +97,66 @@ describe("Notion product feedback reconciliation", () => {
         }),
       }),
     )
+  })
+
+  it("discovers the only data source under a configured database ID", async () => {
+    sdk.retrieveDatabase.mockResolvedValue({
+      object: "database",
+      data_sources: [{ id: "resolved-feedback-source", name: "Navigator-Bugs" }],
+    })
+    sdk.query.mockResolvedValue({ results: [] })
+    sdk.create.mockResolvedValue({ id: "created-from-database" })
+
+    await expect(syncProductFeedbackToNotion(feedback, databaseEnv)).resolves.toEqual({
+      status: "synced",
+      pageId: "created-from-database",
+    })
+    expect(sdk.retrieveDatabase).toHaveBeenCalledWith({
+      database_id: "database-id-from-link",
+    })
+    expect(sdk.query).toHaveBeenCalledWith(
+      expect.objectContaining({ data_source_id: "resolved-feedback-source" }),
+    )
+    expect(sdk.create).toHaveBeenCalledWith(
+      expect.objectContaining({ parent: { data_source_id: "resolved-feedback-source" } }),
+    )
+  })
+
+  it("selects a named data source when a database contains more than one", async () => {
+    sdk.retrieveDatabase.mockResolvedValue({
+      object: "database",
+      data_sources: [
+        { id: "other-source", name: "Ideas" },
+        { id: "bugs-source", name: "Navigator-Bugs" },
+      ],
+    })
+    sdk.query.mockResolvedValue({ results: [{ object: "page", id: "existing-page" }] })
+
+    await expect(
+      syncProductFeedbackToNotion(feedback, {
+        ...databaseEnv,
+        NOTION_FEEDBACK_DATA_SOURCE_NAME: "Navigator-Bugs",
+      }),
+    ).resolves.toEqual({ status: "synced", pageId: "existing-page" })
+    expect(sdk.query).toHaveBeenCalledWith(
+      expect.objectContaining({ data_source_id: "bugs-source" }),
+    )
+  })
+
+  it("defers safely when a database has multiple sources and no name selector", async () => {
+    sdk.retrieveDatabase.mockResolvedValue({
+      object: "database",
+      data_sources: [
+        { id: "first-source", name: "Ideas" },
+        { id: "second-source", name: "Navigator-Bugs" },
+      ],
+    })
+
+    await expect(checkNotionFeedbackReadiness(databaseEnv)).resolves.toEqual({
+      ready: false,
+      reason: "data_source_ambiguous",
+    })
+    expect(sdk.retrieve).not.toHaveBeenCalled()
   })
 
   it("validates the exact data-source schema before a worker consumes jobs", async () => {

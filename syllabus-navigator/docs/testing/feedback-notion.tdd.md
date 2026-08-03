@@ -32,6 +32,50 @@ Test Files  2 passed (2)
 Tests       7 passed (7)
 ```
 
+## Ciclo adicional — resolución desde Database ID
+
+Garantía: el enlace de una database de Notion puede usarse sin copiar manualmente el data source
+ID. Si contiene una sola fuente, se selecciona automáticamente; si contiene varias, el nombre
+configurado debe desambiguarla y, sin selector, el worker queda diferido de forma segura.
+
+RED:
+
+```text
+npm.cmd test -- product-feedback-notion.test.ts product-feedback-notion-sync.test.ts
+Test Files  2 failed (2)
+Tests       4 failed | 6 passed (10)
+```
+
+GREEN:
+
+```text
+npm.cmd test -- product-feedback-notion.test.ts product-feedback-notion-sync.test.ts
+Test Files  2 passed (2)
+Tests       10 passed (10)
+```
+
+Verificación de regresión de este ciclo:
+
+```text
+npm.cmd test -- product-feedback
+Test Files  10 passed (10)
+Tests       52 passed (52)
+
+npx.cmd tsc --noEmit
+PASS
+
+npm.cmd run lint
+PASS — sin warnings ni errores ESLint
+
+npm.cmd run build
+PASS — build de producción completado
+```
+
+No existe un provider de coverage instalado (`@vitest/coverage-v8` o
+`@vitest/coverage-istanbul`), por lo que este ciclo no inventa un porcentaje de cobertura. La
+garantía queda respaldada por tests unitarios/de integración focales y la suite completa del
+feature.
+
 ## Verificación final pendiente
 
 Antes de cerrar Task 5A se registrarán aquí la suite focal completa, la suite global, lint,

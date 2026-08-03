@@ -24,6 +24,11 @@ import {
   clearMindMapSelection,
   type MindMapSelection,
 } from "@/lib/ui/mind-map-selection"
+import {
+  readLastCourseSelection,
+  resolveInitialCourseSelection,
+  writeLastCourseSelection,
+} from "@/lib/ui/last-course-selection"
 import { Network, Loader2, AlertCircle, FileText, Check, Sparkles, ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { MobileNav } from "@/components/navigator/mobile-nav"
@@ -145,9 +150,20 @@ function MapaContent() {
     const wanted = params.get("course")
     const byDoc = groups.find((g) => g.docs.some((d) => d.id === wanted && isReady(d)))
     const byCourse = groups.find((g) => g.id === wanted)
-    setSelectedKey(folderKey(byDoc ?? byCourse ?? groups[0]))
+    const linked = byDoc ?? byCourse
+    setSelectedKey(
+      resolveInitialCourseSelection(
+        groups.map(folderKey),
+        linked ? folderKey(linked) : null,
+        readLastCourseSelection(),
+      ),
+    )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups])
+
+  useEffect(() => {
+    if (selectedKey) writeLastCourseSelection(selectedKey)
+  }, [selectedKey])
 
   // Regenerate the course map (initial generation or from the AI drawer).
   const regenSeq = useRef(0)

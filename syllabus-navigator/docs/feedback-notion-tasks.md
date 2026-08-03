@@ -22,6 +22,10 @@ Ningún import deberá fallar cuando falten `NOTION_ACCESS_TOKEN` o
 `NOTION_FEEDBACK_DATA_SOURCE_ID`. En ese estado el feedback se guarda localmente como `pending` y
 el UI recibe una confirmación de recepción, no un falso estado `synced`.
 
+La activación también puede usar `NOTION_FEEDBACK_DATABASE_ID` en lugar del data source ID. Cuando
+la database tiene una sola fuente, se descubre automáticamente; si tiene varias, se exige
+`NOTION_FEEDBACK_DATA_SOURCE_NAME` para evitar escribir en la fuente equivocada.
+
 ## 2. User journeys convertidos en garantías
 
 ### Journey A — Acceso global

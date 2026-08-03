@@ -218,7 +218,16 @@ Agregar nombres sin valores reales a `.env.example`:
 # Notion — feedback global (solo servidor)
 NOTION_ACCESS_TOKEN=
 NOTION_FEEDBACK_DATA_SOURCE_ID=
+# Alternativa al data source ID: database ID tomado del enlace de Notion.
+NOTION_FEEDBACK_DATABASE_ID=
+# Solo es necesario cuando la database contiene varios data sources.
+NOTION_FEEDBACK_DATA_SOURCE_NAME=
 ```
+
+`NOTION_FEEDBACK_DATA_SOURCE_ID` sigue siendo la opción preferida. Como alternativa, la
+integración acepta `NOTION_FEEDBACK_DATABASE_ID`, consulta la database y usa automáticamente su
+único data source. Si existen varios, `NOTION_FEEDBACK_DATA_SOURCE_NAME` debe coincidir exactamente
+con el nombre de la fuente deseada. El nombre por sí solo no sustituye al ID de la database.
 
 Configurar los valores reales en:
 

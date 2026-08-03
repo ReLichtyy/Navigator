@@ -23,11 +23,35 @@ describe("Notion feedback preconfiguration", () => {
         NOTION_FEEDBACK_DATA_SOURCE_ID: "source-id",
       }),
     ).toEqual({ accessToken: "secret", dataSourceId: "source-id" })
+    expect(
+      resolveNotionFeedbackConfig({
+        NOTION_ACCESS_TOKEN: "secret",
+        NOTION_FEEDBACK_DATABASE_ID: "database-id",
+        NOTION_FEEDBACK_DATA_SOURCE_NAME: "Navigator-Bugs",
+      }),
+    ).toEqual({
+      accessToken: "secret",
+      databaseId: "database-id",
+      dataSourceName: "Navigator-Bugs",
+    })
+    expect(
+      resolveNotionFeedbackConfig({
+        NOTION_ACCESS_TOKEN: "secret",
+        NOTION_FEEDBACK_DATA_SOURCE_ID: "preferred-source",
+        NOTION_FEEDBACK_DATABASE_ID: "fallback-database",
+      }),
+    ).toEqual({ accessToken: "secret", dataSourceId: "preferred-source" })
     expect(isNotionFeedbackConfigured({})).toBe(false)
     expect(
       isNotionFeedbackConfigured({
         NOTION_ACCESS_TOKEN: "secret",
         NOTION_FEEDBACK_DATA_SOURCE_ID: "source-id",
+      }),
+    ).toBe(true)
+    expect(
+      isNotionFeedbackConfigured({
+        NOTION_ACCESS_TOKEN: "secret",
+        NOTION_FEEDBACK_DATABASE_ID: "database-id",
       }),
     ).toBe(true)
   })
