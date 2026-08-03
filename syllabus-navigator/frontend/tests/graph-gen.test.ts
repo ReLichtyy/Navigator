@@ -49,6 +49,27 @@ describe("extractGraphFromText — label rule (≤4 words, no ':')", () => {
     expect(n1.detail).toBe("Insertar elementos con appendChild o insertBefore")
   })
 
+  it("truncates an overlong model detail before schema validation", async () => {
+    const detail = "x".repeat(220)
+    ragJson.mockResolvedValue(
+      graphWith([
+        root,
+        {
+          id: "n1",
+          label: "API de Nodos",
+          level: 2,
+          parentId: "r",
+          weight: null,
+          detail,
+        },
+      ]),
+    )
+
+    const g = await extractGraphFromText("texto")
+
+    expect(g.topics.find((t) => t.externalId === "n1")?.detail).toBe(detail.slice(0, 140))
+  })
+
   it("splits a colon label: keeps the segment after ':' and moves the original to detail", async () => {
     ragJson.mockResolvedValue(
       graphWith([
@@ -155,8 +176,10 @@ describe("extractGraphFromText — label rule (≤4 words, no ':')", () => {
 describe("extractGraphFromText — refinement limits (structure hygiene)", () => {
   beforeEach(() => ragJson.mockReset())
 
-  const childCount = (topics: { externalId: string; parentExternalId: string | null }[], id: string) =>
-    topics.filter((t) => t.parentExternalId === id).length
+  const childCount = (
+    topics: { externalId: string; parentExternalId: string | null }[],
+    id: string,
+  ) => topics.filter((t) => t.parentExternalId === id).length
 
   it("collapses a non-root single-child chain, preserving the child label as detail", async () => {
     ragJson.mockResolvedValue(

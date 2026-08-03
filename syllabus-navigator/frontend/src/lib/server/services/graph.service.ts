@@ -7,6 +7,8 @@ import { validateNoCycles, validateTree } from "../rag/graph-gen"
 import type { GraphUpdateInput } from "../validators/api.schemas"
 import type { GraphResponseAPI } from "@/types/api"
 import { StudyInvalidationService } from "./study-invalidation.service"
+import { ArtifactRunRepository } from "../repositories/artifact-run.repo"
+import { KnowledgePipelineService } from "./knowledge-pipeline.service"
 
 export const GraphService = {
   /**
@@ -21,12 +23,32 @@ export const GraphService = {
       throw new ApiErrorResponse("Syllabus not found", 404)
     }
 
-    const { topics, edges, crossLinks } = await GraphRepository.getGraph(syllabusId)
+    const [{ topics, edges, crossLinks }, graphRun, inventoryRun] = await Promise.all([
+      GraphRepository.getGraph(syllabusId),
+      ArtifactRunRepository.latestForScope(userId, "doc", syllabusId, "document_graph").catch(
+        () => undefined,
+      ),
+      ArtifactRunRepository.latestForScope(userId, "doc", syllabusId, "document_inventory").catch(
+        () => undefined,
+      ),
+    ])
+    const latestRun = [graphRun, inventoryRun]
+      .filter((run) => run !== undefined)
+      .sort((a, b) => Date.parse(b!.created_at) - Date.parse(a!.created_at))[0]
+    const runActive = latestRun?.status === "queued" || latestRun?.status === "running"
+    const interrupted =
+      (doc.graph_status === "pending" || doc.graph_status === "processing") && !runActive
+    const visibleStatus = interrupted ? "failed" : doc.graph_status
+    const visibleError = interrupted
+      ? (latestRun?.error ??
+        doc.graph_error ??
+        "La generación anterior se interrumpió. Reintenta para crear el mapa.")
+      : (doc.graph_error ?? null)
 
     return {
       syllabus_id: syllabusId,
-      graph_status: doc.graph_status as GraphResponseAPI["graph_status"],
-      graph_error: doc.graph_error ?? null,
+      graph_status: visibleStatus as GraphResponseAPI["graph_status"],
+      graph_error: visibleError,
       layout: (doc.layout as GraphResponseAPI["layout"]) ?? null,
       nodes: topics.map((t) => ({
         id: t.id,
@@ -121,12 +143,12 @@ export const GraphService = {
   },
 
   /**
-   * Re-run graph generation by re-enqueuing the ingest job. The chunk text is
-   * already in Neon, so the worker re-embeds (if needed) and regenerates topics.
-   * Marks graph_status='pending' so the UI reflects the in-flight state.
-   * Returns the current (pending) graph. Caller triggers the worker.
+   * Re-run graph generation through the durable document workflow. The chunk
+   * text is already in Neon, so the worker normally skips embedding and rebuilds
+   * the academic inventory + graph off-request. Explicit retries may revive an
+   * abandoned legacy job, but never duplicate a fresh active worker.
    */
-  async reprocess(userId: string, syllabusId: string): Promise<GraphResponseAPI> {
+  async reprocess(userId: string, syllabusId: string) {
     const doc = await DocumentRepository.findByIdAndUser(syllabusId, userId)
     if (!doc) {
       throw new ApiErrorResponse("Syllabus not found", 404)
@@ -135,7 +157,6 @@ export const GraphService = {
     await DocumentRepository.setGraphStatus(syllabusId, "pending", null)
     await StudyInvalidationService.invalidateDocumentGraph(userId, syllabusId)
     await JobRepository.enqueue("ingest", { syllabusId }, { kickIfPending: true })
-
-    return this.getGraph(userId, syllabusId)
+    return KnowledgePipelineService.enqueueDocumentGraph(userId, syllabusId)
   },
 }

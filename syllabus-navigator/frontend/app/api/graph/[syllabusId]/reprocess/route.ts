@@ -1,17 +1,16 @@
 /**
  * POST /api/graph/[syllabusId]/reprocess — re-run graph generation.
- * Re-enqueues the ingest job, marks graph_status='pending', kicks the worker.
- * Returns the current (pending) GraphResponseAPI.
+ * Re-enqueues the ingest job and starts its durable workflow.
+ * Returns 202 + ArtifactRunAPI immediately; no LLM runs in this request.
  */
 
 import { NextResponse } from "next/server"
 import { requireAuth, ApiErrorResponse } from "@/lib/server/utils/auth-helpers"
 import { GraphService } from "@/lib/server/services/graph.service"
-import { IngestionService } from "@/lib/server/services/ingestion.service"
 import { logError, logInfo } from "@/lib/observability/logger"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // graph LLM runs inline before responding
+export const maxDuration = 15
 
 type RouteParams = { params: Promise<{ syllabusId: string }> }
 
@@ -20,14 +19,10 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const { userId } = await requireAuth()
     const { syllabusId } = await params
 
-    const graph = await GraphService.reprocess(userId, syllabusId)
-
-    // Drain only this syllabus's job inline: one job (~35s) fits maxDuration=60,
-    // and the clicked doc can't be starved by older jobs from other documents.
-    await IngestionService.drainForSyllabus(syllabusId)
+    const run = await GraphService.reprocess(userId, syllabusId)
 
     logInfo("api.graph.reprocess", { userId, syllabusId })
-    return NextResponse.json(graph)
+    return NextResponse.json(run, { status: 202 })
   } catch (err) {
     if (err instanceof ApiErrorResponse) {
       return NextResponse.json({ error: err.message }, { status: err.status })

@@ -35,14 +35,22 @@ export const JobRepository = {
     const keyValue = opts?.dedupeKey ?? (payload.syllabusId as string | undefined)
     if (keyValue) {
       const existing = await sql`
-        SELECT id, status FROM jobs
+        SELECT id, status, attempts, max_attempts,
+               COALESCE(started_at < now() - interval '10 minutes', TRUE) AS stale
+        FROM jobs
         WHERE type = ${type}
           AND payload->>${keyField} = ${keyValue}
           AND status IN ('pending', 'processing')
         LIMIT 1
       `
       if (existing.length > 0) {
-        const job = existing[0] as { id: string; status: string }
+        const job = existing[0] as {
+          id: string
+          status: string
+          attempts: number
+          max_attempts: number
+          stale: boolean
+        }
         if (payload.artifactRunId) {
           await sql`
             UPDATE jobs
@@ -54,6 +62,19 @@ export const JobRepository = {
         }
         if (opts?.kickIfPending && job.status === "pending") {
           await sql`UPDATE jobs SET scheduled_at = now() WHERE id = ${job.id}::uuid`
+        } else if (
+          opts?.kickIfPending &&
+          job.status === "processing" &&
+          (job.stale || job.attempts > job.max_attempts)
+        ) {
+          // A user retry is allowed to revive a worker invocation that was
+          // abandoned by the serverless runtime. Never reset a fresh active job.
+          await sql`
+            UPDATE jobs
+            SET status = 'pending', attempts = 0, scheduled_at = now(),
+                started_at = NULL, completed_at = NULL, error = NULL
+            WHERE id = ${job.id}::uuid
+          `
         }
         return job.id
       }
@@ -94,6 +115,7 @@ export const JobRepository = {
         WHERE type = ${type}
           AND (${syllabusFilter}::text IS NULL OR payload->>'syllabusId' = ${syllabusFilter})
           AND (${dedupeFilter}::text IS NULL OR payload->>'dedupeKey' = ${dedupeFilter})
+          AND attempts < max_attempts
           AND (
             (status = 'pending' AND scheduled_at <= now())
             OR (status = 'processing' AND started_at < now() - (${staleMinutes} || ' minutes')::interval)

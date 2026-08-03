@@ -20,11 +20,7 @@ beforeEach(() => {
 describe("JobRepository.enqueue — dedupe + kickIfPending", () => {
   it("kickIfPending on a pending dedupe-hit resets scheduled_at and returns the existing id (no INSERT)", async () => {
     responses = [[{ id: "j1", status: "pending" }], []]
-    const id = await JobRepository.enqueue(
-      "ingest",
-      { syllabusId: "s1" },
-      { kickIfPending: true },
-    )
+    const id = await JobRepository.enqueue("ingest", { syllabusId: "s1" }, { kickIfPending: true })
     expect(id).toBe("j1")
     expect(queries).toHaveLength(2) // SELECT + UPDATE, no INSERT
     expect(queries[1].text).toContain("UPDATE jobs SET scheduled_at = now()")
@@ -39,14 +35,42 @@ describe("JobRepository.enqueue — dedupe + kickIfPending", () => {
   })
 
   it("kickIfPending on a processing dedupe-hit does not reset the schedule", async () => {
-    responses = [[{ id: "j1", status: "processing" }]]
-    const id = await JobRepository.enqueue(
-      "ingest",
-      { syllabusId: "s1" },
-      { kickIfPending: true },
-    )
+    responses = [
+      [
+        {
+          id: "j1",
+          status: "processing",
+          attempts: 3,
+          max_attempts: 3,
+          stale: false,
+        },
+      ],
+    ]
+    const id = await JobRepository.enqueue("ingest", { syllabusId: "s1" }, { kickIfPending: true })
     expect(id).toBe("j1")
     expect(queries).toHaveLength(1) // SELECT only, running job left alone
+  })
+
+  it("reactivates an exhausted processing job on an explicit user retry", async () => {
+    responses = [
+      [
+        {
+          id: "j1",
+          status: "processing",
+          attempts: 12,
+          max_attempts: 3,
+          stale: false,
+        },
+      ],
+      [],
+    ]
+
+    const id = await JobRepository.enqueue("ingest", { syllabusId: "s1" }, { kickIfPending: true })
+
+    expect(id).toBe("j1")
+    expect(queries).toHaveLength(2)
+    expect(queries[1].text).toContain("attempts = 0")
+    expect(queries[1].text).toContain("status = 'pending'")
   })
 
   it("no dedupe-hit inserts a new job", async () => {
@@ -76,5 +100,13 @@ describe("JobRepository.claimNext — optional filters", () => {
     responses = [[]]
     await JobRepository.claimNext("ingest")
     expect(queries[0].values).toContain(null)
+  })
+
+  it("never claims a job that already exhausted its attempts", async () => {
+    responses = [[]]
+
+    await JobRepository.claimNext("ingest")
+
+    expect(queries[0].text).toContain("attempts < max_attempts")
   })
 })

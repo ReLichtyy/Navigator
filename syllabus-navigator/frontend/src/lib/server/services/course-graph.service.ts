@@ -29,11 +29,23 @@ function shape(
   generation: CourseGraphResponseAPI["generation"] = null,
 ): CourseGraphResponseAPI {
   const data = row?.data ?? row?.preview_data ?? null
-  const visibleStatus = row?.status === "failed" && row.data ? "stale" : (row?.status ?? "none")
+  const generationActive = generation?.status === "queued" || generation?.status === "running"
+  const interrupted =
+    !!row && (row.status === "pending" || row.status === "processing") && !generationActive
+  const visibleStatus = interrupted
+    ? row.data
+      ? "stale"
+      : "failed"
+    : row?.status === "failed" && row.data
+      ? "stale"
+      : (row?.status ?? "none")
+  const visibleError = interrupted
+    ? (generation?.error ?? row.error ?? "La generación anterior se interrumpió. Reintenta.")
+    : (row?.error ?? null)
   return {
     course_id: courseId,
     graph_status: visibleStatus as CourseGraphResponseAPI["graph_status"],
-    graph_error: row?.error ?? null,
+    graph_error: visibleError,
     source_doc_ids: row?.source_doc_ids ?? [],
     layout: data?.layout ?? null,
     nodes: data?.nodes ?? EMPTY.nodes,

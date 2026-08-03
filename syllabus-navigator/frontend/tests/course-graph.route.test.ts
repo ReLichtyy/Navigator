@@ -163,6 +163,26 @@ describe("GET /api/graph/course/[courseId]", () => {
     expect(body.nodes).toHaveLength(1)
     expect(body.source_doc_ids).toEqual([DOC_A])
   })
+
+  it("turns an abandoned processing row into a recoverable failed state", async () => {
+    asUser()
+    vi.mocked(CourseRepository.findByIdAndUser).mockResolvedValue(COURSE as any)
+    vi.mocked(CourseGraphRepository.get).mockResolvedValue({
+      ...ROW,
+      data: null,
+      status: "processing",
+    } as any)
+    vi.mocked(ArtifactRunRepository.latestForScope).mockResolvedValue({
+      id: "run-old",
+      status: "failed",
+      error: "Workflow interrumpido",
+    } as any)
+
+    const body = await (await GET(new Request("http://t"), params("c1"))).json()
+
+    expect(body.graph_status).toBe("failed")
+    expect(body.graph_error).toBe("Workflow interrumpido")
+  })
 })
 
 describe("POST /api/graph/course/[courseId]/regenerate", () => {

@@ -534,10 +534,13 @@ export async function updateGraph(syllabusId: string, graph: GraphUpdatePayload)
 }
 
 export async function reprocessGraph(syllabusId: string) {
-  return request<GraphResponseAPI>(`/graph/${syllabusId}/reprocess`, {
+  await request<ArtifactRunAPI>(`/graph/${syllabusId}/reprocess`, {
     method: "POST",
     json: false,
   })
+  // Preserve the existing browser adapter contract: callers immediately receive
+  // the pending graph and keep using their established status polling.
+  return fetchGraph(syllabusId)
 }
 
 /** Whole-course mind map. graph_status "none" = never generated yet. */

@@ -21,6 +21,11 @@ const MAX_LABEL_WORDS = 4
 const MAX_DETAIL_CHARS = 140
 const MAX_DEPTH = 4
 
+const DetailSchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.trim().slice(0, MAX_DETAIL_CHARS) : value),
+  z.string().max(MAX_DETAIL_CHARS).nullable().optional(),
+)
+
 const wordCount = (s: string) => s.trim().split(/\s+/).length
 
 /**
@@ -53,7 +58,9 @@ const NodeSchema = z
     level: z.number().int().min(1).max(6),
     parentId: z.string().min(1).max(40).nullable(),
     weight: z.number().min(0).max(100).nullable().optional(),
-    detail: z.string().max(140).nullable().optional(),
+    // Model output is untrusted. Normalize it before enforcing the persisted
+    // limit so one verbose node cannot reject the entire graph.
+    detail: DetailSchema,
   })
   .transform(normalizeNodeLabel)
 
