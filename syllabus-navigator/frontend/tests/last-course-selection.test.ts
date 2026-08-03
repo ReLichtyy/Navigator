@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import {
+  courseSelectionHref,
   LAST_COURSE_SELECTION_KEY,
   readLastCourseSelection,
   resolveInitialCourseSelection,
+  selectAndPersistCourse,
   writeLastCourseSelection,
 } from "@/lib/ui/last-course-selection"
 
@@ -50,6 +52,29 @@ describe("last course selection", () => {
     expect(readLastCourseSelection(storage)).toBeNull()
   })
 
+  it("persists a user selection before exposing it to navigation", () => {
+    const order: string[] = []
+    const storage = {
+      setItem: vi.fn(() => order.push("persisted")),
+    }
+
+    selectAndPersistCourse("course-2", () => order.push("selected"), storage)
+
+    expect(order).toEqual(["persisted", "selected"])
+  })
+
+  it("replaces a stale course deep link so a full reload restores the latest course", () => {
+    expect(courseSelectionHref("/mapa", "course=uncategorized-doc", "course-2")).toBe(
+      "/mapa?course=course-2",
+    )
+  })
+
+  it("removes the course deep link when the uncategorized folder is selected", () => {
+    expect(courseSelectionHref("/estudio", "course=course-2&mode=quiz", "__none__")).toBe(
+      "/estudio?mode=quiz",
+    )
+  })
+
   it("is shared by the Study and Mind Map course pickers", () => {
     const studyPage = readFileSync(resolve(process.cwd(), "app/estudio/page.tsx"), "utf8")
     const mapPage = readFileSync(resolve(process.cwd(), "app/mapa/page.tsx"), "utf8")
@@ -58,6 +83,8 @@ describe("last course selection", () => {
       expect(page).toContain("readLastCourseSelection")
       expect(page).toContain("writeLastCourseSelection")
       expect(page).toContain("resolveInitialCourseSelection")
+      expect(page).toContain("selectAndPersistCourse")
+      expect(page).toContain("courseSelectionHref")
     }
   })
 })

@@ -36,6 +36,29 @@ export function writeLastCourseSelection(
   }
 }
 
+/** Persist first so an immediate route change cannot lose the user's choice. */
+export function selectAndPersistCourse(
+  courseKey: string,
+  select: (courseKey: string) => void,
+  storage: WritableStorage | null = browserStorage(),
+): void {
+  writeLastCourseSelection(courseKey, storage)
+  select(courseKey)
+}
+
+/** Keep the address aligned so a stale deep link cannot win on the next reload. */
+export function courseSelectionHref(
+  pathname: string,
+  currentSearch: string,
+  courseKey: string,
+): string {
+  const params = new URLSearchParams(currentSearch)
+  if (courseKey === "__none__") params.delete("course")
+  else params.set("course", courseKey)
+  const search = params.toString()
+  return search ? `${pathname}?${search}` : pathname
+}
+
 /** Deep links win, then the last valid course, then the first available folder. */
 export function resolveInitialCourseSelection(
   availableKeys: string[],

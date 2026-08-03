@@ -32,8 +32,10 @@ import { pickWeekTopics } from "@/lib/ui/week-topics"
 import { writeMindMapSelection } from "@/lib/ui/mind-map-selection"
 import { defaultCourseScope } from "@/lib/ui/study-selection"
 import {
+  courseSelectionHref,
   readLastCourseSelection,
   resolveInitialCourseSelection,
+  selectAndPersistCourse,
   writeLastCourseSelection,
 } from "@/lib/ui/last-course-selection"
 import { pickStudySuggestion, type StudySuggestion } from "@/lib/ui/study-suggestion"
@@ -605,7 +607,13 @@ function EstudioContent() {
   }
 
   // Changing course replaces the previous selection; courses cannot be combined.
-  const selectCourse = (g: RealCourseGroup) => setSelectedCourseKey(folderKey(g))
+  const selectCourse = (g: RealCourseGroup) => {
+    const courseKey = folderKey(g)
+    selectAndPersistCourse(courseKey, setSelectedCourseKey)
+    router.replace(courseSelectionHref("/estudio", params.toString(), courseKey), {
+      scroll: false,
+    })
+  }
 
   // Toggle a PDF in/out of the doc selection. 1 doc → full-featured `doc` scope;
   // ≥2 → client-combined `docs` scope. Never let the selection go empty.

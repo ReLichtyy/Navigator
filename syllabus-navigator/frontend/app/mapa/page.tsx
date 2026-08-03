@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/context/UserContext"
 import { useAuthModal } from "@/context/AuthModalContext"
 import {
@@ -25,8 +25,10 @@ import {
   type MindMapSelection,
 } from "@/lib/ui/mind-map-selection"
 import {
+  courseSelectionHref,
   readLastCourseSelection,
   resolveInitialCourseSelection,
+  selectAndPersistCourse,
   writeLastCourseSelection,
 } from "@/lib/ui/last-course-selection"
 import { Network, Loader2, AlertCircle, FileText, Check, Sparkles, ArrowRight } from "lucide-react"
@@ -60,6 +62,7 @@ function MapaContent() {
   const { status, ready } = useUser()
   const { openAuthModal } = useAuthModal()
   const params = useSearchParams()
+  const router = useRouter()
 
   // Highlight-to-ask sends selected mind-map text to the chat, bound to this course.
   const askInChat = useAskInChat("el mapa mental del curso")
@@ -164,6 +167,16 @@ function MapaContent() {
   useEffect(() => {
     if (selectedKey) writeLastCourseSelection(selectedKey)
   }, [selectedKey])
+
+  const selectCourse = useCallback(
+    (courseKey: string) => {
+      selectAndPersistCourse(courseKey, setSelectedKey)
+      router.replace(courseSelectionHref("/mapa", params.toString(), courseKey), {
+        scroll: false,
+      })
+    },
+    [params, router],
+  )
 
   // Regenerate the course map (initial generation or from the AI drawer).
   const regenSeq = useRef(0)
@@ -602,7 +615,7 @@ function MapaContent() {
                 // Course selection now lives in the Editar drawer (design v3).
                 courses={courseOptions}
                 selectedCourseKey={selectedKey}
-                onSelectCourse={setSelectedKey}
+                onSelectCourse={selectCourse}
               />
             </SelectionAsk>
           </>
